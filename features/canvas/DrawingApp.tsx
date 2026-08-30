@@ -2,24 +2,14 @@
 
 import React, { useState } from "react";
 import { Point } from "@/lib/geometry/types";
-import { useDrawing } from "@/lib/state/drawingContext";
 import { DrawingCanvas } from "./DrawingCanvas";
+import { SidebarTools } from "../toolbar/SidebarTools";
 import { MainToolbar } from "../toolbar/MainToolbar";
 import { ExportMenu } from "../toolbar/ExportMenu";
 import { PropertyInspector } from "../inspector/PropertyInspector";
 import { StatusBar } from "../statusbar/StatusBar";
 import { ShortcutsModal } from "../shortcuts/ShortcutsModal";
-import {
-  MousePointer,
-  Minus,
-  Square,
-  Circle,
-  Hand,
-  Group,
-  Ungroup,
-  CheckCircle2,
-  AlertCircle,
-} from "lucide-react";
+import { CheckCircle2, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface ToastNotification {
@@ -29,15 +19,6 @@ interface ToastNotification {
 }
 
 export function DrawingApp() {
-  const {
-    state,
-    setTool,
-    groupSelected,
-    ungroupSelected,
-    isGroupSelected,
-    selectedShapes,
-  } = useDrawing();
-
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
@@ -52,10 +33,10 @@ export function DrawingApp() {
 
   return (
     <div className="w-screen h-screen relative flex flex-col overflow-hidden select-none bg-[var(--bg-app)]">
-      {/* Top Navigation Bar (Height 56px, Stitch Specification) */}
-      <header className="h-[56px] w-full bg-[var(--bg-panel)] border-b border-[var(--border-subtle)] px-3 flex items-center justify-between shrink-0 relative z-30">
-        {/* Left: Brand & Main Navigation Tools */}
-        <div className="flex items-center gap-4">
+      {/* Top Header (Height 56px, Stitch Specification) */}
+      <header className="h-[56px] w-full bg-[var(--bg-panel)] border-b border-[var(--border-subtle)] px-4 flex items-center justify-between shrink-0 relative z-30">
+        {/* Left: Brand / Logo */}
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="font-mono font-bold text-sm tracking-tight text-blue-500">
               VectorPrecision
@@ -64,99 +45,23 @@ export function DrawingApp() {
               CAD
             </span>
           </div>
-
-          <div className="w-[1px] h-5 bg-[var(--border-subtle)]" />
-
-          {/* Center Navigation Tool Palette */}
-          <MainToolbar />
+          <span className="text-[11px] font-mono text-[var(--fg-muted)] hidden sm:inline">
+            / 2D Drawing Surface
+          </span>
         </div>
 
-        {/* Right: Export Menu */}
-        <div className="flex items-center gap-2">
+        {/* Right: Header Utilities (Undo/Redo, Grid/Snap Toggles, Theme) + Export */}
+        <div className="flex items-center gap-3">
+          <MainToolbar />
+          <div className="w-[1px] h-5 bg-[var(--border-subtle)]" />
           <ExportMenu onNotification={addNotification} />
         </div>
       </header>
 
       {/* Main Workspace Body */}
       <div className="flex-1 w-full flex relative overflow-hidden">
-        {/* Left Vertical CAD Fast Toolbar (Stitch Specification) */}
-        <aside className="w-[44px] bg-[var(--bg-panel)] border-r border-[var(--border-subtle)] py-2 flex flex-col items-center gap-1.5 shrink-0 z-20">
-          <button
-            onClick={() => setTool("select")}
-            className={`w-[32px] h-[32px] rounded flex items-center justify-center transition-colors ${
-              state.tool === "select"
-                ? "bg-blue-600 text-white font-bold"
-                : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
-            }`}
-            title="Select & Move (V)"
-          >
-            <MousePointer className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setTool("line")}
-            className={`w-[32px] h-[32px] rounded flex items-center justify-center transition-colors ${
-              state.tool === "line"
-                ? "bg-blue-600 text-white font-bold"
-                : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
-            }`}
-            title="Line Tool (L)"
-          >
-            <Minus className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setTool("rectangle")}
-            className={`w-[32px] h-[32px] rounded flex items-center justify-center transition-colors ${
-              state.tool === "rectangle"
-                ? "bg-blue-600 text-white font-bold"
-                : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
-            }`}
-            title="Rectangle Tool (R)"
-          >
-            <Square className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setTool("circle")}
-            className={`w-[32px] h-[32px] rounded flex items-center justify-center transition-colors ${
-              state.tool === "circle"
-                ? "bg-blue-600 text-white font-bold"
-                : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
-            }`}
-            title="Circle Tool (C)"
-          >
-            <Circle className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setTool("pan")}
-            className={`w-[32px] h-[32px] rounded flex items-center justify-center transition-colors ${
-              state.tool === "pan"
-                ? "bg-blue-600 text-white font-bold"
-                : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
-            }`}
-            title="Pan Canvas (H)"
-          >
-            <Hand className="w-4 h-4" />
-          </button>
-
-          <div className="w-[24px] h-[1px] bg-[var(--border-subtle)] my-1" />
-
-          {/* Group / Ungroup Affordance */}
-          <button
-            onClick={isGroupSelected ? ungroupSelected : groupSelected}
-            disabled={selectedShapes.length < 2 && !isGroupSelected}
-            className={`w-[32px] h-[32px] rounded flex items-center justify-center transition-colors ${
-              selectedShapes.length >= 2 || isGroupSelected
-                ? "text-blue-400 hover:bg-blue-500/10 cursor-pointer"
-                : "text-[var(--fg-muted)] opacity-30 cursor-not-allowed"
-            }`}
-            title={isGroupSelected ? "Ungroup (Ctrl+Shift+G)" : "Group Selected (Ctrl+G)"}
-          >
-            {isGroupSelected ? <Ungroup className="w-4 h-4 text-amber-500" /> : <Group className="w-4 h-4" />}
-          </button>
-        </aside>
+        {/* Collapsible Left Sidebar CAD Tools (Expandable with Tool Names & Shortcuts) */}
+        <SidebarTools />
 
         {/* Primary Interactive SVG Canvas */}
         <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)]">

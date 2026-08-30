@@ -2,13 +2,7 @@
 
 import React from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
-import { ToolId } from "@/lib/geometry/types";
 import {
-  MousePointer,
-  Minus,
-  Square,
-  Circle,
-  Hand,
   Undo2,
   Redo2,
   Grid3X3,
@@ -20,25 +14,9 @@ import {
   Compass,
 } from "lucide-react";
 
-interface ToolItem {
-  id: ToolId;
-  label: string;
-  shortcut: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-const TOOLS: ToolItem[] = [
-  { id: "select", label: "Select", shortcut: "V", icon: MousePointer },
-  { id: "line", label: "Line", shortcut: "L", icon: Minus },
-  { id: "rectangle", label: "Rectangle", shortcut: "R", icon: Square },
-  { id: "circle", label: "Circle", shortcut: "C", icon: Circle },
-  { id: "pan", label: "Pan", shortcut: "H", icon: Hand },
-];
-
 export function MainToolbar() {
   const {
     state,
-    setTool,
     undo,
     redo,
     canUndo,
@@ -67,37 +45,9 @@ export function MainToolbar() {
   };
 
   return (
-    <div className="flex items-center gap-1">
-      {/* Tool items */}
-      <div className="flex items-center gap-1">
-        {TOOLS.map((tool) => {
-          const Icon = tool.icon;
-          const isActive = state.tool === tool.id;
-
-          return (
-            <button
-              key={tool.id}
-              onClick={() => setTool(tool.id)}
-              className={`h-8 px-3 rounded text-xs font-semibold transition-all duration-150 flex items-center gap-1.5 cursor-pointer ${
-                isActive
-                  ? "text-blue-500 bg-[var(--bg-panel-subtle)] border-b-2 border-blue-500"
-                  : "text-[var(--fg-secondary)] hover:text-[var(--fg-primary)] hover:bg-[var(--bg-panel-subtle)]"
-              }`}
-              title={`${tool.label} (${tool.shortcut})`}
-              aria-label={tool.label}
-              aria-pressed={isActive}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tool.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-2" />
-
+    <div className="flex items-center gap-1.5">
       {/* Undo & Redo */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         <button
           onClick={undo}
           disabled={!canUndo}
@@ -130,7 +80,7 @@ export function MainToolbar() {
       <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-1" />
 
       {/* Grid, Snap, & Dimension Toggles */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         <button
           onClick={toggleGrid}
           className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
@@ -191,7 +141,7 @@ export function MainToolbar() {
         {state.themeMode === "dark" && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
         {state.themeMode === "light" && <Sun className="w-3.5 h-3.5 text-amber-500" />}
         {state.themeMode === "blueprint" && <Compass className="w-3.5 h-3.5 text-sky-400" />}
-        <span className="capitalize">{state.themeMode}</span>
+        <span className="capitalize text-[11px]">{state.themeMode}</span>
       </button>
     </div>
   );
