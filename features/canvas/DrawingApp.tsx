@@ -50,11 +50,9 @@ export function DrawingApp() {
           </span>
         </div>
 
-        {/* Right: Header Utilities (Undo/Redo, Grid/Snap Toggles, Theme) + Export */}
+        {/* Right: Header Utilities (Undo/Redo, Grid/Snap Toggles, Theme) */}
         <div className="flex items-center gap-3">
           <MainToolbar />
-          <div className="w-[1px] h-5 bg-[var(--border-subtle)]" />
-          <ExportMenu onNotification={addNotification} />
         </div>
       </header>
 
@@ -66,6 +64,11 @@ export function DrawingApp() {
         {/* Primary Interactive SVG Canvas */}
         <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)]">
           <DrawingCanvas onCursorChange={setCursorPos} />
+
+          {/* Floating Export Button in Bottom Right Corner */}
+          <div className="absolute bottom-4 right-4 z-30">
+            <ExportMenu direction="up" onNotification={addNotification} />
+          </div>
         </main>
 
         {/* Right Docked Property Inspector (Width 280px) */}
