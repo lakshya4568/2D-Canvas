@@ -50,7 +50,6 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
     ];
 
     const rotHandleY = boxY - 24 / scale;
-    const hasGroup = shapes.some((s) => !!s.groupId);
 
     return (
       <g id="selection-overlay-layer" transform={transformAttr}>
@@ -113,8 +112,8 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
           />
         ))}
 
-        {/* Group or Single Dimension Badge */}
-        {shapes.length === 1 ? (
+        {/* Single Shape Dimension & Rotation Badge */}
+        {shapes.length === 1 && (
           <g>
             <DimensionBadge shape={shapes[0]} scale={scale} />
             {rotation !== 0 && (
@@ -146,34 +145,6 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
                 </text>
               </g>
             )}
-          </g>
-        ) : (
-          <g
-            className="pointer-events-none select-none"
-            transform={`translate(${bounds.centerX}, ${boxY - 14 / scale})`}
-          >
-            <rect
-              x={-55 / scale}
-              y={-14 / scale}
-              width={110 / scale}
-              height={18 / scale}
-              rx={2 / scale}
-              fill="rgba(15, 23, 42, 0.9)"
-              stroke="#0066ff"
-              strokeWidth={1 / scale}
-            />
-            <text
-              x={0}
-              y={-4 / scale}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="#ffffff"
-              fontSize={10 / scale}
-              fontFamily="JetBrains Mono, monospace"
-              fontWeight="600"
-            >
-              {hasGroup ? `GROUP (${shapes.length})` : `SELECTED (${shapes.length})`}
-            </text>
           </g>
         )}
       </g>
