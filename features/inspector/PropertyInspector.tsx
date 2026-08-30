@@ -28,14 +28,14 @@ import {
 } from "lucide-react";
 
 const PRESET_COLORS = [
-  "#f8fafc", // White/Light CAD Default
+  "#f8fafc", // White (Dark Mode default)
+  "#0f172a", // Black (Light Mode default)
   "#0066ff", // Primary Blue
   "#22c55e", // Secondary Green
   "#ff9500", // Tertiary Amber
   "#ef4444", // Red
   "#8b5cf6", // Purple
   "#ec4899", // Pink
-  "#11131a", // Deep CAD Dark
 ];
 
 export function PropertyInspector() {
@@ -583,17 +583,21 @@ export function PropertyInspector() {
 
             {/* Stroke Color */}
             <div className="flex items-center gap-1.5 flex-wrap">
-              {PRESET_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => handleUpdate({ strokeColor: c })}
-                  className={`w-5 h-5 rounded border border-black/20 transition-transform ${
-                    (selectedShape?.strokeColor || "#0066ff") === c ? "ring-2 ring-blue-500 scale-110" : ""
-                  }`}
-                  style={{ backgroundColor: c }}
-                  title={`Stroke ${c}`}
-                />
-              ))}
+              {(() => {
+                const defaultColor = state.themeMode === "light" ? "#0f172a" : "#f8fafc";
+                const currentStroke = selectedShape?.strokeColor || state.currentStyle.strokeColor || defaultColor;
+                return PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => handleUpdate({ strokeColor: c })}
+                    className={`w-5 h-5 rounded border border-black/20 transition-transform ${
+                      currentStroke.toLowerCase() === c.toLowerCase() ? "ring-2 ring-blue-500 scale-110" : ""
+                    }`}
+                    style={{ backgroundColor: c }}
+                    title={`Stroke ${c}`}
+                  />
+                ));
+              })()}
             </div>
 
             {/* Stroke Width */}

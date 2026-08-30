@@ -687,9 +687,35 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     }
 
     case "SET_THEME_MODE": {
+      const nextMode = action.mode;
+      const isSwitchingToLight = nextMode === "light";
+      const oldDefaultColor = isSwitchingToLight ? "#f8fafc" : "#0f172a";
+      const newDefaultColor = isSwitchingToLight ? "#0f172a" : "#f8fafc";
+
+      const nextCurrentStyle = {
+        ...state.currentStyle,
+        strokeColor:
+          state.currentStyle.strokeColor === oldDefaultColor ||
+          state.currentStyle.strokeColor === "#0066ff"
+            ? newDefaultColor
+            : state.currentStyle.strokeColor,
+      };
+
+      const nextShapes = state.shapes.map((s) => {
+        if (!s.strokeColor || s.strokeColor === oldDefaultColor || s.strokeColor === "#0066ff") {
+          return {
+            ...s,
+            strokeColor: newDefaultColor,
+          };
+        }
+        return s;
+      });
+
       return {
         ...state,
-        themeMode: action.mode,
+        themeMode: nextMode,
+        shapes: nextShapes,
+        currentStyle: nextCurrentStyle,
       };
     }
 

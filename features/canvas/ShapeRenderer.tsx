@@ -11,6 +11,7 @@ interface ShapeRendererProps {
   showDimensions: boolean;
   scale: number;
   isSelectTool: boolean;
+  themeMode?: "dark" | "light";
   onSelectShape: (id: string, e: React.PointerEvent) => void;
 }
 
@@ -20,12 +21,14 @@ const SingleShape = React.memo<{
   showDimensions: boolean;
   scale: number;
   isSelectTool: boolean;
+  themeMode: "dark" | "light";
   onSelectShape: (id: string, e: React.PointerEvent) => void;
-}>(({ shape, isSelected, showDimensions, scale, isSelectTool, onSelectShape }) => {
+}>(({ shape, isSelected, showDimensions, scale, isSelectTool, themeMode, onSelectShape }) => {
   if (shape.isVisible === false) return null;
 
-  const strokeColor = isSelected ? "#0066ff" : shape.strokeColor || "#c2c6d8";
-  const strokeWidth = (shape.strokeWidth || 1.5) * (isSelected ? 1.2 : 1);
+  const defaultThemeStroke = themeMode === "light" ? "#0f172a" : "#f8fafc";
+  const strokeColor = shape.strokeColor || defaultThemeStroke;
+  const strokeWidth = shape.strokeWidth || 1.5;
   const opacity = shape.opacity ?? 1;
   const rotation = shape.rotation || 0;
   const center = getShapeCenter(shape);
@@ -36,7 +39,6 @@ const SingleShape = React.memo<{
     shape.fillColor !== "transparent" &&
     shape.fillColor !== "none";
   const fillValue = hasFill && "fillColor" in shape ? shape.fillColor : "none";
-  // If hollow in select mode, only the stroke intercepts pointer events so the hollow interior is completely pass-through!
   const pointerEventsStyle = isSelectTool ? (hasFill ? "auto" : "stroke") : "none";
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -193,7 +195,7 @@ const SingleShape = React.memo<{
 SingleShape.displayName = "SingleShape";
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
-  ({ shapes, selectedIds, showDimensions, scale, isSelectTool, onSelectShape }) => {
+  ({ shapes, selectedIds, showDimensions, scale, isSelectTool, themeMode = "dark", onSelectShape }) => {
     return (
       <g id="shapes-layer">
         {shapes.map((shape) => (
@@ -204,6 +206,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
             showDimensions={showDimensions}
             scale={scale}
             isSelectTool={isSelectTool}
+            themeMode={themeMode}
             onSelectShape={onSelectShape}
           />
         ))}

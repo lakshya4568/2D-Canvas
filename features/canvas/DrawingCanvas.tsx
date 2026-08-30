@@ -1144,6 +1144,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             showDimensions={state.showDimensions}
             scale={scale}
             isSelectTool={state.tool === "select"}
+            themeMode={state.themeMode}
             onSelectShape={handleShapeSelect}
           />
 

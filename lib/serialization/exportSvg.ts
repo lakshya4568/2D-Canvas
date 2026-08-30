@@ -45,7 +45,7 @@ export function generateSvgString(
   const shapeElements = shapes
     .filter((s) => s.isVisible !== false)
     .map((shape) => {
-      const stroke = shape.strokeColor || "#0066ff";
+      const stroke = shape.strokeColor || "#f8fafc";
       const strokeWidth = shape.strokeWidth || 1.5;
       const opacity = shape.opacity ?? 1;
       const dash = shape.strokeDasharray ? ` stroke-dasharray="${shape.strokeDasharray}"` : "";
