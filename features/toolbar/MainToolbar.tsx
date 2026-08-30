@@ -28,18 +28,14 @@ export function MainToolbar() {
     setThemeMode,
   } = useDrawing();
 
-  const handleNextTheme = () => {
+  const handleToggleTheme = () => {
     if (state.themeMode === "dark") {
       setThemeMode("light");
-      document.documentElement.classList.remove("dark", "blueprint");
+      document.documentElement.classList.remove("dark");
       document.documentElement.classList.add("light");
-    } else if (state.themeMode === "light") {
-      setThemeMode("blueprint");
-      document.documentElement.classList.remove("dark", "light");
-      document.documentElement.classList.add("blueprint");
     } else {
       setThemeMode("dark");
-      document.documentElement.classList.remove("light", "blueprint");
+      document.documentElement.classList.remove("light");
       document.documentElement.classList.add("dark");
     }
   };
@@ -132,15 +128,17 @@ export function MainToolbar() {
 
       <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-1" />
 
-      {/* Theme Switcher (Dark -> Light -> Blueprint) */}
+      {/* Theme Switcher (Dark <-> Light) */}
       <button
-        onClick={handleNextTheme}
-        className="h-8 px-2.5 rounded bg-[var(--bg-panel-subtle)] hover:bg-[var(--border-subtle)] text-[var(--fg-primary)] flex items-center gap-1.5 text-xs font-mono font-medium transition-all"
-        title={`Theme: ${state.themeMode.toUpperCase()} (Click to switch)`}
+        onClick={handleToggleTheme}
+        className="h-8 px-2.5 rounded bg-[var(--bg-panel-subtle)] hover:bg-[var(--border-subtle)] text-[var(--fg-primary)] flex items-center gap-1.5 text-xs font-mono font-medium transition-all cursor-pointer"
+        title={`Switch to ${state.themeMode === "dark" ? "Light" : "Dark"} Mode`}
       >
-        {state.themeMode === "dark" && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
-        {state.themeMode === "light" && <Sun className="w-3.5 h-3.5 text-amber-500" />}
-        {state.themeMode === "blueprint" && <Compass className="w-3.5 h-3.5 text-sky-400" />}
+        {state.themeMode === "dark" ? (
+          <Moon className="w-3.5 h-3.5 text-indigo-400" />
+        ) : (
+          <Sun className="w-3.5 h-3.5 text-amber-500" />
+        )}
         <span className="capitalize text-[11px]">{state.themeMode}</span>
       </button>
     </div>

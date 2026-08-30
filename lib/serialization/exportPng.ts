@@ -1,39 +1,27 @@
+import { Shape } from "../geometry/types";
+import { generateSvgString } from "./exportSvg";
+
 /**
- * Exports an SVG element to a high-resolution PNG image via offscreen Canvas rasterization.
- * Note: Pure native canvas rasterization with zero third-party canvas libraries.
+ * Exports the current shapes to a crisp high-resolution PNG image
+ * via offscreen Canvas rasterization.
  */
-export async function exportSvgToPng(
-  svgElement: SVGSVGElement,
+export async function exportPng(
+  shapes: Shape[],
   options: {
     filename?: string;
     scale?: number;
     backgroundColor?: string;
+    showDimensions?: boolean;
   } = {}
 ): Promise<void> {
   const {
     filename = "drawing.png",
     scale = 2,
     backgroundColor = "#121316",
+    showDimensions = true,
   } = options;
 
-  const bbox = svgElement.getBoundingClientRect();
-  const width = bbox.width || 1200;
-  const height = bbox.height || 800;
-
-  // Clone SVG to modify export styling cleanly without altering live DOM
-  const clone = svgElement.cloneNode(true) as SVGSVGElement;
-  clone.setAttribute("width", `${width}`);
-  clone.setAttribute("height", `${height}`);
-
-  // Create an XML serializer
-  const serializer = new XMLSerializer();
-  let svgString = serializer.serializeToString(clone);
-
-  // Fix namespace if missing
-  if (!svgString.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
-    svgString = svgString.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-  }
-
+  const svgString = generateSvgString(shapes, { backgroundColor, showDimensions });
   const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
   const blobUrl = URL.createObjectURL(svgBlob);
 
@@ -43,6 +31,9 @@ export async function exportSvgToPng(
 
     img.onload = () => {
       try {
+        const width = img.naturalWidth || 1200;
+        const height = img.naturalHeight || 800;
+
         const canvas = document.createElement("canvas");
         canvas.width = width * scale;
         canvas.height = height * scale;
@@ -50,7 +41,7 @@ export async function exportSvgToPng(
         const ctx = canvas.getContext("2d");
         if (!ctx) {
           URL.revokeObjectURL(blobUrl);
-          reject(new Error("Could not get 2D canvas context for export"));
+          reject(new Error("Could not initialize 2D canvas context"));
           return;
         }
 
@@ -60,7 +51,7 @@ export async function exportSvgToPng(
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        // Scale for high DPI
+        // Crisp 2x scale
         ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0, width, height);
 

@@ -41,26 +41,6 @@
     --grid-line: rgba(15, 23, 42, 0.08);
   }
 
-  .blueprint {
-    --bg-app: #071324;
-    --bg-canvas: #0a192f;
-    --bg-panel: #0f223d;
-    --bg-panel-subtle: #142c4f;
-    --border-subtle: #1e3a5f;
-    --border-strong: #38bdf8;
-    --fg-primary: #e0f2fe;
-    --fg-secondary: #7dd3fc;
-    --fg-muted: #38bdf8;
-
-    --accent-select: #38bdf8;
-    --accent-draw: #4ade80;
-    --accent-snap: #fbbf24;
-    --accent-danger: #f87171;
-
-    --grid-dot: rgba(56, 189, 248, 0.35);
-    --grid-line: rgba(56, 189, 248, 0.18);
-  }
-
   * {
     box-sizing: border-box;
     -webkit-font-smoothing: antialiased;

@@ -10,7 +10,7 @@ export interface ShapeStyleConfig {
   strokeDasharray?: string;
 }
 
-export type ThemeMode = "dark" | "light" | "blueprint";
+export type ThemeMode = "dark" | "light";
 
 export interface HistoryItem {
   id: string;
@@ -50,6 +50,7 @@ export type DrawingAction =
   | { type: "GROUP_SELECTED" }
   | { type: "UNGROUP_SELECTED" }
   | { type: "MOVE_SELECTED"; dx: number; dy: number }
+  | { type: "RESIZE_SHAPES"; updatedShapes: Shape[] }
   | { type: "RECORD_PRE_MOVE_SNAPSHOT"; shapes: Shape[]; description?: string }
   | { type: "COMMIT_MOVE" }
   | { type: "UPDATE_SHAPE"; id: ID; updates: Partial<Shape> }
@@ -240,7 +241,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         };
       }
 
-      // Single select: if shape belongs to a group, select the whole group
+      // Single select: auto-expand to entire group if shape is in a group
       const expanded = expandGroupIds(state.shapes, [action.id]);
       return {
         ...state,
@@ -337,10 +338,20 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       };
     }
 
+    case "RESIZE_SHAPES": {
+      const updatedMap = new Map(action.updatedShapes.map((s) => [s.id, s]));
+      const nextShapes = state.shapes.map((s) => updatedMap.get(s.id) || s);
+
+      return {
+        ...state,
+        shapes: nextShapes,
+      };
+    }
+
     case "RECORD_PRE_MOVE_SNAPSHOT": {
       return {
         ...state,
-        history: pushHistory(state, action.description || "Move Shapes", action.shapes),
+        history: pushHistory(state, action.description || "Transform Shapes", action.shapes),
       };
     }
 

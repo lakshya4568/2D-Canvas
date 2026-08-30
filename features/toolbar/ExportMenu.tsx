@@ -4,12 +4,14 @@ import React, { useRef, useState } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { exportJson } from "@/lib/serialization/exportJson";
 import { importJsonFile } from "@/lib/serialization/importJson";
-import { exportSvgToPng } from "@/lib/serialization/exportPng";
+import { exportPng } from "@/lib/serialization/exportPng";
+import { exportSvg } from "@/lib/serialization/exportSvg";
 import {
   Download,
   Upload,
   FileJson,
   Image as ImageIcon,
+  FileCode2,
   ChevronDown,
   Trash2,
 } from "lucide-react";
@@ -23,6 +25,10 @@ export function ExportMenu({ onNotification }: ExportMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const getCanvasBg = () => {
+    return state.themeMode === "light" ? "#ffffff" : "#121316";
+  };
+
   const handleExportJson = () => {
     try {
       exportJson(state.shapes);
@@ -34,23 +40,30 @@ export function ExportMenu({ onNotification }: ExportMenuProps) {
     }
   };
 
+  const handleExportSvg = () => {
+    try {
+      exportSvg(state.shapes, {
+        filename: "drawing.svg",
+        backgroundColor: getCanvasBg(),
+        showDimensions: state.showDimensions,
+      });
+      onNotification?.({ text: "Exported vector drawing.svg successfully", type: "success" });
+      setIsOpen(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      onNotification?.({ text: `Failed to export SVG: ${message}`, type: "error" });
+    }
+  };
+
   const handleExportPng = async () => {
     try {
-      const svg = document.querySelector("svg");
-      if (!svg) throw new Error("Canvas SVG element not found");
-      const bgColor =
-        state.themeMode === "blueprint"
-          ? "#0a192f"
-          : state.themeMode === "light"
-          ? "#ffffff"
-          : "#121316";
-
-      await exportSvgToPng(svg, {
+      await exportPng(state.shapes, {
         filename: "drawing.png",
         scale: 2,
-        backgroundColor: bgColor,
+        backgroundColor: getCanvasBg(),
+        showDimensions: state.showDimensions,
       });
-      onNotification?.({ text: "Exported high-resolution drawing.png", type: "success" });
+      onNotification?.({ text: "Exported high-resolution drawing.png (2x retina)", type: "success" });
       setIsOpen(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Export failed";
@@ -107,31 +120,46 @@ export function ExportMenu({ onNotification }: ExportMenuProps) {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1.5 w-52 p-1.5 rounded-md bg-[var(--bg-panel)] shadow-2xl z-50 flex flex-col gap-1 border border-[var(--border-subtle)] text-xs">
-          <button
-            onClick={handleExportJson}
-            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded hover:bg-[var(--bg-panel-subtle)] text-[var(--fg-primary)] transition-colors text-left cursor-pointer"
-          >
-            <FileJson className="w-4 h-4 text-blue-500" />
-            <div className="flex flex-col">
-              <span className="font-semibold">Export JSON</span>
-              <span className="text-[9px] text-[var(--fg-muted)]">Specification vector format</span>
-            </div>
-          </button>
-
+        <div className="absolute right-0 top-full mt-1.5 w-56 p-1.5 rounded-md bg-[var(--bg-panel)] shadow-2xl z-50 flex flex-col gap-1 border border-[var(--border-subtle)] text-xs">
+          {/* PNG Export */}
           <button
             onClick={handleExportPng}
             className="flex items-center gap-2.5 px-2.5 py-1.5 rounded hover:bg-[var(--bg-panel-subtle)] text-[var(--fg-primary)] transition-colors text-left cursor-pointer"
           >
             <ImageIcon className="w-4 h-4 text-emerald-500" />
             <div className="flex flex-col">
-              <span className="font-semibold">Export PNG</span>
-              <span className="text-[9px] text-[var(--fg-muted)]">2x raster image</span>
+              <span className="font-semibold">Export PNG Image</span>
+              <span className="text-[9px] text-[var(--fg-muted)]">2x High-DPI raster image</span>
+            </div>
+          </button>
+
+          {/* SVG Export */}
+          <button
+            onClick={handleExportSvg}
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded hover:bg-[var(--bg-panel-subtle)] text-[var(--fg-primary)] transition-colors text-left cursor-pointer"
+          >
+            <FileCode2 className="w-4 h-4 text-purple-400" />
+            <div className="flex flex-col">
+              <span className="font-semibold">Export SVG Vector</span>
+              <span className="text-[9px] text-[var(--fg-muted)]">Scalable standalone vector</span>
+            </div>
+          </button>
+
+          {/* JSON Export */}
+          <button
+            onClick={handleExportJson}
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded hover:bg-[var(--bg-panel-subtle)] text-[var(--fg-primary)] transition-colors text-left cursor-pointer"
+          >
+            <FileJson className="w-4 h-4 text-blue-500" />
+            <div className="flex flex-col">
+              <span className="font-semibold">Export JSON Schema</span>
+              <span className="text-[9px] text-[var(--fg-muted)]">Specification vector data</span>
             </div>
           </button>
 
           <div className="w-full h-[1px] bg-[var(--border-subtle)] my-0.5" />
 
+          {/* JSON Import */}
           <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-2.5 px-2.5 py-1.5 rounded hover:bg-[var(--bg-panel-subtle)] text-[var(--fg-primary)] transition-colors text-left cursor-pointer"
@@ -139,12 +167,13 @@ export function ExportMenu({ onNotification }: ExportMenuProps) {
             <Upload className="w-4 h-4 text-amber-500" />
             <div className="flex flex-col">
               <span className="font-semibold">Import JSON</span>
-              <span className="text-[9px] text-[var(--fg-muted)]">Load & validate file</span>
+              <span className="text-[9px] text-[var(--fg-muted)]">Load & validate drawing file</span>
             </div>
           </button>
 
           <div className="w-full h-[1px] bg-[var(--border-subtle)] my-0.5" />
 
+          {/* Clear Canvas */}
           <button
             onClick={() => {
               if (confirm("Are you sure you want to clear the entire canvas?")) {

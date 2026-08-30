@@ -2,15 +2,15 @@
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
-import { Shape, Point } from "@/lib/geometry/types";
-import { rectFromDrag, circleFromDrag } from "@/lib/geometry/metrics";
+import { Shape, Point, BoundingBox } from "@/lib/geometry/types";
+import { rectFromDrag, circleFromDrag, computeMultiShapeBounds, computeShapeBounds } from "@/lib/geometry/metrics";
 import { hitTestShapes } from "@/lib/geometry/hitTest";
 import { zoomAtPoint, screenToWorldPoint } from "@/lib/geometry/transform";
 import { applySnapping } from "@/lib/geometry/snapping";
 import { GridLayer } from "./GridLayer";
 import { ShapeRenderer } from "./ShapeRenderer";
 import { DraftPreview } from "./DraftPreview";
-import { SelectionOverlay } from "./SelectionOverlay";
+import { SelectionOverlay, HandleType } from "./SelectionOverlay";
 import { SnapIndicator } from "./SnapIndicator";
 
 interface DrawingCanvasProps {
@@ -23,6 +23,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
     dispatch,
     setTool,
     selectShape,
+    selectMultiple,
     groupSelected,
     ungroupSelected,
     deleteSelected,
@@ -32,15 +33,23 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // Interaction refs
   const isDrawingRef = useRef(false);
   const isPanningRef = useRef(false);
   const isMovingRef = useRef(false);
+  const isResizingRef = useRef(false);
+  const isMarqueeRef = useRef(false);
   const isSpacePressedRef = useRef(false);
+
   const startWorldPointRef = useRef<Point>({ x: 0, y: 0 });
   const lastScreenPosRef = useRef<Point>({ x: 0, y: 0 });
+  const activeResizeHandleRef = useRef<HandleType | null>(null);
+  const initialBoundsRef = useRef<BoundingBox | null>(null);
+  const initialShapesRef = useRef<Shape[]>([]);
 
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [isPanActive, setIsPanActive] = useState(false);
+  const [marqueeBox, setMarqueeBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   const getWorldPoint = useCallback(
     (clientX: number, clientY: number): Point => {
@@ -53,6 +62,34 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       return screenToWorldPoint(screenPt, state.viewport);
     },
     [state.viewport]
+  );
+
+  /**
+   * Handle Start of Handle Resize (Figma-Style Corner & Edge Scaling)
+   */
+  const handleResizeStart = useCallback(
+    (handle: HandleType, e: React.PointerEvent) => {
+      if (selectedShapes.length === 0) return;
+      const bounds = computeMultiShapeBounds(selectedShapes);
+      if (!bounds) return;
+
+      isResizingRef.current = true;
+      activeResizeHandleRef.current = handle;
+      initialBoundsRef.current = bounds;
+      initialShapesRef.current = JSON.parse(JSON.stringify(selectedShapes));
+      startWorldPointRef.current = getWorldPoint(e.clientX, e.clientY);
+
+      dispatch({
+        type: "RECORD_PRE_MOVE_SNAPSHOT",
+        shapes: state.shapes,
+        description: `Resize ${selectedShapes.length > 1 ? "Group" : selectedShapes[0].type}`,
+      });
+
+      if (svgRef.current) {
+        svgRef.current.setPointerCapture(e.pointerId);
+      }
+    },
+    [selectedShapes, state.shapes, getWorldPoint, dispatch]
   );
 
   /**
@@ -87,8 +124,11 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           lastScreenPosRef.current = { x: e.clientX, y: e.clientY };
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
         } else {
-          // Deselect
-          selectShape(null);
+          // Clicked empty canvas in select mode -> Start Figma-style Marquee Box Selection
+          isMarqueeRef.current = true;
+          startWorldPointRef.current = rawWorldPt;
+          setMarqueeBox({ x: rawWorldPt.x, y: rawWorldPt.y, width: 0, height: 0 });
+          (e.currentTarget as Element).setPointerCapture(e.pointerId);
         }
         return;
       }
@@ -168,7 +208,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
       onCursorChange?.(rawWorldPt);
 
-      // Panning
+      // 1. Panning
       if (isPanningRef.current) {
         const dx = e.clientX - lastScreenPosRef.current.x;
         const dy = e.clientY - lastScreenPosRef.current.y;
@@ -185,7 +225,111 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // Moving All Selected Shapes (or Group)
+      // 2. Figma-Style Corner & Edge Handle Resizing (Interactive Zoom/Scale of Shapes)
+      if (isResizingRef.current && initialBoundsRef.current && activeResizeHandleRef.current) {
+        const handle = activeResizeHandleRef.current;
+        const initB = initialBoundsRef.current;
+        const startPt = startWorldPointRef.current;
+        const dx = rawWorldPt.x - startPt.x;
+        const dy = rawWorldPt.y - startPt.y;
+
+        let newMinX = initB.minX;
+        let newMinY = initB.minY;
+        let newMaxX = initB.maxX;
+        let newMaxY = initB.maxY;
+
+        if (handle.includes("e")) newMaxX = Math.max(initB.minX + 5, initB.maxX + dx);
+        if (handle.includes("w")) newMinX = Math.min(initB.maxX - 5, initB.minX + dx);
+        if (handle.includes("s")) newMaxY = Math.max(initB.minY + 5, initB.maxY + dy);
+        if (handle.includes("n")) newMinY = Math.min(initB.maxY - 5, initB.minY + dy);
+
+        // Aspect ratio lock when Shift is held
+        if (e.shiftKey) {
+          const initRatio = initB.width / Math.max(1, initB.height);
+          const currentW = newMaxX - newMinX;
+          const currentH = newMaxY - newMinY;
+          if (handle === "se" || handle === "nw" || handle === "ne" || handle === "sw") {
+            const targetH = currentW / initRatio;
+            if (handle.includes("s")) newMaxY = newMinY + targetH;
+            else newMinY = newMaxY - targetH;
+          }
+        }
+
+        const newW = Math.max(5, newMaxX - newMinX);
+        const newH = Math.max(5, newMaxY - newMinY);
+        const scaleX = newW / Math.max(1, initB.width);
+        const scaleY = newH / Math.max(1, initB.height);
+
+        const scaledShapes: Shape[] = initialShapesRef.current.map((orig) => {
+          switch (orig.type) {
+            case "rectangle": {
+              if (initialShapesRef.current.length === 1) {
+                return {
+                  ...orig,
+                  x: newMinX,
+                  y: newMinY,
+                  width: newW,
+                  height: newH,
+                };
+              }
+              const relX = (orig.x - initB.minX) * scaleX;
+              const relY = (orig.y - initB.minY) * scaleY;
+              return {
+                ...orig,
+                x: newMinX + relX,
+                y: newMinY + relY,
+                width: orig.width * scaleX,
+                height: orig.height * scaleY,
+              };
+            }
+            case "circle": {
+              if (initialShapesRef.current.length === 1) {
+                const newRadius = Math.min(newW, newH) / 2;
+                return {
+                  ...orig,
+                  cx: newMinX + newW / 2,
+                  cy: newMinY + newH / 2,
+                  r: newRadius,
+                };
+              }
+              const relCX = (orig.cx - initB.minX) * scaleX;
+              const relCY = (orig.cy - initB.minY) * scaleY;
+              return {
+                ...orig,
+                cx: newMinX + relCX,
+                cy: newMinY + relCY,
+                r: orig.r * ((scaleX + scaleY) / 2),
+              };
+            }
+            case "line": {
+              const relX1 = (orig.x1 - initB.minX) * scaleX;
+              const relY1 = (orig.y1 - initB.minY) * scaleY;
+              const relX2 = (orig.x2 - initB.minX) * scaleX;
+              const relY2 = (orig.y2 - initB.minY) * scaleY;
+              return {
+                ...orig,
+                x1: newMinX + relX1,
+                y1: newMinY + relY1,
+                x2: newMinX + relX2,
+                y2: newMinY + relY2,
+              };
+            }
+          }
+        });
+
+        dispatch({ type: "RESIZE_SHAPES", updatedShapes: scaledShapes });
+        return;
+      }
+
+      // 3. Marquee Box Selection
+      if (isMarqueeRef.current) {
+        const startPt = startWorldPointRef.current;
+        const rect = rectFromDrag(startPt, rawWorldPt);
+        setMarqueeBox(rect);
+        return;
+      }
+
+      // 4. Moving Selected Shapes / Group
       if (isMovingRef.current && state.selectedIds.length > 0) {
         const dxScreen = e.clientX - lastScreenPosRef.current.x;
         const dyScreen = e.clientY - lastScreenPosRef.current.y;
@@ -202,7 +346,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // Live Drafting
+      // 5. Live Shape Drafting
       if (isDrawingRef.current && state.draft) {
         const snapResult = applySnapping(rawWorldPt, {
           gridSnapEnabled: state.gridSnapEnabled,
@@ -249,7 +393,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // Hover Snap Feedback
+      // Hover Snap Preview
       if (state.tool !== "select" && state.tool !== "pan") {
         const snapResult = applySnapping(rawWorldPt, {
           gridSnapEnabled: state.gridSnapEnabled,
@@ -279,6 +423,54 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
+      if (isResizingRef.current) {
+        isResizingRef.current = false;
+        activeResizeHandleRef.current = null;
+        initialBoundsRef.current = null;
+        try {
+          (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+        } catch {}
+        return;
+      }
+
+      if (isMarqueeRef.current) {
+        isMarqueeRef.current = false;
+        if (marqueeBox && marqueeBox.width > 2 && marqueeBox.height > 2) {
+          // Select all shapes intersecting the marquee box
+          const mMinX = marqueeBox.x;
+          const mMaxX = marqueeBox.x + marqueeBox.width;
+          const mMinY = marqueeBox.y;
+          const mMaxY = marqueeBox.y + marqueeBox.height;
+
+          const matchedIds: string[] = [];
+          for (const shape of state.shapes) {
+            const b = computeShapeBounds(shape);
+            const intersects =
+              b.maxX >= mMinX &&
+              b.minX <= mMaxX &&
+              b.maxY >= mMinY &&
+              b.minY <= mMaxY;
+            if (intersects) {
+              matchedIds.push(shape.id);
+            }
+          }
+
+          if (matchedIds.length > 0) {
+            selectMultiple(matchedIds);
+          } else {
+            selectShape(null);
+          }
+        } else {
+          // Single click on empty canvas -> clear selection
+          selectShape(null);
+        }
+        setMarqueeBox(null);
+        try {
+          (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+        } catch {}
+        return;
+      }
+
       if (isMovingRef.current) {
         isMovingRef.current = false;
         dispatch({ type: "COMMIT_MOVE" });
@@ -296,11 +488,11 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         } catch {}
       }
     },
-    [dispatch]
+    [marqueeBox, state.shapes, selectMultiple, selectShape, dispatch]
   );
 
   /**
-   * Mouse Wheel (Cursor-Anchored Zoom)
+   * Mouse Wheel
    */
   const handleWheel = useCallback(
     (e: React.WheelEvent<SVGSVGElement>) => {
@@ -330,7 +522,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // Space hold for panning
       if (e.code === "Space" && !e.repeat) {
         isSpacePressedRef.current = true;
         setIsSpaceHeld(true);
@@ -423,6 +614,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   return (
     <div className="w-full h-full relative overflow-hidden bg-[var(--bg-canvas)] touch-none">
       <svg
+        id="drawing-canvas-svg"
         ref={svgRef}
         className="w-full h-full block select-none outline-none"
         tabIndex={0}
@@ -443,7 +635,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           <GridLayer
             viewport={state.viewport}
             showGrid={state.showGrid}
-            themeMode={state.themeMode}
           />
 
           {/* Committed Shapes */}
@@ -463,18 +654,30 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           {/* In-Progress Live Draft */}
           <DraftPreview draft={state.draft} scale={scale} />
 
-          {/* Multi-Shape & Group Selection Overlay */}
+          {/* Figma-Style Multi-Shape / Group Selection Overlay with Interactive Scaling Handles */}
           <SelectionOverlay
             shapes={selectedShapes}
             scale={scale}
-            onGroup={groupSelected}
-            onUngroup={ungroupSelected}
-            onDuplicate={duplicateSelected}
-            onDelete={deleteSelected}
+            onHandlePointerDown={handleResizeStart}
           />
 
           {/* Snap Target Indicator */}
           <SnapIndicator snap={state.activeSnap} scale={scale} />
+
+          {/* Figma-Style Marquee Box Selection Overlay */}
+          {marqueeBox && (
+            <rect
+              x={marqueeBox.x}
+              y={marqueeBox.y}
+              width={marqueeBox.width}
+              height={marqueeBox.height}
+              fill="rgba(0, 102, 255, 0.08)"
+              stroke="#0066ff"
+              strokeWidth={1 / scale}
+              strokeDasharray={`${4 / scale}, ${3 / scale}`}
+              className="pointer-events-none"
+            />
+          )}
         </g>
       </svg>
     </div>

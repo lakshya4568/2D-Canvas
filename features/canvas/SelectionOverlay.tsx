@@ -4,19 +4,17 @@ import React from "react";
 import { Shape } from "@/lib/geometry/types";
 import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import { DimensionBadge } from "./DimensionBadge";
-import { Group, Ungroup, Trash2, Copy } from "lucide-react";
+
+export type HandleType = "nw" | "ne" | "se" | "sw" | "n" | "s" | "e" | "w";
 
 interface SelectionOverlayProps {
   shapes: Shape[];
   scale: number;
-  onGroup?: () => void;
-  onUngroup?: () => void;
-  onDuplicate?: () => void;
-  onDelete: () => void;
+  onHandlePointerDown?: (handle: HandleType, e: React.PointerEvent) => void;
 }
 
 export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
-  ({ shapes, scale, onGroup, onUngroup, onDuplicate, onDelete }) => {
+  ({ shapes, scale, onHandlePointerDown }) => {
     if (shapes.length === 0) return null;
 
     const bounds = computeMultiShapeBounds(shapes);
@@ -24,28 +22,32 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
 
     const isGroup = shapes.length > 1;
     const strokeColor = "#0066ff";
-    const handleFill = "var(--bg-canvas)";
+    const handleFill = "#ffffff";
     const handleStroke = "#0066ff";
     const strokeWidth = 1.5 / scale;
-    const handleSize = 6 / scale;
-    const padding = 4 / scale;
+    const handleSize = 8 / scale;
+    const padding = 2 / scale;
 
     const boxX = bounds.minX - padding;
     const boxY = bounds.minY - padding;
     const boxW = bounds.width + padding * 2;
     const boxH = bounds.height + padding * 2;
 
-    const handles = [
-      { id: "nw", x: boxX, y: boxY },
-      { id: "ne", x: boxX + boxW, y: boxY },
-      { id: "se", x: boxX + boxW, y: boxY + boxH },
-      { id: "sw", x: boxX, y: boxY + boxH },
+    const handles: { id: HandleType; x: number; y: number; cursor: string }[] = [
+      { id: "nw", x: boxX, y: boxY, cursor: "nwse-resize" },
+      { id: "ne", x: boxX + boxW, y: boxY, cursor: "nesw-resize" },
+      { id: "se", x: boxX + boxW, y: boxY + boxH, cursor: "nwse-resize" },
+      { id: "sw", x: boxX, y: boxY + boxH, cursor: "nesw-resize" },
+      { id: "n", x: boxX + boxW / 2, y: boxY, cursor: "ns-resize" },
+      { id: "s", x: boxX + boxW / 2, y: boxY + boxH, cursor: "ns-resize" },
+      { id: "e", x: boxX + boxW, y: boxY + boxH / 2, cursor: "ew-resize" },
+      { id: "w", x: boxX, y: boxY + boxH / 2, cursor: "ew-resize" },
     ];
 
     const hasGroup = shapes.some((s) => !!s.groupId);
 
     return (
-      <g id="selection-overlay-layer" className="pointer-events-none">
+      <g id="selection-overlay-layer">
         {/* Selection Bounding Box */}
         <rect
           x={boxX}
@@ -56,10 +58,10 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={isGroup ? `${4 / scale}, ${4 / scale}` : undefined}
-          rx={0}
+          className="pointer-events-none"
         />
 
-        {/* Handles */}
+        {/* Figma-Style Interactive Resize Handles */}
         {handles.map((h) => (
           <rect
             key={h.id}
@@ -70,6 +72,12 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
             fill={handleFill}
             stroke={handleStroke}
             strokeWidth={strokeWidth}
+            className="cursor-pointer pointer-events-auto hover:scale-125 transition-transform"
+            style={{ cursor: h.cursor }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onHandlePointerDown?.(h.id, e);
+            }}
           />
         ))}
 
