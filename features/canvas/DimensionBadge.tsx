@@ -11,14 +11,14 @@ interface DimensionBadgeProps {
 }
 
 export const DimensionBadge: React.FC<DimensionBadgeProps> = React.memo(({ shape, isDraft = false, scale = 1 }) => {
-  // We compute position and label text based on shape type
   let badgeX = 0;
   let badgeY = 0;
   let labelText = "";
   let subText: string | null = null;
 
   switch (shape.type) {
-    case "line": {
+    case "line":
+    case "arrow": {
       const metrics = lineMetrics({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
       badgeX = metrics.midpoint.x;
       badgeY = metrics.midpoint.y - 14 / scale;
@@ -39,9 +39,28 @@ export const DimensionBadge: React.FC<DimensionBadgeProps> = React.memo(({ shape
       subText = `Ø: ${formatDimension(shape.r * 2)}`;
       break;
     }
+    case "ellipse": {
+      badgeX = shape.cx;
+      badgeY = shape.cy - shape.ry - 14 / scale;
+      labelText = `Rx: ${formatDimension(shape.rx)} Ry: ${formatDimension(shape.ry)}`;
+      break;
+    }
+    case "polygon": {
+      badgeX = shape.cx;
+      badgeY = shape.cy - shape.r - 14 / scale;
+      labelText = `${shape.sides === 3 ? "Triangle" : `${shape.sides}-gon`}`;
+      subText = `R: ${formatDimension(shape.r)}`;
+      break;
+    }
+    case "star": {
+      badgeX = shape.cx;
+      badgeY = shape.cy - shape.outerR - 14 / scale;
+      labelText = `${shape.points}-Star`;
+      subText = `R: ${formatDimension(shape.outerR)}`;
+      break;
+    }
   }
 
-  // Adjust text font size inversely with zoom so it remains legible without overwhelming
   const fontSize = Math.max(10, Math.min(14, 12 / Math.sqrt(scale)));
   const paddingX = 6 / scale;
   const paddingY = 3 / scale;
@@ -54,7 +73,6 @@ export const DimensionBadge: React.FC<DimensionBadgeProps> = React.memo(({ shape
       }`}
       transform={`translate(${badgeX}, ${badgeY})`}
     >
-      {/* Visual background badge */}
       <rect
         x={-((labelText.length + (subText ? subText.length + 2 : 0)) * (fontSize * 0.32) + paddingX)}
         y={-fontSize - paddingY / 2}
@@ -75,7 +93,7 @@ export const DimensionBadge: React.FC<DimensionBadgeProps> = React.memo(({ shape
         dominantBaseline="middle"
         fill="#f8fafc"
         fontSize={fontSize}
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+        fontFamily="JetBrains Mono, monospace"
         fontWeight="600"
         letterSpacing="0.02em"
       >

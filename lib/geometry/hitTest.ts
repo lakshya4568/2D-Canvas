@@ -1,5 +1,5 @@
 import { Point, Shape } from "./types";
-import { rotatePoint, getShapeCenter } from "./metrics";
+import { rotatePoint, getShapeCenter, getPolygonPoints, getStarPoints } from "./metrics";
 
 /**
  * Calculates the shortest Euclidean distance from a test point P to a line segment AB.
@@ -26,7 +26,7 @@ export function distanceToSegment(p: Point, a: Point, b: Point): number {
 }
 
 /**
- * Tests if point P hits a line shape within a given tolerance.
+ * Tests if point P hits a line or arrow shape within a given tolerance.
  */
 export function hitTestLine(p: Point, line: { x1: number; y1: number; x2: number; y2: number }, tolerance: number = 6): boolean {
   const dist = distanceToSegment(p, { x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 });
@@ -74,7 +74,7 @@ export function hitTestRect(
 }
 
 /**
- * Tests if point P hits a circle shape (either inside fill or on radius boundary).
+ * Tests if point P hits a circle shape.
  */
 export function hitTestCircle(
   p: Point,
@@ -83,6 +83,41 @@ export function hitTestCircle(
 ): boolean {
   const dist = Math.hypot(p.x - circle.cx, p.y - circle.cy);
   return dist <= circle.r + tolerance;
+}
+
+/**
+ * Tests if point P hits an ellipse shape.
+ */
+export function hitTestEllipse(
+  p: Point,
+  ellipse: { cx: number; cy: number; rx: number; ry: number },
+  tolerance: number = 6
+): boolean {
+  const dx = p.x - ellipse.cx;
+  const dy = p.y - ellipse.cy;
+  const normalized = (dx * dx) / ((ellipse.rx + tolerance) * (ellipse.rx + tolerance)) +
+                     (dy * dy) / ((ellipse.ry + tolerance) * (ellipse.ry + tolerance));
+  return normalized <= 1.05;
+}
+
+/**
+ * Tests if point P hits a polygon with given vertices.
+ */
+export function hitTestPolygon(p: Point, vertices: Point[], tolerance: number = 6): boolean {
+  // Point-in-polygon ray-casting algorithm
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x, yi = vertices[i].y;
+    const xj = vertices[j].x, yj = vertices[j].y;
+
+    const intersect = yi > p.y !== yj > p.y && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+
+    if (distanceToSegment(p, vertices[i], vertices[j]) <= tolerance) {
+      return true;
+    }
+  }
+  return inside;
 }
 
 /**
@@ -105,7 +140,8 @@ export function hitTestShapes(shapes: Shape[], point: Point, tolerance: number =
     const strokeTol = Math.max(tolerance, (shape.strokeWidth ?? 2) / 2 + 6);
 
     switch (shape.type) {
-      case "line": {
+      case "line":
+      case "arrow": {
         if (hitTestLine(localPoint, shape, strokeTol)) {
           return shape;
         }
@@ -119,6 +155,26 @@ export function hitTestShapes(shapes: Shape[], point: Point, tolerance: number =
       }
       case "circle": {
         if (hitTestCircle(localPoint, shape, strokeTol)) {
+          return shape;
+        }
+        break;
+      }
+      case "ellipse": {
+        if (hitTestEllipse(localPoint, shape, strokeTol)) {
+          return shape;
+        }
+        break;
+      }
+      case "polygon": {
+        const pts = getPolygonPoints(shape.cx, shape.cy, shape.r, shape.sides);
+        if (hitTestPolygon(localPoint, pts, strokeTol)) {
+          return shape;
+        }
+        break;
+      }
+      case "star": {
+        const pts = getStarPoints(shape.cx, shape.cy, shape.innerR, shape.outerR, shape.points);
+        if (hitTestPolygon(localPoint, pts, strokeTol)) {
           return shape;
         }
         break;

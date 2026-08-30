@@ -15,11 +15,19 @@ export interface BaseShape {
   strokeWidth?: number;
   opacity?: number;
   strokeDasharray?: string;
-  rotation?: number; // Rotation angle in degrees (0 to 360)
+  rotation?: number; // In degrees, 0 to 360
 }
 
 export interface LineShape extends BaseShape {
   type: "line";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface ArrowShape extends BaseShape {
+  type: "arrow";
   x1: number;
   y1: number;
   x2: number;
@@ -43,11 +51,55 @@ export interface CircleShape extends BaseShape {
   fillColor?: string;
 }
 
-export type Shape = LineShape | RectangleShape | CircleShape;
+export interface EllipseShape extends BaseShape {
+  type: "ellipse";
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  fillColor?: string;
+}
+
+export interface PolygonShape extends BaseShape {
+  type: "polygon";
+  cx: number;
+  cy: number;
+  r: number;
+  sides: number; // 3 for triangle, 5 for pentagon, 6 for hexagon
+  fillColor?: string;
+}
+
+export interface StarShape extends BaseShape {
+  type: "star";
+  cx: number;
+  cy: number;
+  innerR: number;
+  outerR: number;
+  points: number; // 5-point star
+  fillColor?: string;
+}
+
+export type Shape =
+  | LineShape
+  | ArrowShape
+  | RectangleShape
+  | CircleShape
+  | EllipseShape
+  | PolygonShape
+  | StarShape;
 
 export type ShapeType = Shape["type"];
 
-export type ToolId = "select" | "line" | "rectangle" | "circle" | "pan";
+export type ToolId =
+  | "select"
+  | "line"
+  | "arrow"
+  | "rectangle"
+  | "circle"
+  | "ellipse"
+  | "polygon"
+  | "star"
+  | "pan";
 
 export interface Viewport {
   x: number;
@@ -67,12 +119,15 @@ export interface BoundingBox {
 }
 
 export type SnapType = "grid" | "vertex" | null;
+export type SnapCategory = "endpoint" | "corner" | "midpoint" | "center" | "quadrant" | "perpendicular" | "grid";
 
 export interface SnapResult {
   point: Point;
   snapped: boolean;
   snapType: SnapType;
+  category?: SnapCategory;
   targetPoint?: Point;
+  guideLines?: { x1: number; y1: number; x2: number; y2: number }[];
 }
 
 export interface LineMetricsResult {

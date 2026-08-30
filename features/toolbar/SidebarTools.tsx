@@ -6,8 +6,12 @@ import { ToolId } from "@/lib/geometry/types";
 import {
   MousePointer,
   Minus,
+  ArrowUpRight,
   Square,
   Circle,
+  CircleDot,
+  Triangle,
+  Star,
   Hand,
   Group,
   Ungroup,
@@ -28,8 +32,12 @@ interface ToolItem {
 const TOOLS: ToolItem[] = [
   { id: "select", label: "Select & Move", shortcut: "V", icon: MousePointer },
   { id: "line", label: "Line", shortcut: "L", icon: Minus },
+  { id: "arrow", label: "Arrow", shortcut: "A", icon: ArrowUpRight },
   { id: "rectangle", label: "Rectangle", shortcut: "R", icon: Square },
   { id: "circle", label: "Circle", shortcut: "C", icon: Circle },
+  { id: "ellipse", label: "Ellipse", shortcut: "E", icon: CircleDot },
+  { id: "polygon", label: "Triangle / Poly", shortcut: "T", icon: Triangle },
+  { id: "star", label: "Star", shortcut: "S", icon: Star },
   { id: "pan", label: "Pan Canvas", shortcut: "H", icon: Hand },
 ];
 
@@ -49,12 +57,12 @@ export function SidebarTools() {
 
   return (
     <motion.aside
-      animate={{ width: isExpanded ? 168 : 44 }}
+      animate={{ width: isExpanded ? 172 : 44 }}
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
       className="bg-[var(--bg-panel)] border-r border-[var(--border-subtle)] py-2 px-1.5 flex flex-col justify-between shrink-0 z-20 select-none overflow-hidden"
     >
       {/* Top Tools List */}
-      <div className="flex flex-col gap-1 w-full">
+      <div className="flex flex-col gap-1 w-full overflow-y-auto overflow-x-hidden custom-scrollbar">
         {/* Expand / Collapse toggle button */}
         <button
           onClick={() => setIsExpanded(!isExpanded)}
@@ -155,7 +163,7 @@ export function SidebarTools() {
 
       {/* Bottom Context Actions if shapes selected */}
       {selectedShapes.length > 0 && (
-        <div className="flex flex-col gap-1 w-full pt-2 border-t border-[var(--border-subtle)]">
+        <div className="flex flex-col gap-1 w-full pt-2 border-t border-[var(--border-subtle)] shrink-0">
           <button
             onClick={duplicateSelected}
             className="w-full h-7 px-2 rounded text-blue-400 hover:bg-blue-500/10 flex items-center justify-between transition-colors text-[10px] cursor-pointer"

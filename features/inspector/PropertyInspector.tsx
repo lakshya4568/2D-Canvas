@@ -350,6 +350,185 @@ export function PropertyInspector() {
                   </div>
                 )}
 
+                {/* Arrow Inputs */}
+                {selectedShape.type === "arrow" && (
+                  <div className="grid grid-cols-2 gap-2 font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">X1</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.x1)}
+                        onChange={(e) => handleUpdate({ x1: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">Y1</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.y1)}
+                        onChange={(e) => handleUpdate({ y1: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">X2</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.x2)}
+                        onChange={(e) => handleUpdate({ x2: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">Y2</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.y2)}
+                        onChange={(e) => handleUpdate({ y2: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="col-span-2 p-2 rounded bg-[var(--bg-panel-subtle)] flex justify-between text-[10px] text-[var(--fg-secondary)]">
+                      <span>Length: {lineMetrics({ x: selectedShape.x1, y: selectedShape.y1 }, { x: selectedShape.x2, y: selectedShape.y2 }).length.toFixed(1)} px</span>
+                      <span>Angle: {lineMetrics({ x: selectedShape.x1, y: selectedShape.y1 }, { x: selectedShape.x2, y: selectedShape.y2 }).angleDeg.toFixed(1)}°</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Ellipse Inputs */}
+                {selectedShape.type === "ellipse" && (
+                  <div className="grid grid-cols-2 gap-2 font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">CX</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.cx)}
+                        onChange={(e) => handleUpdate({ cx: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">CY</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.cy)}
+                        onChange={(e) => handleUpdate({ cy: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">Rx</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={Math.round(selectedShape.rx)}
+                        onChange={(e) => handleUpdate({ rx: Math.max(1, Number(e.target.value)) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">Ry</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={Math.round(selectedShape.ry)}
+                        onChange={(e) => handleUpdate({ ry: Math.max(1, Number(e.target.value)) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Polygon / Triangle Inputs */}
+                {selectedShape.type === "polygon" && (
+                  <div className="grid grid-cols-2 gap-2 font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">CX</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.cx)}
+                        onChange={(e) => handleUpdate({ cx: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">CY</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.cy)}
+                        onChange={(e) => handleUpdate({ cy: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">R</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={Math.round(selectedShape.r)}
+                        onChange={(e) => handleUpdate({ r: Math.max(1, Number(e.target.value)) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">Sides</span>
+                      <input
+                        type="number"
+                        min={3}
+                        max={12}
+                        value={selectedShape.sides}
+                        onChange={(e) => handleUpdate({ sides: Math.max(3, Number(e.target.value)) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Star Inputs */}
+                {selectedShape.type === "star" && (
+                  <div className="grid grid-cols-2 gap-2 font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">CX</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.cx)}
+                        onChange={(e) => handleUpdate({ cx: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">CY</span>
+                      <input
+                        type="number"
+                        value={Math.round(selectedShape.cy)}
+                        onChange={(e) => handleUpdate({ cy: Number(e.target.value) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">Inner</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={Math.round(selectedShape.innerR)}
+                        onChange={(e) => handleUpdate({ innerR: Math.max(1, Number(e.target.value)) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--fg-muted)] w-4">Outer</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={Math.round(selectedShape.outerR)}
+                        onChange={(e) => handleUpdate({ outerR: Math.max(1, Number(e.target.value)) })}
+                        className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Rotation Controls */}
                 <div className="flex flex-col gap-1.5 pt-2 border-t border-[var(--border-subtle)]">
                   <div className="flex items-center justify-between">

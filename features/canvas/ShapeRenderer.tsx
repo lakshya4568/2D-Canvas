@@ -3,7 +3,7 @@
 import React from "react";
 import { Shape } from "@/lib/geometry/types";
 import { DimensionBadge } from "./DimensionBadge";
-import { getShapeCenter } from "@/lib/geometry/metrics";
+import { getShapeCenter, getPolygonPoints, getStarPoints, pointsToSvgString } from "@/lib/geometry/metrics";
 
 interface ShapeRendererProps {
   shapes: Shape[];
@@ -43,8 +43,8 @@ const SingleShape = React.memo<{
       transform={transformAttr}
       style={{ opacity: shape.isLocked ? opacity * 0.7 : opacity }}
     >
-      {/* Invisible hit-testing cushion for lines */}
-      {shape.type === "line" && (
+      {/* Invisible hit-testing cushion for lines/arrows */}
+      {(shape.type === "line" || shape.type === "arrow") && (
         <line
           x1={shape.x1}
           y1={shape.y1}
@@ -56,7 +56,7 @@ const SingleShape = React.memo<{
         />
       )}
 
-      {/* Render Shape */}
+      {/* Render Line */}
       {shape.type === "line" && (
         <line
           x1={shape.x1}
@@ -70,6 +70,38 @@ const SingleShape = React.memo<{
         />
       )}
 
+      {/* Render Arrow */}
+      {shape.type === "arrow" && (
+        <g>
+          <line
+            x1={shape.x1}
+            y1={shape.y1}
+            x2={shape.x2}
+            y2={shape.y2}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            strokeDasharray={shape.strokeDasharray}
+            strokeLinecap="round"
+          />
+          {/* Arrow Head */}
+          {(() => {
+            const angle = Math.atan2(shape.y2 - shape.y1, shape.x2 - shape.x1);
+            const headLen = 12 / scale;
+            const x3 = shape.x2 - headLen * Math.cos(angle - Math.PI / 6);
+            const y3 = shape.y2 - headLen * Math.sin(angle - Math.PI / 6);
+            const x4 = shape.x2 - headLen * Math.cos(angle + Math.PI / 6);
+            const y4 = shape.y2 - headLen * Math.sin(angle + Math.PI / 6);
+            return (
+              <polygon
+                points={`${shape.x2},${shape.y2} ${x3},${y3} ${x4},${y4}`}
+                fill={strokeColor}
+              />
+            );
+          })()}
+        </g>
+      )}
+
+      {/* Render Rectangle */}
       {shape.type === "rectangle" && (
         <rect
           x={shape.x}
@@ -84,11 +116,48 @@ const SingleShape = React.memo<{
         />
       )}
 
+      {/* Render Circle */}
       {shape.type === "circle" && (
         <circle
           cx={shape.cx}
           cy={shape.cy}
           r={shape.r}
+          fill={shape.fillColor || "transparent"}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          strokeDasharray={shape.strokeDasharray}
+        />
+      )}
+
+      {/* Render Ellipse */}
+      {shape.type === "ellipse" && (
+        <ellipse
+          cx={shape.cx}
+          cy={shape.cy}
+          rx={shape.rx}
+          ry={shape.ry}
+          fill={shape.fillColor || "transparent"}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          strokeDasharray={shape.strokeDasharray}
+        />
+      )}
+
+      {/* Render Polygon / Triangle */}
+      {shape.type === "polygon" && (
+        <polygon
+          points={pointsToSvgString(getPolygonPoints(shape.cx, shape.cy, shape.r, shape.sides))}
+          fill={shape.fillColor || "transparent"}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          strokeDasharray={shape.strokeDasharray}
+        />
+      )}
+
+      {/* Render Star */}
+      {shape.type === "star" && (
+        <polygon
+          points={pointsToSvgString(getStarPoints(shape.cx, shape.cy, shape.innerR, shape.outerR, shape.points))}
           fill={shape.fillColor || "transparent"}
           stroke={strokeColor}
           strokeWidth={strokeWidth}

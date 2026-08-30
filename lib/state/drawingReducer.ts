@@ -312,6 +312,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         if (!idSet.has(shape.id) || shape.isLocked) return shape;
         switch (shape.type) {
           case "line":
+          case "arrow":
             return {
               ...shape,
               x1: shape.x1 + dx,
@@ -326,6 +327,9 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
               y: shape.y + dy,
             };
           case "circle":
+          case "ellipse":
+          case "polygon":
+          case "star":
             return {
               ...shape,
               cx: shape.cx + dx,
@@ -477,10 +481,14 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         const newId = "shape_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
         switch (s.type) {
           case "line":
+          case "arrow":
             return { ...s, id: newId, x1: s.x1 + 20, y1: s.y1 + 20, x2: s.x2 + 20, y2: s.y2 + 20 };
           case "rectangle":
             return { ...s, id: newId, x: s.x + 20, y: s.y + 20 };
           case "circle":
+          case "ellipse":
+          case "polygon":
+          case "star":
             return { ...s, id: newId, cx: s.cx + 20, cy: s.cy + 20 };
         }
       });

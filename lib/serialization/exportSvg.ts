@@ -1,5 +1,13 @@
 import { Shape } from "../geometry/types";
-import { computeMultiShapeBounds, lineMetrics, formatDimension, getShapeCenter } from "../geometry/metrics";
+import {
+  computeMultiShapeBounds,
+  lineMetrics,
+  formatDimension,
+  getShapeCenter,
+  getPolygonPoints,
+  getStarPoints,
+  pointsToSvgString,
+} from "../geometry/metrics";
 
 /**
  * Generates a clean, standalone SVG XML string for the current shapes.
@@ -60,6 +68,20 @@ export function generateSvgString(
           elemStr = `  <line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-linecap="round" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
           break;
         }
+        case "arrow": {
+          const angle = Math.atan2(shape.y2 - shape.y1, shape.x2 - shape.x1);
+          const headLen = 12;
+          const x3 = shape.x2 - headLen * Math.cos(angle - Math.PI / 6);
+          const y3 = shape.y2 - headLen * Math.sin(angle - Math.PI / 6);
+          const x4 = shape.x2 - headLen * Math.cos(angle + Math.PI / 6);
+          const y4 = shape.y2 - headLen * Math.sin(angle + Math.PI / 6);
+
+          elemStr = `  <g>
+    <line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-linecap="round" opacity="${opacity}"${dash}/>
+    <polygon points="${shape.x2},${shape.y2} ${x3},${y3} ${x4},${y4}" fill="${stroke}"/>
+  </g>`;
+          break;
+        }
         case "rectangle": {
           const fill = shape.fillColor || "none";
           let dimensionMarkup = "";
@@ -84,6 +106,23 @@ export function generateSvgString(
     </g>`;
           }
           elemStr = `  <circle cx="${shape.cx}" cy="${shape.cy}" r="${shape.r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
+          break;
+        }
+        case "ellipse": {
+          const fill = shape.fillColor || "none";
+          elemStr = `  <ellipse cx="${shape.cx}" cy="${shape.cy}" rx="${shape.rx}" ry="${shape.ry}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>`;
+          break;
+        }
+        case "polygon": {
+          const fill = shape.fillColor || "none";
+          const pts = pointsToSvgString(getPolygonPoints(shape.cx, shape.cy, shape.r, shape.sides));
+          elemStr = `  <polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>`;
+          break;
+        }
+        case "star": {
+          const fill = shape.fillColor || "none";
+          const pts = pointsToSvgString(getStarPoints(shape.cx, shape.cy, shape.innerR, shape.outerR, shape.points));
+          elemStr = `  <polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>`;
           break;
         }
       }

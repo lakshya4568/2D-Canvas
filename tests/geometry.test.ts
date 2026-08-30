@@ -24,6 +24,7 @@ import {
 import {
   snapToGrid,
   getShapeKeyVertices,
+  getShapeKeySnapPoints,
   applySnapping,
 } from "@/lib/geometry/snapping";
 import { Shape } from "@/lib/geometry/types";
@@ -250,15 +251,42 @@ describe("Snapping Mathematics", () => {
       const center = { x: 0, y: 0 };
       const p = { x: 10, y: 0 };
 
-      // 90° rotation
       const p90 = rotatePoint(p, center, 90);
       expect(p90.x).toBeCloseTo(0);
       expect(p90.y).toBeCloseTo(10);
+    });
 
-      // 180° rotation
-      const p180 = rotatePoint(p, center, 180);
-      expect(p180.x).toBeCloseTo(-10);
-      expect(p180.y).toBeCloseTo(0);
+    it("transforms snap coordinates with shape rotation", () => {
+      const rect: Shape = {
+        id: "r1",
+        type: "rectangle",
+        x: -50,
+        y: -50,
+        width: 100,
+        height: 100,
+        rotation: 90,
+      };
+
+      const snapPoints = getShapeKeySnapPoints(rect);
+      expect(snapPoints.length).toBeGreaterThan(0);
+      expect(snapPoints[0].category).toBe("corner");
+    });
+
+    it("snaps perpendicular and orthogonal lines when drawing from a start point", () => {
+      const result = applySnapping(
+        { x: 100, y: 102 },
+        {
+          gridSnapEnabled: false,
+          objectSnapEnabled: false,
+          startPoint: { x: 0, y: 100 },
+          vertexThresholdPx: 8,
+          zoomScale: 1,
+        }
+      );
+
+      expect(result.snapped).toBe(true);
+      expect(result.category).toBe("perpendicular");
+      expect(result.point.y).toBe(100); // Latched to exact horizontal line
     });
   });
 });

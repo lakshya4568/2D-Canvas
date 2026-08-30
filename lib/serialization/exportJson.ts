@@ -20,6 +20,22 @@ export function serializeShapesToJson(shapes: Shape[]): DocumentExportData {
         if (shape.strokeWidth) item.strokeWidth = shape.strokeWidth;
         if (shape.opacity !== undefined) item.opacity = shape.opacity;
         if (shape.strokeDasharray) item.strokeDasharray = shape.strokeDasharray;
+        if (shape.rotation) item.rotation = shape.rotation;
+        return item;
+      }
+      case "arrow": {
+        const item: ShapeExportData = {
+          type: "arrow",
+          x1: Number(shape.x1.toFixed(2)),
+          y1: Number(shape.y1.toFixed(2)),
+          x2: Number(shape.x2.toFixed(2)),
+          y2: Number(shape.y2.toFixed(2)),
+        };
+        if (shape.strokeColor) item.strokeColor = shape.strokeColor;
+        if (shape.strokeWidth) item.strokeWidth = shape.strokeWidth;
+        if (shape.opacity !== undefined) item.opacity = shape.opacity;
+        if (shape.strokeDasharray) item.strokeDasharray = shape.strokeDasharray;
+        if (shape.rotation) item.rotation = shape.rotation;
         return item;
       }
       case "rectangle": {
@@ -35,6 +51,7 @@ export function serializeShapesToJson(shapes: Shape[]): DocumentExportData {
         if (shape.fillColor) item.fillColor = shape.fillColor;
         if (shape.opacity !== undefined) item.opacity = shape.opacity;
         if (shape.strokeDasharray) item.strokeDasharray = shape.strokeDasharray;
+        if (shape.rotation) item.rotation = shape.rotation;
         return item;
       }
       case "circle": {
@@ -49,6 +66,56 @@ export function serializeShapesToJson(shapes: Shape[]): DocumentExportData {
         if (shape.fillColor) item.fillColor = shape.fillColor;
         if (shape.opacity !== undefined) item.opacity = shape.opacity;
         if (shape.strokeDasharray) item.strokeDasharray = shape.strokeDasharray;
+        if (shape.rotation) item.rotation = shape.rotation;
+        return item;
+      }
+      case "ellipse": {
+        const item: ShapeExportData = {
+          type: "ellipse",
+          cx: Number(shape.cx.toFixed(2)),
+          cy: Number(shape.cy.toFixed(2)),
+          rx: Number(shape.rx.toFixed(2)),
+          ry: Number(shape.ry.toFixed(2)),
+        };
+        if (shape.strokeColor) item.strokeColor = shape.strokeColor;
+        if (shape.strokeWidth) item.strokeWidth = shape.strokeWidth;
+        if (shape.fillColor) item.fillColor = shape.fillColor;
+        if (shape.opacity !== undefined) item.opacity = shape.opacity;
+        if (shape.strokeDasharray) item.strokeDasharray = shape.strokeDasharray;
+        if (shape.rotation) item.rotation = shape.rotation;
+        return item;
+      }
+      case "polygon": {
+        const item: ShapeExportData = {
+          type: "polygon",
+          cx: Number(shape.cx.toFixed(2)),
+          cy: Number(shape.cy.toFixed(2)),
+          r: Number(shape.r.toFixed(2)),
+          sides: shape.sides,
+        };
+        if (shape.strokeColor) item.strokeColor = shape.strokeColor;
+        if (shape.strokeWidth) item.strokeWidth = shape.strokeWidth;
+        if (shape.fillColor) item.fillColor = shape.fillColor;
+        if (shape.opacity !== undefined) item.opacity = shape.opacity;
+        if (shape.strokeDasharray) item.strokeDasharray = shape.strokeDasharray;
+        if (shape.rotation) item.rotation = shape.rotation;
+        return item;
+      }
+      case "star": {
+        const item: ShapeExportData = {
+          type: "star",
+          cx: Number(shape.cx.toFixed(2)),
+          cy: Number(shape.cy.toFixed(2)),
+          innerR: Number(shape.innerR.toFixed(2)),
+          outerR: Number(shape.outerR.toFixed(2)),
+          points: shape.points,
+        };
+        if (shape.strokeColor) item.strokeColor = shape.strokeColor;
+        if (shape.strokeWidth) item.strokeWidth = shape.strokeWidth;
+        if (shape.fillColor) item.fillColor = shape.fillColor;
+        if (shape.opacity !== undefined) item.opacity = shape.opacity;
+        if (shape.strokeDasharray) item.strokeDasharray = shape.strokeDasharray;
+        if (shape.rotation) item.rotation = shape.rotation;
         return item;
       }
     }

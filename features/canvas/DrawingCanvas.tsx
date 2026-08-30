@@ -3,7 +3,13 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { Shape, Point, BoundingBox } from "@/lib/geometry/types";
-import { rectFromDrag, circleFromDrag, computeMultiShapeBounds, computeShapeBounds } from "@/lib/geometry/metrics";
+import {
+  rectFromDrag,
+  circleFromDrag,
+  ellipseFromDrag,
+  computeMultiShapeBounds,
+  computeShapeBounds,
+} from "@/lib/geometry/metrics";
 import { hitTestShapes } from "@/lib/geometry/hitTest";
 import { zoomAtPoint, screenToWorldPoint } from "@/lib/geometry/transform";
 import { applySnapping } from "@/lib/geometry/snapping";
@@ -73,7 +79,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   );
 
   /**
-   * Handle Direct Click on a Shape
+   * Handle Direct Shape Click
    */
   const handleShapeSelect = useCallback(
     (id: string, e: React.PointerEvent) => {
@@ -101,7 +107,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   );
 
   /**
-   * Handle Start of Handle Resize (Figma-Style Corner & Edge Scaling)
+   * Handle Start of Handle Resize
    */
   const handleResizeStart = useCallback(
     (handle: HandleType, cursor: string, e: React.PointerEvent) => {
@@ -133,7 +139,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   );
 
   /**
-   * Handle Start of Figma-Style Object Rotation
+   * Handle Start of Object Rotation
    */
   const handleRotateStart = useCallback(
     (e: React.PointerEvent) => {
@@ -186,7 +192,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
 
       if (state.tool === "select") {
-        // Fallback hit test for shape boundary
         const hitShape = hitTestShapes(state.shapes, rawWorldPt, 8 / state.viewport.scale);
 
         if (hitShape) {
@@ -203,7 +208,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           lastScreenPosRef.current = { x: e.clientX, y: e.clientY };
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
         } else {
-          // Genuinely clicked empty canvas in select mode -> Start Marquee
           isMarqueeRef.current = true;
           isMovingRef.current = false;
           isResizingRef.current = false;
@@ -215,7 +219,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // Drawing Tool (Line, Rectangle, Circle)
+      // Drawing Tools (Line, Arrow, Rectangle, Circle, Ellipse, Polygon, Star)
       const snapResult = applySnapping(rawWorldPt, {
         gridSnapEnabled: state.gridSnapEnabled,
         objectSnapEnabled: state.objectSnapEnabled,
@@ -235,6 +239,20 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           draftShape = {
             id: newId,
             type: "line",
+            x1: startPt.x,
+            y1: startPt.y,
+            x2: startPt.x,
+            y2: startPt.y,
+            strokeColor: state.currentStyle.strokeColor,
+            strokeWidth: state.currentStyle.strokeWidth,
+            opacity: state.currentStyle.opacity,
+            rotation: 0,
+          };
+          break;
+        case "arrow":
+          draftShape = {
+            id: newId,
+            type: "arrow",
             x1: startPt.x,
             y1: startPt.y,
             x2: startPt.x,
@@ -267,6 +285,52 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             cx: startPt.x,
             cy: startPt.y,
             r: 0,
+            strokeColor: state.currentStyle.strokeColor,
+            strokeWidth: state.currentStyle.strokeWidth,
+            fillColor: state.currentStyle.fillColor,
+            opacity: state.currentStyle.opacity,
+            rotation: 0,
+          };
+          break;
+        case "ellipse":
+          draftShape = {
+            id: newId,
+            type: "ellipse",
+            cx: startPt.x,
+            cy: startPt.y,
+            rx: 0,
+            ry: 0,
+            strokeColor: state.currentStyle.strokeColor,
+            strokeWidth: state.currentStyle.strokeWidth,
+            fillColor: state.currentStyle.fillColor,
+            opacity: state.currentStyle.opacity,
+            rotation: 0,
+          };
+          break;
+        case "polygon":
+          draftShape = {
+            id: newId,
+            type: "polygon",
+            cx: startPt.x,
+            cy: startPt.y,
+            r: 0,
+            sides: 3, // Default triangle
+            strokeColor: state.currentStyle.strokeColor,
+            strokeWidth: state.currentStyle.strokeWidth,
+            fillColor: state.currentStyle.fillColor,
+            opacity: state.currentStyle.opacity,
+            rotation: 0,
+          };
+          break;
+        case "star":
+          draftShape = {
+            id: newId,
+            type: "star",
+            cx: startPt.x,
+            cy: startPt.y,
+            innerR: 0,
+            outerR: 0,
+            points: 5,
             strokeColor: state.currentStyle.strokeColor,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
@@ -310,7 +374,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 2. Figma-Style Interactive Rotation
+      // 2. Interactive Rotation
       if (isRotatingRef.current) {
         const center = rotationCenterRef.current;
         const currentAngle = Math.atan2(rawWorldPt.y - center.y, rawWorldPt.x - center.x) * (180 / Math.PI);
@@ -335,7 +399,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 3. Figma-Style Corner & Edge Handle Resizing
+      // 3. Corner & Edge Handle Resizing
       if (isResizingRef.current && initialBoundsRef.current && activeResizeHandleRef.current) {
         const handle = activeResizeHandleRef.current;
         const initB = initialBoundsRef.current;
@@ -410,7 +474,35 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
                 r: orig.r * ((scaleX + scaleY) / 2),
               };
             }
-            case "line": {
+            case "ellipse": {
+              return {
+                ...orig,
+                cx: newMinX + newW / 2,
+                cy: newMinY + newH / 2,
+                rx: newW / 2,
+                ry: newH / 2,
+              };
+            }
+            case "polygon": {
+              return {
+                ...orig,
+                cx: newMinX + newW / 2,
+                cy: newMinY + newH / 2,
+                r: Math.min(newW, newH) / 2,
+              };
+            }
+            case "star": {
+              const baseR = Math.min(newW, newH) / 2;
+              return {
+                ...orig,
+                cx: newMinX + newW / 2,
+                cy: newMinY + newH / 2,
+                innerR: baseR * 0.45,
+                outerR: baseR,
+              };
+            }
+            case "line":
+            case "arrow": {
               const relX1 = (orig.x1 - initB.minX) * scaleX;
               const relY1 = (orig.y1 - initB.minY) * scaleY;
               const relX2 = (orig.x2 - initB.minX) * scaleX;
@@ -455,21 +547,23 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 6. Live Shape Drafting
+      // 6. Live Shape Drafting with Smart Magnetic Connection Snapping
       if (isDrawingRef.current && state.draft) {
+        const startPt = startWorldPointRef.current;
         const snapResult = applySnapping(rawWorldPt, {
           gridSnapEnabled: state.gridSnapEnabled,
           objectSnapEnabled: state.objectSnapEnabled,
           shapes: state.shapes,
           zoomScale: state.viewport.scale,
+          startPoint: startPt,
         });
 
         const currentPt = snapResult.point;
-        const startPt = startWorldPointRef.current;
         let updatedShape: Shape;
 
         switch (state.draft.type) {
-          case "line": {
+          case "line":
+          case "arrow": {
             updatedShape = {
               ...state.draft,
               x1: startPt.x,
@@ -495,6 +589,35 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             };
             break;
           }
+          case "ellipse": {
+            const ell = ellipseFromDrag(startPt, currentPt);
+            updatedShape = {
+              ...state.draft,
+              ...ell,
+            };
+            break;
+          }
+          case "polygon": {
+            const r = Math.hypot(currentPt.x - startPt.x, currentPt.y - startPt.y);
+            updatedShape = {
+              ...state.draft,
+              cx: startPt.x,
+              cy: startPt.y,
+              r,
+            };
+            break;
+          }
+          case "star": {
+            const outerR = Math.hypot(currentPt.x - startPt.x, currentPt.y - startPt.y);
+            updatedShape = {
+              ...state.draft,
+              cx: startPt.x,
+              cy: startPt.y,
+              innerR: outerR * 0.45,
+              outerR,
+            };
+            break;
+          }
         }
 
         dispatch({ type: "UPDATE_DRAFT", shape: updatedShape });
@@ -510,7 +633,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           shapes: state.shapes,
           zoomScale: state.viewport.scale,
         });
-        if (snapResult.snapped !== !!state.activeSnap?.snapped) {
+        if (snapResult.snapped !== !!state.activeSnap?.snapped || snapResult.category !== state.activeSnap?.category) {
           dispatch({ type: "SET_ACTIVE_SNAP", snap: snapResult.snapped ? snapResult : null });
         }
       }
@@ -589,7 +712,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             selectShape(null);
           }
         } else {
-          // Genuinely clicked empty canvas without dragging -> clear selection
           selectShape(null);
         }
         setMarqueeBox(null);
@@ -754,8 +876,12 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.key.toLowerCase() === "v") setTool("select");
         if (e.key.toLowerCase() === "l") setTool("line");
+        if (e.key.toLowerCase() === "a") setTool("arrow");
         if (e.key.toLowerCase() === "r") setTool("rectangle");
         if (e.key.toLowerCase() === "c") setTool("circle");
+        if (e.key.toLowerCase() === "e") setTool("ellipse");
+        if (e.key.toLowerCase() === "t") setTool("polygon"); // Triangle / Polygon
+        if (e.key.toLowerCase() === "s") setTool("star");
         if (e.key.toLowerCase() === "h") setTool("pan");
       }
     };
@@ -823,7 +949,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           {/* In-Progress Live Draft */}
           <DraftPreview draft={state.draft} scale={scale} />
 
-          {/* Figma-Style Selection Overlay with Corner/Edge Resizing & Top Rotation Handle */}
+          {/* Figma-Style Selection Overlay */}
           <SelectionOverlay
             shapes={selectedShapes}
             scale={scale}
@@ -831,7 +957,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             onRotatePointerDown={handleRotateStart}
           />
 
-          {/* Snap Target Indicator */}
+          {/* Smart Magnetic Connection & Snap Target Indicator */}
           <SnapIndicator snap={state.activeSnap} scale={scale} />
 
           {/* Figma-Style Marquee Box Selection Overlay */}
