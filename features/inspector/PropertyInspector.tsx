@@ -28,13 +28,13 @@ import {
 } from "lucide-react";
 
 const PRESET_COLORS = [
-  "#0066ff", // Stitch Primary Blue
+  "#f8fafc", // White/Light CAD Default
+  "#0066ff", // Primary Blue
   "#22c55e", // Secondary Green
   "#ff9500", // Tertiary Amber
   "#ef4444", // Red
   "#8b5cf6", // Purple
   "#ec4899", // Pink
-  "#f2f4f8", // White/Light
   "#11131a", // Deep CAD Dark
 ];
 

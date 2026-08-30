@@ -2,17 +2,18 @@
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
-import { Shape, Point, BoundingBox } from "@/lib/geometry/types";
+import { Shape, Point, BoundingBox, SnapResult } from "@/lib/geometry/types";
 import {
   rectFromDrag,
   circleFromDrag,
   ellipseFromDrag,
   computeMultiShapeBounds,
   computeShapeBounds,
+  rotatePoint,
 } from "@/lib/geometry/metrics";
 import { hitTestShapes } from "@/lib/geometry/hitTest";
 import { zoomAtPoint, screenToWorldPoint } from "@/lib/geometry/transform";
-import { applySnapping } from "@/lib/geometry/snapping";
+import { applySnapping, getShapeKeySnapPoints, snapToGrid } from "@/lib/geometry/snapping";
 import { GridLayer } from "./GridLayer";
 import { ShapeRenderer } from "./ShapeRenderer";
 import { DraftPreview } from "./DraftPreview";
@@ -92,6 +93,13 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         setActiveCursor("grabbing");
         lastScreenPosRef.current = { x: e.clientX, y: e.clientY };
 
+        const targetShapes = state.shapes.filter(
+          (s) => s.id === id || state.selectedIds.includes(s.id) || (s.groupId && s.groupId === state.shapes.find(x => x.id === id)?.groupId)
+        );
+        initialShapesRef.current = JSON.parse(JSON.stringify(targetShapes.length > 0 ? targetShapes : state.shapes.filter(x => x.id === id)));
+        initialBoundsRef.current = computeMultiShapeBounds(initialShapesRef.current);
+        startWorldPointRef.current = getWorldPoint(e.clientX, e.clientY);
+
         dispatch({
           type: "RECORD_PRE_MOVE_SNAPSHOT",
           shapes: state.shapes,
@@ -103,7 +111,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         }
       }
     },
-    [state.tool, state.shapes, selectShape, dispatch]
+    [state.tool, state.shapes, state.selectedIds, selectShape, getWorldPoint, dispatch]
   );
 
   /**
@@ -153,6 +161,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       setActiveCursor("grabbing");
       const center = { x: bounds.centerX, y: bounds.centerY };
       rotationCenterRef.current = center;
+      initialShapesRef.current = JSON.parse(JSON.stringify(selectedShapes));
 
       const clickPt = getWorldPoint(e.clientX, e.clientY);
       startAngleRef.current = Math.atan2(clickPt.y - center.y, clickPt.x - center.x) * (180 / Math.PI);
@@ -200,6 +209,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           isMovingRef.current = true;
           isMarqueeRef.current = false;
           setActiveCursor("grabbing");
+
+          const targetShapes = state.shapes.filter(
+            (s) => s.id === hitShape.id || (hitShape.groupId && s.groupId === hitShape.groupId)
+          );
+          initialShapesRef.current = JSON.parse(JSON.stringify(targetShapes));
+          initialBoundsRef.current = computeMultiShapeBounds(targetShapes);
+          startWorldPointRef.current = rawWorldPt;
+
           dispatch({
             type: "RECORD_PRE_MOVE_SNAPSHOT",
             shapes: state.shapes,
@@ -220,7 +237,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }
 
       // Drawing Tools (Line, Arrow, Rectangle, Circle, Ellipse, Polygon, Star)
-      // Magnetically snap the start point to nearby vertex / edge / intersection!
       const snapResult = applySnapping(rawWorldPt, {
         gridSnapEnabled: state.gridSnapEnabled,
         objectSnapEnabled: state.objectSnapEnabled,
@@ -234,6 +250,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       isDrawingRef.current = true;
 
       const newId = "shape_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
+      const defaultStroke = state.currentStyle.strokeColor || "#f8fafc";
 
       let draftShape: Shape;
       switch (state.tool) {
@@ -245,7 +262,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             y1: startPt.y,
             x2: startPt.x,
             y2: startPt.y,
-            strokeColor: state.currentStyle.strokeColor,
+            strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             opacity: state.currentStyle.opacity,
             rotation: 0,
@@ -259,7 +276,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             y1: startPt.y,
             x2: startPt.x,
             y2: startPt.y,
-            strokeColor: state.currentStyle.strokeColor,
+            strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             opacity: state.currentStyle.opacity,
             rotation: 0,
@@ -273,7 +290,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             y: startPt.y,
             width: 0,
             height: 0,
-            strokeColor: state.currentStyle.strokeColor,
+            strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
             opacity: state.currentStyle.opacity,
@@ -287,7 +304,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             cx: startPt.x,
             cy: startPt.y,
             r: 0,
-            strokeColor: state.currentStyle.strokeColor,
+            strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
             opacity: state.currentStyle.opacity,
@@ -302,7 +319,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             cy: startPt.y,
             rx: 0,
             ry: 0,
-            strokeColor: state.currentStyle.strokeColor,
+            strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
             opacity: state.currentStyle.opacity,
@@ -317,7 +334,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             cy: startPt.y,
             r: 0,
             sides: 3,
-            strokeColor: state.currentStyle.strokeColor,
+            strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
             opacity: state.currentStyle.opacity,
@@ -333,7 +350,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             innerR: 0,
             outerR: 0,
             points: 5,
-            strokeColor: state.currentStyle.strokeColor,
+            strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
             opacity: state.currentStyle.opacity,
@@ -376,25 +393,80 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 2. Interactive Rotation
-      if (isRotatingRef.current) {
+      // 2. Interactive Rotation (Individual & Rigid Group Centroid Rotation)
+      if (isRotatingRef.current && initialShapesRef.current.length > 0) {
         const center = rotationCenterRef.current;
         const currentAngle = Math.atan2(rawWorldPt.y - center.y, rawWorldPt.x - center.x) * (180 / Math.PI);
         let deltaAngle = currentAngle - startAngleRef.current;
 
-        const rotatedShapes = selectedShapes.map((shape) => {
-          const initRot = initialRotationsRef.current.get(shape.id) || 0;
-          let nextRot = (initRot + deltaAngle) % 360;
-          if (nextRot < 0) nextRot += 360;
+        if (e.shiftKey) {
+          deltaAngle = Math.round(deltaAngle / 15) * 15;
+        }
 
-          if (e.shiftKey) {
-            nextRot = Math.round(nextRot / 15) * 15;
+        const isMultiOrGroup = initialShapesRef.current.length > 1;
+
+        const rotatedShapes = initialShapesRef.current.map((orig) => {
+          if (!isMultiOrGroup) {
+            // Single shape rotates around its own center
+            const initRot = initialRotationsRef.current.get(orig.id) || 0;
+            let nextRot = (initRot + deltaAngle) % 360;
+            if (nextRot < 0) nextRot += 360;
+            return {
+              ...orig,
+              rotation: nextRot,
+            };
           }
 
-          return {
-            ...shape,
-            rotation: nextRot,
-          };
+          // Group / Multi-selection: Rotate geometry coordinates around the Group Centroid!
+          switch (orig.type) {
+            case "line":
+            case "arrow": {
+              const p1 = rotatePoint({ x: orig.x1, y: orig.y1 }, center, deltaAngle);
+              const p2 = rotatePoint({ x: orig.x2, y: orig.y2 }, center, deltaAngle);
+              return {
+                ...orig,
+                x1: p1.x,
+                y1: p1.y,
+                x2: p2.x,
+                y2: p2.y,
+              };
+            }
+            case "rectangle": {
+              const rectCenter = { x: orig.x + orig.width / 2, y: orig.y + orig.height / 2 };
+              const newCenter = rotatePoint(rectCenter, center, deltaAngle);
+              const initRot = initialRotationsRef.current.get(orig.id) || 0;
+              let nextRot = (initRot + deltaAngle) % 360;
+              if (nextRot < 0) nextRot += 360;
+              return {
+                ...orig,
+                x: newCenter.x - orig.width / 2,
+                y: newCenter.y - orig.height / 2,
+                rotation: nextRot,
+              };
+            }
+            case "circle": {
+              const newCenter = rotatePoint({ x: orig.cx, y: orig.cy }, center, deltaAngle);
+              return {
+                ...orig,
+                cx: newCenter.x,
+                cy: newCenter.y,
+              };
+            }
+            case "ellipse":
+            case "polygon":
+            case "star": {
+              const newCenter = rotatePoint({ x: orig.cx, y: orig.cy }, center, deltaAngle);
+              const initRot = initialRotationsRef.current.get(orig.id) || 0;
+              let nextRot = (initRot + deltaAngle) % 360;
+              if (nextRot < 0) nextRot += 360;
+              return {
+                ...orig,
+                cx: newCenter.x,
+                cy: newCenter.y,
+                rotation: nextRot,
+              };
+            }
+          }
         });
 
         dispatch({ type: "ROTATE_SHAPES", updatedShapes: rotatedShapes });
@@ -532,20 +604,68 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 5. Moving Selected Shapes / Group
-      if (isMovingRef.current && state.selectedIds.length > 0) {
-        const dxScreen = e.clientX - lastScreenPosRef.current.x;
-        const dyScreen = e.clientY - lastScreenPosRef.current.y;
-        lastScreenPosRef.current = { x: e.clientX, y: e.clientY };
+      // 5. Moving Selected Shapes / Group with Magnetic Snapping Connection
+      if (isMovingRef.current && initialShapesRef.current.length > 0) {
+        const currentWorldPt = getWorldPoint(e.clientX, e.clientY);
+        const startWorldPt = startWorldPointRef.current;
+        let rawDx = currentWorldPt.x - startWorldPt.x;
+        let rawDy = currentWorldPt.y - startWorldPt.y;
 
-        const dxWorld = dxScreen / state.viewport.scale;
-        const dyWorld = dyScreen / state.viewport.scale;
+        const selIds = new Set(initialShapesRef.current.map((s) => s.id));
+        const unselectedShapes = state.shapes.filter((s) => !selIds.has(s.id));
 
-        dispatch({
-          type: "MOVE_SELECTED",
-          dx: dxWorld,
-          dy: dyWorld,
+        if (state.objectSnapEnabled && unselectedShapes.length > 0) {
+          const movingPoints = initialShapesRef.current.flatMap(getShapeKeySnapPoints);
+          let bestSnap: SnapResult | null = null;
+          let minSnapDist = 20 / state.viewport.scale;
+
+          for (const msp of movingPoints) {
+            const candidatePt = { x: msp.point.x + rawDx, y: msp.point.y + rawDy };
+            const snapRes = applySnapping(candidatePt, {
+              gridSnapEnabled: state.gridSnapEnabled,
+              objectSnapEnabled: true,
+              shapes: unselectedShapes,
+              zoomScale: state.viewport.scale,
+              vertexThresholdPx: 20,
+            });
+
+            if (snapRes.snapped && snapRes.targetPoint) {
+              const dist = Math.hypot(candidatePt.x - snapRes.targetPoint.x, candidatePt.y - snapRes.targetPoint.y);
+              if (dist < minSnapDist) {
+                minSnapDist = dist;
+                rawDx = snapRes.targetPoint.x - msp.point.x;
+                rawDy = snapRes.targetPoint.y - msp.point.y;
+                bestSnap = snapRes;
+              }
+            }
+          }
+
+          dispatch({ type: "SET_ACTIVE_SNAP", snap: bestSnap });
+        } else if (state.gridSnapEnabled) {
+          const initBounds = initialBoundsRef.current;
+          if (initBounds) {
+            const snappedCorner = snapToGrid({ x: initBounds.minX + rawDx, y: initBounds.minY + rawDy }, 20);
+            rawDx = snappedCorner.x - initBounds.minX;
+            rawDy = snappedCorner.y - initBounds.minY;
+          }
+        }
+
+        const movedShapes = initialShapesRef.current.map((orig) => {
+          switch (orig.type) {
+            case "line":
+            case "arrow":
+              return { ...orig, x1: orig.x1 + rawDx, y1: orig.y1 + rawDy, x2: orig.x2 + rawDx, y2: orig.y2 + rawDy };
+            case "rectangle":
+              return { ...orig, x: orig.x + rawDx, y: orig.y + rawDy };
+            case "circle":
+            case "ellipse":
+            case "polygon":
+            case "star":
+              return { ...orig, cx: orig.cx + rawDx, cy: orig.cy + rawDy };
+          }
         });
+
+        dispatch({ type: "RESIZE_SHAPES", updatedShapes: movedShapes });
         return;
       }
 
@@ -663,6 +783,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
       if (isRotatingRef.current) {
         isRotatingRef.current = false;
+        dispatch({ type: "COMMIT_MOVE" });
         try {
           (e.currentTarget as Element).releasePointerCapture(e.pointerId);
         } catch {}
@@ -728,7 +849,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       if (isDrawingRef.current && state.draft) {
         isDrawingRef.current = false;
 
-        // Perform final snap evaluation to ensure 100% precision endpoint connection
         const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
         const startPt = startWorldPointRef.current;
         const finalSnap = applySnapping(rawWorldPt, {

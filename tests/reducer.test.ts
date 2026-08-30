@@ -170,4 +170,26 @@ describe("Drawing Reducer & History Stack", () => {
     state = drawingReducer(state, { type: "ROTATE_SELECTED_BY_ANGLE", deltaDeg: -45 });
     expect(state.shapes[0].rotation).toBe(135);
   });
+
+  it("rotates connected groups rigidly around collective centroid without breaking", () => {
+    const l1: Shape = { id: "l1", type: "line", x1: 0, y1: 0, x2: 100, y2: 0 };
+    const l2: Shape = { id: "l2", type: "line", x1: 100, y1: 0, x2: 50, y2: 80 };
+
+    let state: DrawingState = {
+      ...initialDrawingState,
+      shapes: [l1, l2],
+      selectedId: "l1",
+      selectedIds: ["l1", "l2"],
+    };
+
+    // Rotate group 90° CW
+    state = drawingReducer(state, { type: "ROTATE_SELECTED_BY_ANGLE", deltaDeg: 90 });
+
+    const rotL1 = state.shapes[0] as LineShape;
+    const rotL2 = state.shapes[1] as LineShape;
+
+    // Verify shared vertex (100, 0) remains identical between both lines!
+    expect(rotL1.x2).toBeCloseTo(rotL2.x1);
+    expect(rotL1.y2).toBeCloseTo(rotL2.y1);
+  });
 });

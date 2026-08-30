@@ -1,4 +1,5 @@
 import { ID, Shape, ToolId, Viewport, SnapResult } from "../geometry/types";
+import { computeMultiShapeBounds, rotatePoint } from "../geometry/metrics";
 
 const MAX_HISTORY_STEPS = 100;
 
@@ -96,7 +97,7 @@ export const initialDrawingState: DrawingState = {
     future: [],
   },
   currentStyle: {
-    strokeColor: "#0066ff",
+    strokeColor: "#f8fafc",
     strokeWidth: 1.5,
     fillColor: "transparent",
     opacity: 1,
@@ -358,20 +359,78 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     case "ROTATE_SELECTED_BY_ANGLE": {
       if (state.selectedIds.length === 0) return state;
       const idSet = new Set(state.selectedIds);
+      const selectedShapes = state.shapes.filter((s) => idSet.has(s.id));
+
+      if (selectedShapes.length === 1) {
+        const s = selectedShapes[0];
+        const nextRot = (((s.rotation || 0) + action.deltaDeg) % 360 + 360) % 360;
+        const nextShapes = state.shapes.map((shape) =>
+          shape.id === s.id ? { ...shape, rotation: nextRot } : shape
+        );
+        return {
+          ...state,
+          shapes: nextShapes,
+          history: pushHistory(state, `Rotate Shape by ${action.deltaDeg}°`),
+        };
+      }
+
+      // Multi-Shape / Group Rotation around collective centroid
+      const bounds = computeMultiShapeBounds(selectedShapes);
+      const groupCenter = bounds ? { x: bounds.centerX, y: bounds.centerY } : { x: 0, y: 0 };
+
       const nextShapes = state.shapes.map((s) => {
         if (!idSet.has(s.id)) return s;
-        const currentRot = s.rotation || 0;
-        const nextRot = ((currentRot + action.deltaDeg) % 360 + 360) % 360;
-        return {
-          ...s,
-          rotation: nextRot,
-        };
+        switch (s.type) {
+          case "line":
+          case "arrow": {
+            const p1 = rotatePoint({ x: s.x1, y: s.y1 }, groupCenter, action.deltaDeg);
+            const p2 = rotatePoint({ x: s.x2, y: s.y2 }, groupCenter, action.deltaDeg);
+            return {
+              ...s,
+              x1: p1.x,
+              y1: p1.y,
+              x2: p2.x,
+              y2: p2.y,
+            };
+          }
+          case "rectangle": {
+            const rectCenter = { x: s.x + s.width / 2, y: s.y + s.height / 2 };
+            const newCenter = rotatePoint(rectCenter, groupCenter, action.deltaDeg);
+            const nextRot = (((s.rotation || 0) + action.deltaDeg) % 360 + 360) % 360;
+            return {
+              ...s,
+              x: newCenter.x - s.width / 2,
+              y: newCenter.y - s.height / 2,
+              rotation: nextRot,
+            };
+          }
+          case "circle": {
+            const newCenter = rotatePoint({ x: s.cx, y: s.cy }, groupCenter, action.deltaDeg);
+            return {
+              ...s,
+              cx: newCenter.x,
+              cy: newCenter.y,
+            };
+          }
+          case "ellipse":
+          case "polygon":
+          case "star": {
+            const newCenter = rotatePoint({ x: s.cx, y: s.cy }, groupCenter, action.deltaDeg);
+            const nextRot = (((s.rotation || 0) + action.deltaDeg) % 360 + 360) % 360;
+            return {
+              ...s,
+              cx: newCenter.x,
+              cy: newCenter.y,
+              rotation: nextRot,
+            };
+          }
+        }
       });
 
       return {
         ...state,
         shapes: nextShapes,
-        history: pushHistory(state, `Rotate Shapes by ${action.deltaDeg}°`),
+        history: pushHistory(state, `Rotate Group by ${action.deltaDeg}°`),
       };
     }
 
