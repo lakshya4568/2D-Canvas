@@ -148,4 +148,26 @@ describe("Drawing Reducer & History Stack", () => {
     expect(state.selectedId).toBeNull();
     expect(state.selectedIds).toHaveLength(0);
   });
+
+  it("handles rotating selected shapes live and by delta angles", () => {
+    const s1: Shape = { id: "s1", type: "rectangle", x: 10, y: 10, width: 50, height: 30, rotation: 0 };
+    let state: DrawingState = {
+      ...initialDrawingState,
+      shapes: [s1],
+      selectedId: "s1",
+      selectedIds: ["s1"],
+    };
+
+    // Rotate 90° CW
+    state = drawingReducer(state, { type: "ROTATE_SELECTED_BY_ANGLE", deltaDeg: 90 });
+    expect(state.shapes[0].rotation).toBe(90);
+
+    // Rotate another 90° CW -> 180°
+    state = drawingReducer(state, { type: "ROTATE_SELECTED_BY_ANGLE", deltaDeg: 90 });
+    expect(state.shapes[0].rotation).toBe(180);
+
+    // Rotate -45° CCW -> 135°
+    state = drawingReducer(state, { type: "ROTATE_SELECTED_BY_ANGLE", deltaDeg: -45 });
+    expect(state.shapes[0].rotation).toBe(135);
+  });
 });

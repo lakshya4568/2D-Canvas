@@ -3,6 +3,7 @@
 import React from "react";
 import { Shape } from "@/lib/geometry/types";
 import { DimensionBadge } from "./DimensionBadge";
+import { getShapeCenter } from "@/lib/geometry/metrics";
 
 interface ShapeRendererProps {
   shapes: Shape[];
@@ -24,16 +25,21 @@ const SingleShape = React.memo<{
   const strokeColor = isSelected ? "#0066ff" : shape.strokeColor || "#c2c6d8";
   const strokeWidth = (shape.strokeWidth || 1.5) * (isSelected ? 1.2 : 1);
   const opacity = shape.opacity ?? 1;
+  const rotation = shape.rotation || 0;
+  const center = getShapeCenter(shape);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     onSelectShape(shape.id, e);
   };
+
+  const transformAttr = rotation !== 0 ? `rotate(${rotation} ${center.x} ${center.y})` : undefined;
 
   return (
     <g
       id={`shape-${shape.id}`}
       className="cursor-pointer transition-colors duration-100 group"
       onPointerDown={handlePointerDown}
+      transform={transformAttr}
       style={{ opacity: shape.isLocked ? opacity * 0.7 : opacity }}
     >
       {/* Invisible hit-testing cushion */}

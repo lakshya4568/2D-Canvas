@@ -51,6 +51,8 @@ export type DrawingAction =
   | { type: "UNGROUP_SELECTED" }
   | { type: "MOVE_SELECTED"; dx: number; dy: number }
   | { type: "RESIZE_SHAPES"; updatedShapes: Shape[] }
+  | { type: "ROTATE_SHAPES"; updatedShapes: Shape[] }
+  | { type: "ROTATE_SELECTED_BY_ANGLE"; deltaDeg: number }
   | { type: "RECORD_PRE_MOVE_SNAPSHOT"; shapes: Shape[]; description?: string }
   | { type: "COMMIT_MOVE" }
   | { type: "UPDATE_SHAPE"; id: ID; updates: Partial<Shape> }
@@ -338,13 +340,34 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       };
     }
 
-    case "RESIZE_SHAPES": {
+    case "RESIZE_SHAPES":
+    case "ROTATE_SHAPES": {
       const updatedMap = new Map(action.updatedShapes.map((s) => [s.id, s]));
       const nextShapes = state.shapes.map((s) => updatedMap.get(s.id) || s);
 
       return {
         ...state,
         shapes: nextShapes,
+      };
+    }
+
+    case "ROTATE_SELECTED_BY_ANGLE": {
+      if (state.selectedIds.length === 0) return state;
+      const idSet = new Set(state.selectedIds);
+      const nextShapes = state.shapes.map((s) => {
+        if (!idSet.has(s.id)) return s;
+        const currentRot = s.rotation || 0;
+        const nextRot = ((currentRot + action.deltaDeg) % 360 + 360) % 360;
+        return {
+          ...s,
+          rotation: nextRot,
+        };
+      });
+
+      return {
+        ...state,
+        shapes: nextShapes,
+        history: pushHistory(state, `Rotate Shapes by ${action.deltaDeg}°`),
       };
     }
 

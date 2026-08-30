@@ -24,6 +24,7 @@ import {
   ChevronLeft,
   Check,
   RotateCcw,
+  RotateCw,
 } from "lucide-react";
 
 const PRESET_COLORS = [
@@ -348,6 +349,40 @@ export function PropertyInspector() {
                     </div>
                   </div>
                 )}
+
+                {/* Rotation Controls */}
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-[var(--border-subtle)]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-[var(--fg-muted)] uppercase tracking-wider font-semibold">Rotation</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => dispatch({ type: "ROTATE_SELECTED_BY_ANGLE", deltaDeg: -90 })}
+                        className="p-1 rounded bg-[var(--bg-app)] hover:bg-[var(--border-subtle)] text-[var(--fg-secondary)] hover:text-[var(--fg-primary)] transition-colors cursor-pointer"
+                        title="Rotate 90° CCW"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => dispatch({ type: "ROTATE_SELECTED_BY_ANGLE", deltaDeg: 90 })}
+                        className="p-1 rounded bg-[var(--bg-app)] hover:bg-[var(--border-subtle)] text-[var(--fg-secondary)] hover:text-[var(--fg-primary)] transition-colors cursor-pointer"
+                        title="Rotate 90° CW"
+                      >
+                        <RotateCw className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 font-mono">
+                    <input
+                      type="number"
+                      min={0}
+                      max={360}
+                      value={Math.round(selectedShape.rotation || 0)}
+                      onChange={(e) => handleUpdate({ rotation: (Number(e.target.value) % 360 + 360) % 360 })}
+                      className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                    />
+                    <span className="text-[10px] text-[var(--fg-muted)]">deg</span>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="p-3 rounded bg-[var(--bg-panel-subtle)] border border-[var(--border-subtle)] text-[var(--fg-secondary)] flex flex-col gap-2">

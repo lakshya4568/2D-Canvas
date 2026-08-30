@@ -1,5 +1,5 @@
 import { Shape } from "../geometry/types";
-import { computeMultiShapeBounds, lineMetrics, formatDimension } from "../geometry/metrics";
+import { computeMultiShapeBounds, lineMetrics, formatDimension, getShapeCenter } from "../geometry/metrics";
 
 /**
  * Generates a clean, standalone SVG XML string for the current shapes.
@@ -41,6 +41,10 @@ export function generateSvgString(
       const strokeWidth = shape.strokeWidth || 1.5;
       const opacity = shape.opacity ?? 1;
       const dash = shape.strokeDasharray ? ` stroke-dasharray="${shape.strokeDasharray}"` : "";
+      const rotation = shape.rotation || 0;
+      const center = getShapeCenter(shape);
+
+      let elemStr = "";
 
       switch (shape.type) {
         case "line": {
@@ -53,7 +57,8 @@ export function generateSvgString(
       <text x="0" y="3" fill="#f8fafc" font-size="10" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">${formatDimension(m.length)}</text>
     </g>`;
           }
-          return `  <line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-linecap="round" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
+          elemStr = `  <line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-linecap="round" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
+          break;
         }
         case "rectangle": {
           const fill = shape.fillColor || "none";
@@ -65,7 +70,8 @@ export function generateSvgString(
       <text x="0" y="3" fill="#f8fafc" font-size="10" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">${formatDimension(shape.width)} × ${formatDimension(shape.height)}</text>
     </g>`;
           }
-          return `  <rect x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
+          elemStr = `  <rect x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
+          break;
         }
         case "circle": {
           const fill = shape.fillColor || "none";
@@ -77,9 +83,15 @@ export function generateSvgString(
       <text x="0" y="3" fill="#f8fafc" font-size="10" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">R: ${formatDimension(shape.r)}</text>
     </g>`;
           }
-          return `  <circle cx="${shape.cx}" cy="${shape.cy}" r="${shape.r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
+          elemStr = `  <circle cx="${shape.cx}" cy="${shape.cy}" r="${shape.r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" opacity="${opacity}"${dash}/>${dimensionMarkup}`;
+          break;
         }
       }
+
+      if (rotation !== 0) {
+        return `  <g transform="rotate(${rotation} ${center.x} ${center.y})">\n  ${elemStr}\n  </g>`;
+      }
+      return elemStr;
     })
     .join("\n");
 

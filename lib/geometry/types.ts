@@ -15,6 +15,7 @@ export interface BaseShape {
   strokeWidth?: number;
   opacity?: number;
   strokeDasharray?: string;
+  rotation?: number; // Rotation angle in degrees (0 to 360)
 }
 
 export interface LineShape extends BaseShape {

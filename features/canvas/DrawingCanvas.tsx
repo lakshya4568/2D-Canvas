@@ -3,7 +3,7 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { Shape, Point, BoundingBox } from "@/lib/geometry/types";
-import { rectFromDrag, circleFromDrag, computeMultiShapeBounds, computeShapeBounds } from "@/lib/geometry/metrics";
+import { rectFromDrag, circleFromDrag, computeMultiShapeBounds, computeShapeBounds, getShapeCenter } from "@/lib/geometry/metrics";
 import { hitTestShapes } from "@/lib/geometry/hitTest";
 import { zoomAtPoint, screenToWorldPoint } from "@/lib/geometry/transform";
 import { applySnapping } from "@/lib/geometry/snapping";
@@ -38,6 +38,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   const isPanningRef = useRef(false);
   const isMovingRef = useRef(false);
   const isResizingRef = useRef(false);
+  const isRotatingRef = useRef(false);
   const isMarqueeRef = useRef(false);
   const isSpacePressedRef = useRef(false);
 
@@ -46,6 +47,11 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   const activeResizeHandleRef = useRef<HandleType | null>(null);
   const initialBoundsRef = useRef<BoundingBox | null>(null);
   const initialShapesRef = useRef<Shape[]>([]);
+
+  // Rotation refs
+  const rotationCenterRef = useRef<Point>({ x: 0, y: 0 });
+  const startAngleRef = useRef<number>(0);
+  const initialRotationsRef = useRef<Map<string, number>>(new Map());
 
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [isPanActive, setIsPanActive] = useState(false);
@@ -83,6 +89,39 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         type: "RECORD_PRE_MOVE_SNAPSHOT",
         shapes: state.shapes,
         description: `Resize ${selectedShapes.length > 1 ? "Group" : selectedShapes[0].type}`,
+      });
+
+      if (svgRef.current) {
+        svgRef.current.setPointerCapture(e.pointerId);
+      }
+    },
+    [selectedShapes, state.shapes, getWorldPoint, dispatch]
+  );
+
+  /**
+   * Handle Start of Figma-Style Object Rotation
+   */
+  const handleRotateStart = useCallback(
+    (e: React.PointerEvent) => {
+      if (selectedShapes.length === 0) return;
+      const bounds = computeMultiShapeBounds(selectedShapes);
+      if (!bounds) return;
+
+      isRotatingRef.current = true;
+      const center = { x: bounds.centerX, y: bounds.centerY };
+      rotationCenterRef.current = center;
+
+      const clickPt = getWorldPoint(e.clientX, e.clientY);
+      startAngleRef.current = Math.atan2(clickPt.y - center.y, clickPt.x - center.x) * (180 / Math.PI);
+
+      const rotMap = new Map<string, number>();
+      selectedShapes.forEach((s) => rotMap.set(s.id, s.rotation || 0));
+      initialRotationsRef.current = rotMap;
+
+      dispatch({
+        type: "RECORD_PRE_MOVE_SNAPSHOT",
+        shapes: state.shapes,
+        description: `Rotate ${selectedShapes.length > 1 ? "Group" : selectedShapes[0].type}`,
       });
 
       if (svgRef.current) {
@@ -160,6 +199,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             strokeColor: state.currentStyle.strokeColor,
             strokeWidth: state.currentStyle.strokeWidth,
             opacity: state.currentStyle.opacity,
+            rotation: 0,
           };
           break;
         case "rectangle":
@@ -174,6 +214,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
             opacity: state.currentStyle.opacity,
+            rotation: 0,
           };
           break;
         case "circle":
@@ -187,6 +228,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
             opacity: state.currentStyle.opacity,
+            rotation: 0,
           };
           break;
       }
@@ -225,7 +267,33 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 2. Figma-Style Corner & Edge Handle Resizing (Interactive Zoom/Scale of Shapes)
+      // 2. Figma-Style Interactive Rotation
+      if (isRotatingRef.current) {
+        const center = rotationCenterRef.current;
+        const currentAngle = Math.atan2(rawWorldPt.y - center.y, rawWorldPt.x - center.x) * (180 / Math.PI);
+        let deltaAngle = currentAngle - startAngleRef.current;
+
+        const rotatedShapes = selectedShapes.map((shape) => {
+          const initRot = initialRotationsRef.current.get(shape.id) || 0;
+          let nextRot = (initRot + deltaAngle) % 360;
+          if (nextRot < 0) nextRot += 360;
+
+          // Shift: snap to 15° steps
+          if (e.shiftKey) {
+            nextRot = Math.round(nextRot / 15) * 15;
+          }
+
+          return {
+            ...shape,
+            rotation: nextRot,
+          };
+        });
+
+        dispatch({ type: "ROTATE_SHAPES", updatedShapes: rotatedShapes });
+        return;
+      }
+
+      // 3. Figma-Style Corner & Edge Handle Resizing
       if (isResizingRef.current && initialBoundsRef.current && activeResizeHandleRef.current) {
         const handle = activeResizeHandleRef.current;
         const initB = initialBoundsRef.current;
@@ -321,7 +389,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 3. Marquee Box Selection
+      // 4. Marquee Box Selection
       if (isMarqueeRef.current) {
         const startPt = startWorldPointRef.current;
         const rect = rectFromDrag(startPt, rawWorldPt);
@@ -329,7 +397,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 4. Moving Selected Shapes / Group
+      // 5. Moving Selected Shapes / Group
       if (isMovingRef.current && state.selectedIds.length > 0) {
         const dxScreen = e.clientX - lastScreenPosRef.current.x;
         const dyScreen = e.clientY - lastScreenPosRef.current.y;
@@ -346,7 +414,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 5. Live Shape Drafting
+      // 6. Live Shape Drafting
       if (isDrawingRef.current && state.draft) {
         const snapResult = applySnapping(rawWorldPt, {
           gridSnapEnabled: state.gridSnapEnabled,
@@ -406,7 +474,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         }
       }
     },
-    [state.draft, state.selectedIds, state.shapes, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.tool, state.activeSnap, getWorldPoint, onCursorChange, dispatch]
+    [state.draft, state.selectedIds, state.shapes, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.tool, state.activeSnap, selectedShapes, getWorldPoint, onCursorChange, dispatch]
   );
 
   /**
@@ -417,6 +485,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       if (isPanningRef.current) {
         isPanningRef.current = false;
         setIsPanActive(false);
+        try {
+          (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+        } catch {}
+        return;
+      }
+
+      if (isRotatingRef.current) {
+        isRotatingRef.current = false;
         try {
           (e.currentTarget as Element).releasePointerCapture(e.pointerId);
         } catch {}
@@ -436,7 +512,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       if (isMarqueeRef.current) {
         isMarqueeRef.current = false;
         if (marqueeBox && marqueeBox.width > 2 && marqueeBox.height > 2) {
-          // Select all shapes intersecting the marquee box
           const mMinX = marqueeBox.x;
           const mMaxX = marqueeBox.x + marqueeBox.width;
           const mMinY = marqueeBox.y;
@@ -461,7 +536,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             selectShape(null);
           }
         } else {
-          // Single click on empty canvas -> clear selection
           selectShape(null);
         }
         setMarqueeBox(null);
@@ -493,14 +567,12 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
   /**
    * Native Non-Passive Wheel & Pinch-Zoom Listener
-   * Prevents full browser page zoom and zooms only the internal SVG world coordinate system!
    */
   useEffect(() => {
     const svgEl = svgRef.current;
     if (!svgEl) return;
 
     const handleNativeWheel = (e: WheelEvent) => {
-      // Crucial: prevent browser whole-page zoom (Ctrl+wheel / Trackpad pinch)
       e.preventDefault();
       e.stopPropagation();
 
@@ -510,7 +582,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         y: e.clientY - rect.top,
       };
 
-      // 1. Trackpad pinch or Ctrl/Cmd-wheel zoom
       if (e.ctrlKey || e.metaKey) {
         const zoomFactor = Math.exp(-e.deltaY * 0.01);
         const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, 0.05, 20);
@@ -518,7 +589,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 2. Shift + Wheel -> Horizontal Pan
       if (e.shiftKey) {
         dispatch({
           type: "SET_VIEWPORT",
@@ -530,8 +600,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 3. Mouse Wheel Zoom (or Trackpad 2-finger Scroll)
-      // Standard smooth CAD zoom anchored at cursor
       const zoomFactor = e.deltaY < 0 ? 1.08 : 0.925;
       const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, 0.05, 20);
       dispatch({ type: "SET_VIEWPORT", viewport: nextViewport });
@@ -541,7 +609,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       e.preventDefault();
     };
 
-    // Attach native non-passive listeners
     svgEl.addEventListener("wheel", handleNativeWheel, { passive: false });
     svgEl.addEventListener("gesturestart", handleGesture, { passive: false });
     svgEl.addEventListener("gesturechange", handleGesture, { passive: false });
@@ -556,7 +623,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   }, [state.viewport, dispatch]);
 
   /**
-   * Keyboard Shortcuts & Browser Zoom Interceptor
+   * Keyboard Shortcuts
    */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -565,7 +632,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // Intercept browser Ctrl/Cmd + (+/-/= / 0) to zoom the canvas instead of the browser page
+      // Intercept browser Ctrl/Cmd + (+/-/= / 0)
       if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=" || e.key === "-" || e.key === "0")) {
         e.preventDefault();
         if (e.key === "+" || e.key === "=") {
@@ -666,7 +733,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
   let cursorStyle = "crosshair";
   if (state.tool === "select") {
-    cursorStyle = isMovingRef.current ? "grabbing" : "default";
+    cursorStyle = isMovingRef.current ? "grabbing" : isRotatingRef.current ? "grabbing" : "default";
   } else if (state.tool === "pan" || isSpaceHeld) {
     cursorStyle = isPanActive ? "grabbing" : "grab";
   }
@@ -715,11 +782,12 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           {/* In-Progress Live Draft */}
           <DraftPreview draft={state.draft} scale={scale} />
 
-          {/* Figma-Style Multi-Shape / Group Selection Overlay with Interactive Scaling Handles */}
+          {/* Figma-Style Selection Overlay with Corner/Edge Resizing & Top/Corner Rotation Handles */}
           <SelectionOverlay
             shapes={selectedShapes}
             scale={scale}
             onHandlePointerDown={handleResizeStart}
+            onRotatePointerDown={handleRotateStart}
           />
 
           {/* Snap Target Indicator */}

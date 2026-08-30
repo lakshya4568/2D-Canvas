@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Shape } from "@/lib/geometry/types";
-import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
+import { computeMultiShapeBounds, formatDimension } from "@/lib/geometry/metrics";
 import { DimensionBadge } from "./DimensionBadge";
 
 export type HandleType = "nw" | "ne" | "se" | "sw" | "n" | "s" | "e" | "w";
@@ -11,10 +11,11 @@ interface SelectionOverlayProps {
   shapes: Shape[];
   scale: number;
   onHandlePointerDown?: (handle: HandleType, e: React.PointerEvent) => void;
+  onRotatePointerDown?: (e: React.PointerEvent) => void;
 }
 
 export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
-  ({ shapes, scale, onHandlePointerDown }) => {
+  ({ shapes, scale, onHandlePointerDown, onRotatePointerDown }) => {
     if (shapes.length === 0) return null;
 
     const bounds = computeMultiShapeBounds(shapes);
@@ -26,12 +27,16 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
     const handleStroke = "#0066ff";
     const strokeWidth = 1.5 / scale;
     const handleSize = 8 / scale;
+    const rotHandleRadius = 5 / scale;
     const padding = 2 / scale;
 
     const boxX = bounds.minX - padding;
     const boxY = bounds.minY - padding;
     const boxW = bounds.width + padding * 2;
     const boxH = bounds.height + padding * 2;
+
+    const rotation = shapes.length === 1 ? shapes[0].rotation || 0 : 0;
+    const transformAttr = rotation !== 0 ? `rotate(${rotation} ${bounds.centerX} ${bounds.centerY})` : undefined;
 
     const handles: { id: HandleType; x: number; y: number; cursor: string }[] = [
       { id: "nw", x: boxX, y: boxY, cursor: "nwse-resize" },
@@ -44,10 +49,11 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
       { id: "w", x: boxX, y: boxY + boxH / 2, cursor: "ew-resize" },
     ];
 
+    const rotHandleY = boxY - 24 / scale;
     const hasGroup = shapes.some((s) => !!s.groupId);
 
     return (
-      <g id="selection-overlay-layer">
+      <g id="selection-overlay-layer" transform={transformAttr}>
         {/* Selection Bounding Box */}
         <rect
           x={boxX}
@@ -60,6 +66,55 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
           strokeDasharray={isGroup ? `${4 / scale}, ${4 / scale}` : undefined}
           className="pointer-events-none"
         />
+
+        {/* Figma-Style Top Rotation Stem & Handle */}
+        <line
+          x1={bounds.centerX}
+          y1={boxY}
+          x2={bounds.centerX}
+          y2={rotHandleY}
+          stroke={strokeColor}
+          strokeWidth={1 / scale}
+          className="pointer-events-none"
+        />
+        <circle
+          cx={bounds.centerX}
+          cy={rotHandleY}
+          r={rotHandleRadius}
+          fill={handleFill}
+          stroke={handleStroke}
+          strokeWidth={strokeWidth}
+          className="cursor-grab hover:scale-125 transition-transform pointer-events-auto"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onRotatePointerDown?.(e);
+          }}
+        >
+          <title>Drag to Rotate (Hold Shift to snap to 15°)</title>
+        </circle>
+
+        {/* Figma-Style 4 Corner Rotation Zones (Outside corner handles) */}
+        {[
+          { id: "rot-nw", x: boxX - 8 / scale, y: boxY - 8 / scale },
+          { id: "rot-ne", x: boxX + boxW + 8 / scale, y: boxY - 8 / scale },
+          { id: "rot-se", x: boxX + boxW + 8 / scale, y: boxY + boxH + 8 / scale },
+          { id: "rot-sw", x: boxX - 8 / scale, y: boxY + boxH + 8 / scale },
+        ].map((rz) => (
+          <circle
+            key={rz.id}
+            cx={rz.x}
+            cy={rz.y}
+            r={10 / scale}
+            fill="transparent"
+            className="cursor-crosshair pointer-events-auto"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onRotatePointerDown?.(e);
+            }}
+          >
+            <title>Rotate Shape</title>
+          </circle>
+        ))}
 
         {/* Figma-Style Interactive Resize Handles */}
         {handles.map((h) => (
@@ -83,7 +138,38 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
 
         {/* Group or Single Dimension Badge */}
         {shapes.length === 1 ? (
-          <DimensionBadge shape={shapes[0]} scale={scale} />
+          <g>
+            <DimensionBadge shape={shapes[0]} scale={scale} />
+            {rotation !== 0 && (
+              <g
+                className="pointer-events-none select-none"
+                transform={`translate(${bounds.centerX}, ${rotHandleY - 14 / scale})`}
+              >
+                <rect
+                  x={-28 / scale}
+                  y={-10 / scale}
+                  width={56 / scale}
+                  height={18 / scale}
+                  rx={2 / scale}
+                  fill="rgba(15, 23, 42, 0.9)"
+                  stroke="#0066ff"
+                  strokeWidth={1 / scale}
+                />
+                <text
+                  x={0}
+                  y={-1 / scale}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="#ffffff"
+                  fontSize={10 / scale}
+                  fontFamily="JetBrains Mono, monospace"
+                  fontWeight="600"
+                >
+                  {`⟳ ${rotation.toFixed(0)}°`}
+                </text>
+              </g>
+            )}
+          </g>
         ) : (
           <g
             className="pointer-events-none select-none"

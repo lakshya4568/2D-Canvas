@@ -7,6 +7,7 @@ import {
   circleMetrics,
   computeShapeBounds,
   formatDimension,
+  rotatePoint,
 } from "@/lib/geometry/metrics";
 import {
   distanceToSegment,
@@ -242,5 +243,22 @@ describe("Snapping Mathematics", () => {
     expect(result.snapped).toBe(true);
     expect(result.snapType).toBe("vertex");
     expect(result.point).toEqual({ x: 105, y: 105 });
+  });
+
+  describe("rotatePoint", () => {
+    it("rotates points accurately around an origin or center", () => {
+      const center = { x: 0, y: 0 };
+      const p = { x: 10, y: 0 };
+
+      // 90° rotation
+      const p90 = rotatePoint(p, center, 90);
+      expect(p90.x).toBeCloseTo(0);
+      expect(p90.y).toBeCloseTo(10);
+
+      // 180° rotation
+      const p180 = rotatePoint(p, center, 180);
+      expect(p180.x).toBeCloseTo(-10);
+      expect(p180.y).toBeCloseTo(0);
+    });
   });
 });

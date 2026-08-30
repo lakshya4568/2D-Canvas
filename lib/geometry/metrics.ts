@@ -15,7 +15,6 @@ export function lineMetrics(p1: Point, p2: Point): LineMetricsResult {
   const dy = p2.y - p1.y;
   const length = Math.hypot(dx, dy);
   let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
-  // Normalize angle to [0, 360) for clear readout
   if (angleDeg < 0) {
     angleDeg += 360;
   }
@@ -34,7 +33,6 @@ export function lineMetrics(p1: Point, p2: Point): LineMetricsResult {
 
 /**
  * Normalizes a rectangle created from any drag direction (p1 -> p2).
- * Handles negative deltas properly so width and height are always non-negative.
  */
 export function rectFromDrag(
   p1: Point,
@@ -100,6 +98,45 @@ export function circleMetrics(
     diameter: r * 2,
     circumference: 2 * Math.PI * r,
     area: Math.PI * r * r,
+  };
+}
+
+/**
+ * Gets the centroid/center of any shape.
+ */
+export function getShapeCenter(shape: Shape): Point {
+  switch (shape.type) {
+    case "line":
+      return {
+        x: (shape.x1 + shape.x2) / 2,
+        y: (shape.y1 + shape.y2) / 2,
+      };
+    case "rectangle":
+      return {
+        x: shape.x + shape.width / 2,
+        y: shape.y + shape.height / 2,
+      };
+    case "circle":
+      return {
+        x: shape.cx,
+        y: shape.cy,
+      };
+  }
+}
+
+/**
+ * Rotates a 2D point around a pivot center point by an angle in degrees.
+ */
+export function rotatePoint(point: Point, center: Point, angleDeg: number): Point {
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+
+  return {
+    x: center.x + (dx * cos - dy * sin),
+    y: center.y + (dx * sin + dy * cos),
   };
 }
 
