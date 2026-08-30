@@ -79,7 +79,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   );
 
   /**
-   * Handle Direct Shape Click
+   * Handle Direct Shape Click in Select Mode
    */
   const handleShapeSelect = useCallback(
     (id: string, e: React.PointerEvent) => {
@@ -220,11 +220,13 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }
 
       // Drawing Tools (Line, Arrow, Rectangle, Circle, Ellipse, Polygon, Star)
+      // Magnetically snap the start point to nearby vertex / edge / intersection!
       const snapResult = applySnapping(rawWorldPt, {
         gridSnapEnabled: state.gridSnapEnabled,
         objectSnapEnabled: state.objectSnapEnabled,
         shapes: state.shapes,
         zoomScale: state.viewport.scale,
+        vertexThresholdPx: 20,
       });
 
       const startPt = snapResult.point;
@@ -314,7 +316,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             cx: startPt.x,
             cy: startPt.y,
             r: 0,
-            sides: 3, // Default triangle
+            sides: 3,
             strokeColor: state.currentStyle.strokeColor,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
@@ -556,6 +558,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           shapes: state.shapes,
           zoomScale: state.viewport.scale,
           startPoint: startPt,
+          vertexThresholdPx: 20,
         });
 
         const currentPt = snapResult.point;
@@ -632,6 +635,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           objectSnapEnabled: state.objectSnapEnabled,
           shapes: state.shapes,
           zoomScale: state.viewport.scale,
+          vertexThresholdPx: 20,
         });
         if (snapResult.snapped !== !!state.activeSnap?.snapped || snapResult.category !== state.activeSnap?.category) {
           dispatch({ type: "SET_ACTIVE_SNAP", snap: snapResult.snapped ? snapResult : null });
@@ -721,15 +725,91 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      if (isDrawingRef.current) {
+      if (isDrawingRef.current && state.draft) {
         isDrawingRef.current = false;
+
+        // Perform final snap evaluation to ensure 100% precision endpoint connection
+        const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
+        const startPt = startWorldPointRef.current;
+        const finalSnap = applySnapping(rawWorldPt, {
+          gridSnapEnabled: state.gridSnapEnabled,
+          objectSnapEnabled: state.objectSnapEnabled,
+          shapes: state.shapes,
+          zoomScale: state.viewport.scale,
+          startPoint: startPt,
+          vertexThresholdPx: 20,
+        });
+
+        const endPt = finalSnap.point;
+        let finalizedShape: Shape;
+
+        switch (state.draft.type) {
+          case "line":
+          case "arrow": {
+            finalizedShape = {
+              ...state.draft,
+              x1: startPt.x,
+              y1: startPt.y,
+              x2: endPt.x,
+              y2: endPt.y,
+            };
+            break;
+          }
+          case "rectangle": {
+            const rect = rectFromDrag(startPt, endPt);
+            finalizedShape = {
+              ...state.draft,
+              ...rect,
+            };
+            break;
+          }
+          case "circle": {
+            const circ = circleFromDrag(startPt, endPt);
+            finalizedShape = {
+              ...state.draft,
+              ...circ,
+            };
+            break;
+          }
+          case "ellipse": {
+            const ell = ellipseFromDrag(startPt, endPt);
+            finalizedShape = {
+              ...state.draft,
+              ...ell,
+            };
+            break;
+          }
+          case "polygon": {
+            const r = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+            finalizedShape = {
+              ...state.draft,
+              cx: startPt.x,
+              cy: startPt.y,
+              r,
+            };
+            break;
+          }
+          case "star": {
+            const outerR = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+            finalizedShape = {
+              ...state.draft,
+              cx: startPt.x,
+              cy: startPt.y,
+              innerR: outerR * 0.45,
+              outerR,
+            };
+            break;
+          }
+        }
+
+        dispatch({ type: "UPDATE_DRAFT", shape: finalizedShape });
         dispatch({ type: "COMMIT_DRAFT" });
         try {
           (e.currentTarget as Element).releasePointerCapture(e.pointerId);
         } catch {}
       }
     },
-    [marqueeBox, state.shapes, selectMultiple, selectShape, dispatch]
+    [marqueeBox, state.shapes, state.draft, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, selectMultiple, selectShape, getWorldPoint, dispatch]
   );
 
   /**
@@ -880,7 +960,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         if (e.key.toLowerCase() === "r") setTool("rectangle");
         if (e.key.toLowerCase() === "c") setTool("circle");
         if (e.key.toLowerCase() === "e") setTool("ellipse");
-        if (e.key.toLowerCase() === "t") setTool("polygon"); // Triangle / Polygon
+        if (e.key.toLowerCase() === "t") setTool("polygon");
         if (e.key.toLowerCase() === "s") setTool("star");
         if (e.key.toLowerCase() === "h") setTool("pan");
       }
@@ -943,6 +1023,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             selectedIds={state.selectedIds}
             showDimensions={state.showDimensions}
             scale={scale}
+            isSelectTool={state.tool === "select"}
             onSelectShape={handleShapeSelect}
           />
 

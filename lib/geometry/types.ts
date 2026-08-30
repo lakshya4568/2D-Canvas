@@ -119,7 +119,17 @@ export interface BoundingBox {
 }
 
 export type SnapType = "grid" | "vertex" | null;
-export type SnapCategory = "endpoint" | "corner" | "midpoint" | "center" | "quadrant" | "perpendicular" | "grid";
+export type SnapCategory =
+  | "endpoint"
+  | "corner"
+  | "midpoint"
+  | "center"
+  | "centroid"
+  | "quadrant"
+  | "perpendicular"
+  | "intersection"
+  | "edge"
+  | "grid";
 
 export interface SnapResult {
   point: Point;

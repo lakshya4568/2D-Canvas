@@ -19,6 +19,83 @@ export function snapToGrid(point: Point, step: number = 20): Point {
 }
 
 /**
+ * Calculates line-line intersection point if two segments intersect.
+ */
+export function getLineIntersection(
+  p1: Point,
+  p2: Point,
+  p3: Point,
+  p4: Point
+): Point | null {
+  const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+  if (Math.abs(d) < 1e-6) return null;
+
+  const u = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+  const v = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+
+  if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
+    return {
+      x: p1.x + u * (p2.x - p1.x),
+      y: p1.y + u * (p2.y - p1.y),
+    };
+  }
+  return null;
+}
+
+/**
+ * Extracts line segment definitions for any shape (for edge snapping and intersections).
+ */
+export function getShapeSegments(shape: Shape): { p1: Point; p2: Point }[] {
+  if (shape.isVisible === false) return [];
+  const center = getShapeCenter(shape);
+  const rotation = shape.rotation || 0;
+
+  const rawSegments: { p1: Point; p2: Point }[] = [];
+
+  switch (shape.type) {
+    case "line":
+    case "arrow":
+      rawSegments.push({ p1: { x: shape.x1, y: shape.y1 }, p2: { x: shape.x2, y: shape.y2 } });
+      break;
+    case "rectangle": {
+      const { x, y, width: w, height: h } = shape;
+      const c1 = { x, y };
+      const c2 = { x: x + w, y };
+      const c3 = { x: x + w, y: y + h };
+      const c4 = { x, y: y + h };
+      rawSegments.push(
+        { p1: c1, p2: c2 },
+        { p1: c2, p2: c3 },
+        { p1: c3, p2: c4 },
+        { p1: c4, p2: c1 }
+      );
+      break;
+    }
+    case "polygon": {
+      const vertices = getPolygonPoints(shape.cx, shape.cy, shape.r, shape.sides);
+      for (let i = 0; i < vertices.length; i++) {
+        rawSegments.push({ p1: vertices[i], p2: vertices[(i + 1) % vertices.length] });
+      }
+      break;
+    }
+    case "star": {
+      const vertices = getStarPoints(shape.cx, shape.cy, shape.innerR, shape.outerR, shape.points);
+      for (let i = 0; i < vertices.length; i++) {
+        rawSegments.push({ p1: vertices[i], p2: vertices[(i + 1) % vertices.length] });
+      }
+      break;
+    }
+  }
+
+  if (rotation === 0) return rawSegments;
+
+  return rawSegments.map((seg) => ({
+    p1: rotatePoint(seg.p1, center, rotation),
+    p2: rotatePoint(seg.p2, center, rotation),
+  }));
+}
+
+/**
  * Extracts key geometric vertices (endpoints, corners, midpoints, centers, quadrants)
  * for any shape, fully rotated by the shape's rotation angle.
  */
@@ -79,10 +156,9 @@ export function getShapeKeySnapPoints(shape: Shape): KeySnapPoint[] {
     }
     case "polygon": {
       const { cx, cy, r, sides } = shape;
-      rawPoints.push({ pt: { x: cx, y: cy }, category: "center" });
+      rawPoints.push({ pt: { x: cx, y: cy }, category: "centroid" });
       const vertices = getPolygonPoints(cx, cy, r, sides);
       vertices.forEach((v) => rawPoints.push({ pt: v, category: "corner" }));
-      // Midpoints between adjacent polygon vertices
       for (let i = 0; i < vertices.length; i++) {
         const next = vertices[(i + 1) % vertices.length];
         rawPoints.push({
@@ -101,7 +177,6 @@ export function getShapeKeySnapPoints(shape: Shape): KeySnapPoint[] {
     }
   }
 
-  // Apply rotation around centroid
   return rawPoints.map((item) => {
     const finalPt = rotation !== 0 ? rotatePoint(item.pt, center, rotation) : item.pt;
     return {
@@ -120,7 +195,7 @@ export function getShapeKeyVertices(shape: Shape): Point[] {
 }
 
 /**
- * Evaluates snapping for a raw cursor point against other shapes, perpendicular angles, and the grid.
+ * Evaluates snapping for a raw cursor point against other shapes, perpendicular angles, edges, and grid.
  */
 export function applySnapping(
   rawPoint: Point,
@@ -132,7 +207,7 @@ export function applySnapping(
     excludeId?: string | null;
     vertexThresholdPx?: number;
     zoomScale?: number;
-    startPoint?: Point | null; // For perpendicular / orthogonal line snapping
+    startPoint?: Point | null;
   }
 ): SnapResult {
   const {
@@ -141,14 +216,14 @@ export function applySnapping(
     gridStep = 20,
     shapes = [],
     excludeId = null,
-    vertexThresholdPx = 14,
+    vertexThresholdPx = 20,
     zoomScale = 1,
     startPoint = null,
   } = options;
 
   const worldThreshold = vertexThresholdPx / Math.max(0.01, zoomScale);
 
-  // 1. Vertex / Object Connection Snapping (Highest Priority)
+  // 1. Vertex / Corner / Midpoint / Centroid / Quadrant Connection Snapping (Highest Priority)
   if (objectSnapEnabled && shapes.length > 0) {
     let closestSnap: KeySnapPoint | null = null;
     let minDistance = worldThreshold;
@@ -186,14 +261,75 @@ export function applySnapping(
         guideLines,
       };
     }
+
+    // 2. Line-Line Intersections
+    const allSegments: { p1: Point; p2: Point }[] = [];
+    for (const s of shapes) {
+      if (!excludeId || s.id !== excludeId) {
+        allSegments.push(...getShapeSegments(s));
+      }
+    }
+
+    for (let i = 0; i < allSegments.length; i++) {
+      for (let j = i + 1; j < allSegments.length; j++) {
+        const isect = getLineIntersection(
+          allSegments[i].p1,
+          allSegments[i].p2,
+          allSegments[j].p1,
+          allSegments[j].p2
+        );
+        if (isect) {
+          const dist = Math.hypot(rawPoint.x - isect.x, rawPoint.y - isect.y);
+          if (dist <= worldThreshold) {
+            return {
+              point: isect,
+              snapped: true,
+              snapType: "vertex",
+              category: "intersection",
+              targetPoint: isect,
+            };
+          }
+        }
+      }
+    }
+
+    // 3. Snap to Edge / Along Line
+    let closestEdgePoint: Point | null = null;
+    let minEdgeDist = worldThreshold * 0.75;
+
+    for (const seg of allSegments) {
+      const vx = seg.p2.x - seg.p1.x;
+      const vy = seg.p2.y - seg.p1.y;
+      const lenSq = vx * vx + vy * vy;
+      if (lenSq > 0) {
+        const dot = (rawPoint.x - seg.p1.x) * vx + (rawPoint.y - seg.p1.y) * vy;
+        const t = Math.max(0, Math.min(1, dot / lenSq));
+        const projX = seg.p1.x + t * vx;
+        const projY = seg.p1.y + t * vy;
+        const dist = Math.hypot(rawPoint.x - projX, rawPoint.y - projY);
+        if (dist <= minEdgeDist) {
+          minEdgeDist = dist;
+          closestEdgePoint = { x: projX, y: projY };
+        }
+      }
+    }
+
+    if (closestEdgePoint) {
+      return {
+        point: closestEdgePoint,
+        snapped: true,
+        snapType: "vertex",
+        category: "edge",
+        targetPoint: closestEdgePoint,
+      };
+    }
   }
 
-  // 2. Perpendicular / Orthogonal Alignment Snapping (When drawing from startPoint)
+  // 4. Perpendicular / Orthogonal Alignment Snapping (When drawing from startPoint)
   if (startPoint) {
     const dx = Math.abs(rawPoint.x - startPoint.x);
     const dy = Math.abs(rawPoint.y - startPoint.y);
 
-    // Horizontal lock (dy near 0)
     if (dy <= worldThreshold) {
       return {
         point: { x: rawPoint.x, y: startPoint.y },
@@ -205,7 +341,6 @@ export function applySnapping(
       };
     }
 
-    // Vertical lock (dx near 0)
     if (dx <= worldThreshold) {
       return {
         point: { x: startPoint.x, y: rawPoint.y },
@@ -217,7 +352,6 @@ export function applySnapping(
       };
     }
 
-    // 45-degree diagonal lock
     if (Math.abs(dx - dy) <= worldThreshold) {
       const avg = (dx + dy) / 2;
       const snapX = startPoint.x + (rawPoint.x >= startPoint.x ? avg : -avg);
@@ -232,7 +366,7 @@ export function applySnapping(
     }
   }
 
-  // 3. Grid Snapping
+  // 5. Grid Snapping
   if (gridSnapEnabled && gridStep > 0) {
     const snapped = snapToGrid(rawPoint, gridStep);
     return {
@@ -244,7 +378,7 @@ export function applySnapping(
     };
   }
 
-  // 4. No Snap
+  // 6. No Snap
   return {
     point: rawPoint,
     snapped: false,

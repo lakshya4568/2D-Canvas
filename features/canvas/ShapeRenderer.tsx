@@ -10,6 +10,7 @@ interface ShapeRendererProps {
   selectedIds: string[];
   showDimensions: boolean;
   scale: number;
+  isSelectTool: boolean;
   onSelectShape: (id: string, e: React.PointerEvent) => void;
 }
 
@@ -18,8 +19,9 @@ const SingleShape = React.memo<{
   isSelected: boolean;
   showDimensions: boolean;
   scale: number;
+  isSelectTool: boolean;
   onSelectShape: (id: string, e: React.PointerEvent) => void;
-}>(({ shape, isSelected, showDimensions, scale, onSelectShape }) => {
+}>(({ shape, isSelected, showDimensions, scale, isSelectTool, onSelectShape }) => {
   if (shape.isVisible === false) return null;
 
   const strokeColor = isSelected ? "#0066ff" : shape.strokeColor || "#c2c6d8";
@@ -28,7 +30,17 @@ const SingleShape = React.memo<{
   const rotation = shape.rotation || 0;
   const center = getShapeCenter(shape);
 
+  const hasFill =
+    "fillColor" in shape &&
+    shape.fillColor &&
+    shape.fillColor !== "transparent" &&
+    shape.fillColor !== "none";
+  const fillValue = hasFill && "fillColor" in shape ? shape.fillColor : "none";
+  // If hollow in select mode, only the stroke intercepts pointer events so the hollow interior is completely pass-through!
+  const pointerEventsStyle = isSelectTool ? (hasFill ? "auto" : "stroke") : "none";
+
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (!isSelectTool) return;
     e.stopPropagation();
     onSelectShape(shape.id, e);
   };
@@ -38,13 +50,18 @@ const SingleShape = React.memo<{
   return (
     <g
       id={`shape-${shape.id}`}
-      className="cursor-pointer transition-colors duration-100 group pointer-events-auto"
-      onPointerDown={handlePointerDown}
+      className={`transition-colors duration-100 group ${
+        isSelectTool ? "cursor-pointer" : "pointer-events-none"
+      }`}
+      onPointerDown={isSelectTool ? handlePointerDown : undefined}
       transform={transformAttr}
-      style={{ opacity: shape.isLocked ? opacity * 0.7 : opacity }}
+      style={{
+        opacity: shape.isLocked ? opacity * 0.7 : opacity,
+        pointerEvents: pointerEventsStyle,
+      }}
     >
-      {/* Invisible hit-testing cushion for lines/arrows */}
-      {(shape.type === "line" || shape.type === "arrow") && (
+      {/* Invisible hit-testing cushion for lines/arrows in select mode */}
+      {isSelectTool && (shape.type === "line" || shape.type === "arrow") && (
         <line
           x1={shape.x1}
           y1={shape.y1}
@@ -53,6 +70,7 @@ const SingleShape = React.memo<{
           stroke="transparent"
           strokeWidth={Math.max(20 / scale, strokeWidth + 14 / scale)}
           strokeLinecap="round"
+          style={{ pointerEvents: "stroke" }}
         />
       )}
 
@@ -83,7 +101,6 @@ const SingleShape = React.memo<{
             strokeDasharray={shape.strokeDasharray}
             strokeLinecap="round"
           />
-          {/* Arrow Head */}
           {(() => {
             const angle = Math.atan2(shape.y2 - shape.y1, shape.x2 - shape.x1);
             const headLen = 12 / scale;
@@ -108,7 +125,7 @@ const SingleShape = React.memo<{
           y={shape.y}
           width={shape.width}
           height={shape.height}
-          fill={shape.fillColor || "transparent"}
+          fill={fillValue}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
@@ -122,7 +139,7 @@ const SingleShape = React.memo<{
           cx={shape.cx}
           cy={shape.cy}
           r={shape.r}
-          fill={shape.fillColor || "transparent"}
+          fill={fillValue}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
@@ -136,7 +153,7 @@ const SingleShape = React.memo<{
           cy={shape.cy}
           rx={shape.rx}
           ry={shape.ry}
-          fill={shape.fillColor || "transparent"}
+          fill={fillValue}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
@@ -147,7 +164,7 @@ const SingleShape = React.memo<{
       {shape.type === "polygon" && (
         <polygon
           points={pointsToSvgString(getPolygonPoints(shape.cx, shape.cy, shape.r, shape.sides))}
-          fill={shape.fillColor || "transparent"}
+          fill={fillValue}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
@@ -158,7 +175,7 @@ const SingleShape = React.memo<{
       {shape.type === "star" && (
         <polygon
           points={pointsToSvgString(getStarPoints(shape.cx, shape.cy, shape.innerR, shape.outerR, shape.points))}
-          fill={shape.fillColor || "transparent"}
+          fill={fillValue}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
@@ -176,7 +193,7 @@ const SingleShape = React.memo<{
 SingleShape.displayName = "SingleShape";
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
-  ({ shapes, selectedIds, showDimensions, scale, onSelectShape }) => {
+  ({ shapes, selectedIds, showDimensions, scale, isSelectTool, onSelectShape }) => {
     return (
       <g id="shapes-layer">
         {shapes.map((shape) => (
@@ -186,6 +203,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
             isSelected={selectedIds.includes(shape.id)}
             showDimensions={showDimensions}
             scale={scale}
+            isSelectTool={isSelectTool}
             onSelectShape={onSelectShape}
           />
         ))}
