@@ -1,2 +1,28 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# System files
+.DS_Store
+*.pem
+
+# Environment variables
+.env*.local
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Agent specifics
 .agents
 AGENTS.md
