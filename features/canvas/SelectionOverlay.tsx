@@ -2,27 +2,32 @@
 
 import React from "react";
 import { Shape } from "@/lib/geometry/types";
-import { computeShapeBounds } from "@/lib/geometry/metrics";
+import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import { DimensionBadge } from "./DimensionBadge";
+import { Group, Ungroup, Trash2, Copy } from "lucide-react";
 
 interface SelectionOverlayProps {
-  shape: Shape | null;
+  shapes: Shape[];
   scale: number;
+  onGroup?: () => void;
+  onUngroup?: () => void;
+  onDuplicate?: () => void;
   onDelete: () => void;
-  onBringToFront: () => void;
-  onSendToBack: () => void;
 }
 
 export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
-  ({ shape, scale, onDelete, onBringToFront, onSendToBack }) => {
-    if (!shape) return null;
+  ({ shapes, scale, onGroup, onUngroup, onDuplicate, onDelete }) => {
+    if (shapes.length === 0) return null;
 
-    const bounds = computeShapeBounds(shape);
-    const strokeColor = "var(--accent-select)";
-    const handleFill = "#ffffff";
-    const handleStroke = "var(--accent-select)";
+    const bounds = computeMultiShapeBounds(shapes);
+    if (!bounds) return null;
+
+    const isGroup = shapes.length > 1;
+    const strokeColor = "#0066ff";
+    const handleFill = "var(--bg-canvas)";
+    const handleStroke = "#0066ff";
     const strokeWidth = 1.5 / scale;
-    const handleSize = 7 / scale;
+    const handleSize = 6 / scale;
     const padding = 4 / scale;
 
     const boxX = bounds.minX - padding;
@@ -35,11 +40,9 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
       { id: "ne", x: boxX + boxW, y: boxY },
       { id: "se", x: boxX + boxW, y: boxY + boxH },
       { id: "sw", x: boxX, y: boxY + boxH },
-      { id: "n", x: boxX + boxW / 2, y: boxY },
-      { id: "e", x: boxX + boxW, y: boxY + boxH / 2 },
-      { id: "s", x: boxX + boxW / 2, y: boxY + boxH },
-      { id: "w", x: boxX, y: boxY + boxH / 2 },
     ];
+
+    const hasGroup = shapes.some((s) => !!s.groupId);
 
     return (
       <g id="selection-overlay-layer" className="pointer-events-none">
@@ -52,50 +55,56 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
           fill="none"
           stroke={strokeColor}
           strokeWidth={strokeWidth}
-          strokeDasharray={`${4 / scale}, ${3 / scale}`}
-          rx={2 / scale}
-          style={{ filter: "drop-shadow(0 0 2px rgba(59, 130, 246, 0.4))" }}
+          strokeDasharray={isGroup ? `${4 / scale}, ${4 / scale}` : undefined}
+          rx={0}
         />
 
-        {/* Line specific endpoint handles */}
-        {shape.type === "line" ? (
-          <>
-            <circle
-              cx={shape.x1}
-              cy={shape.y1}
-              r={handleSize / 1.5}
-              fill={handleFill}
-              stroke={handleStroke}
-              strokeWidth={strokeWidth}
-            />
-            <circle
-              cx={shape.x2}
-              cy={shape.y2}
-              r={handleSize / 1.5}
-              fill={handleFill}
-              stroke={handleStroke}
-              strokeWidth={strokeWidth}
-            />
-          </>
-        ) : (
-          /* Bounding box corner/edge handles */
-          handles.map((h) => (
-            <rect
-              key={h.id}
-              x={h.x - handleSize / 2}
-              y={h.y - handleSize / 2}
-              width={handleSize}
-              height={handleSize}
-              fill={handleFill}
-              stroke={handleStroke}
-              strokeWidth={strokeWidth}
-              rx={1 / scale}
-            />
-          ))
-        )}
+        {/* Handles */}
+        {handles.map((h) => (
+          <rect
+            key={h.id}
+            x={h.x - handleSize / 2}
+            y={h.y - handleSize / 2}
+            width={handleSize}
+            height={handleSize}
+            fill={handleFill}
+            stroke={handleStroke}
+            strokeWidth={strokeWidth}
+          />
+        ))}
 
-        {/* Active dimension badge for selected shape */}
-        <DimensionBadge shape={shape} scale={scale} />
+        {/* Group or Single Dimension Badge */}
+        {shapes.length === 1 ? (
+          <DimensionBadge shape={shapes[0]} scale={scale} />
+        ) : (
+          <g
+            className="pointer-events-none select-none"
+            transform={`translate(${bounds.centerX}, ${boxY - 14 / scale})`}
+          >
+            <rect
+              x={-55 / scale}
+              y={-14 / scale}
+              width={110 / scale}
+              height={18 / scale}
+              rx={2 / scale}
+              fill="rgba(15, 23, 42, 0.9)"
+              stroke="#0066ff"
+              strokeWidth={1 / scale}
+            />
+            <text
+              x={0}
+              y={-4 / scale}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fill="#ffffff"
+              fontSize={10 / scale}
+              fontFamily="JetBrains Mono, monospace"
+              fontWeight="600"
+            >
+              {hasGroup ? `GROUP (${shapes.length})` : `SELECTED (${shapes.length})`}
+            </text>
+          </g>
+        )}
       </g>
     );
   }

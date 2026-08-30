@@ -4,7 +4,7 @@ import {
   initialDrawingState,
   DrawingState,
 } from "@/lib/state/drawingReducer";
-import { Shape, LineShape } from "@/lib/geometry/types";
+import { Shape, LineShape, RectangleShape } from "@/lib/geometry/types";
 
 describe("Drawing Reducer & History Stack", () => {
   it("handles tool switching", () => {
@@ -44,7 +44,7 @@ describe("Drawing Reducer & History Stack", () => {
     expect(state.shapes[0].id).toBe("line_1");
     expect(state.selectedId).toBe("line_1");
     expect(state.draft).toBeNull();
-    expect(state.history.past).toHaveLength(1); // One undo step recorded
+    expect(state.history.past).toHaveLength(1);
 
     // 4. Draw second shape (Rectangle)
     const rectDraft: Shape = {
@@ -82,36 +82,42 @@ describe("Drawing Reducer & History Stack", () => {
     expect(state.shapes[1].id).toBe("rect_1");
   });
 
-  it("moves selected shape and commits move to history", () => {
-    const initialShapes: Shape[] = [
-      { id: "rect_1", type: "rectangle", x: 10, y: 10, width: 50, height: 50 },
-    ];
+  it("handles grouping multiple shapes and moving them as a unified entity", () => {
+    const s1: Shape = { id: "s1", type: "rectangle", x: 10, y: 10, width: 20, height: 20 };
+    const s2: Shape = { id: "s2", type: "line", x1: 50, y1: 50, x2: 100, y2: 100 };
+
     let state: DrawingState = {
       ...initialDrawingState,
-      shapes: initialShapes,
-      selectedId: "rect_1",
+      shapes: [s1, s2],
+      selectedId: "s2",
+      selectedIds: ["s1", "s2"],
     };
 
-    // Record snapshot before drag
-    state = drawingReducer(state, {
-      type: "RECORD_PRE_MOVE_SNAPSHOT",
-      shapes: initialShapes,
-    });
+    // 1. Group selected shapes
+    state = drawingReducer(state, { type: "GROUP_SELECTED" });
+    expect(state.shapes[0].groupId).toBeDefined();
+    expect(state.shapes[1].groupId).toBeDefined();
+    expect(state.shapes[0].groupId).toBe(state.shapes[1].groupId);
 
-    // Move
-    state = drawingReducer(state, {
-      type: "MOVE_SELECTED",
-      dx: 25,
-      dy: 15,
-    });
+    // 2. Select one shape in the group -> should auto-select all shapes in group
+    state = drawingReducer(state, { type: "SELECT", id: "s1" });
+    expect(state.selectedIds).toContain("s1");
+    expect(state.selectedIds).toContain("s2");
 
-    expect(state.shapes[0].type === "rectangle" && (state.shapes[0] as any).x).toBe(35);
-    expect(state.shapes[0].type === "rectangle" && (state.shapes[0] as any).y).toBe(25);
+    // 3. Move the group
+    state = drawingReducer(state, { type: "MOVE_SELECTED", dx: 30, dy: 15 });
+    const movedRect = state.shapes[0] as RectangleShape;
+    const movedLine = state.shapes[1] as LineShape;
 
-    // Undo should restore pre-move position
-    state = drawingReducer(state, { type: "UNDO" });
-    expect(state.shapes[0].type === "rectangle" && (state.shapes[0] as any).x).toBe(10);
-    expect(state.shapes[0].type === "rectangle" && (state.shapes[0] as any).y).toBe(10);
+    expect(movedRect.x).toBe(40); // 10 + 30
+    expect(movedRect.y).toBe(25); // 10 + 15
+    expect(movedLine.x1).toBe(80); // 50 + 30
+    expect(movedLine.y1).toBe(65); // 50 + 15
+
+    // 4. Ungroup
+    state = drawingReducer(state, { type: "UNGROUP_SELECTED" });
+    expect(state.shapes[0].groupId).toBeUndefined();
+    expect(state.shapes[1].groupId).toBeUndefined();
   });
 
   it("deletes selected shape and handles layer ordering", () => {
@@ -125,6 +131,7 @@ describe("Drawing Reducer & History Stack", () => {
       ...initialDrawingState,
       shapes,
       selectedId: "s2",
+      selectedIds: ["s2"],
     };
 
     // Bring s1 to front
@@ -139,5 +146,6 @@ describe("Drawing Reducer & History Stack", () => {
     state = drawingReducer(state, { type: "DELETE_SELECTED" });
     expect(state.shapes.find((s) => s.id === "s2")).toBeUndefined();
     expect(state.selectedId).toBeNull();
+    expect(state.selectedIds).toHaveLength(0);
   });
 });

@@ -5,52 +5,41 @@ export interface Point {
   y: number;
 }
 
-export interface ShapeStyle {
+export interface BaseShape {
+  id: ID;
+  groupId?: string;
+  name?: string;
+  isLocked?: boolean;
+  isVisible?: boolean;
   strokeColor?: string;
   strokeWidth?: number;
-  fillColor?: string;
   opacity?: number;
   strokeDasharray?: string;
 }
 
-export interface LineShape {
-  id: ID;
+export interface LineShape extends BaseShape {
   type: "line";
   x1: number;
   y1: number;
   x2: number;
   y2: number;
-  strokeColor?: string;
-  strokeWidth?: number;
-  opacity?: number;
-  strokeDasharray?: string;
 }
 
-export interface RectangleShape {
-  id: ID;
+export interface RectangleShape extends BaseShape {
   type: "rectangle";
   x: number;
   y: number;
   width: number;
   height: number;
-  strokeColor?: string;
-  strokeWidth?: number;
   fillColor?: string;
-  opacity?: number;
-  strokeDasharray?: string;
 }
 
-export interface CircleShape {
-  id: ID;
+export interface CircleShape extends BaseShape {
   type: "circle";
   cx: number;
   cy: number;
   r: number;
-  strokeColor?: string;
-  strokeWidth?: number;
   fillColor?: string;
-  opacity?: number;
-  strokeDasharray?: string;
 }
 
 export type Shape = LineShape | RectangleShape | CircleShape;
@@ -110,4 +99,10 @@ export interface CircleMetricsResult {
   diameter: number;
   circumference: number;
   area: number;
+}
+
+export interface ShapeGroup {
+  id: string;
+  name: string;
+  shapeIds: string[];
 }

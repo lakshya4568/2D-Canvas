@@ -3,7 +3,7 @@
 import React from "react";
 import { Point } from "@/lib/geometry/types";
 import { useDrawing } from "@/lib/state/drawingContext";
-import { Keyboard, Target, Magnet } from "lucide-react";
+import { Keyboard, BookOpen } from "lucide-react";
 
 interface StatusBarProps {
   cursorPos: Point | null;
@@ -13,58 +13,53 @@ interface StatusBarProps {
 export function StatusBar({ cursorPos, onOpenShortcuts }: StatusBarProps) {
   const { state } = useDrawing();
 
-  const formattedX = cursorPos ? cursorPos.x.toFixed(1) : "—";
-  const formattedY = cursorPos ? cursorPos.y.toFixed(1) : "—";
+  const formattedX = cursorPos ? Math.round(cursorPos.x) : "—";
+  const formattedY = cursorPos ? Math.round(cursorPos.y) : "—";
+
+  const groupCount = new Set(state.shapes.map((s) => s.groupId).filter(Boolean)).size;
 
   return (
-    <footer className="fixed bottom-3 left-4 right-4 h-9 px-4 rounded-2xl glass-panel shadow-md z-30 flex items-center justify-between text-xs font-mono text-[var(--fg-secondary)] pointer-events-auto select-none border border-[var(--border-subtle)]">
-      {/* Coordinates & Selection status */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 font-medium">
-          <span className="text-[var(--fg-muted)]">X:</span>
-          <span className="w-16 text-[var(--fg-primary)] font-bold">{formattedX}</span>
-          <span className="text-[var(--fg-muted)]">Y:</span>
-          <span className="w-16 text-[var(--fg-primary)] font-bold">{formattedY}</span>
+    <footer className="fixed bottom-0 left-0 right-0 h-[28px] px-3 bg-[var(--bg-panel)] border-t border-[var(--border-subtle)] z-50 flex items-center justify-between text-[11px] font-mono text-[var(--fg-secondary)] select-none">
+      {/* Left status */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span>X: <b className="text-[var(--fg-primary)]">{formattedX}</b></span>
+          <span>Y: <b className="text-[var(--fg-primary)]">{formattedY}</b></span>
         </div>
 
-        <div className="hidden sm:flex items-center gap-3 border-l border-[var(--border-subtle)] pl-4 text-[11px]">
-          <span>
-            Shapes: <b className="text-[var(--fg-primary)]">{state.shapes.length}</b>
-          </span>
-          {state.selectedId && (
-            <span className="text-blue-500 font-semibold">
-              (1 selected)
-            </span>
-          )}
-        </div>
+        <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />
+
+        <span className="capitalize font-semibold text-blue-500">
+          Tool: {state.tool}
+        </span>
+
+        <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />
+
+        <span>
+          Zoom: <b className="text-[var(--fg-primary)]">{Math.round(state.viewport.scale * 100)}%</b>
+        </span>
       </div>
 
-      {/* Snap state & Shortcut hints */}
+      {/* Right status */}
       <div className="flex items-center gap-3">
-        <div className="hidden md:flex items-center gap-2 text-[11px]">
-          {state.gridSnapEnabled && (
-            <span className="flex items-center gap-1 text-blue-500 font-semibold bg-blue-500/10 px-2 py-0.5 rounded-md">
-              <Magnet className="w-3 h-3" />
-              <span>Grid Snap</span>
-            </span>
-          )}
-          {state.objectSnapEnabled && (
-            <span className="flex items-center gap-1 text-amber-500 font-semibold bg-amber-500/10 px-2 py-0.5 rounded-md">
-              <Target className="w-3 h-3" />
-              <span>Vertex Snap</span>
-            </span>
-          )}
-        </div>
+        <span>
+          <b className="text-[var(--fg-primary)]">{state.shapes.length}</b> shapes
+          {groupCount > 0 && <span className="text-blue-400 font-bold ml-1">({groupCount} groups)</span>}
+        </span>
+
+        <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />
 
         <button
           onClick={onOpenShortcuts}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[var(--fg-secondary)] hover:text-[var(--fg-primary)] hover:bg-[var(--bg-panel-subtle)] transition-all font-sans font-medium text-[11px] cursor-pointer"
-          title="Keyboard Shortcuts (?)"
+          className="flex items-center gap-1 hover:text-[var(--fg-primary)] cursor-pointer"
         >
-          <Keyboard className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Shortcuts</span>
-          <span className="text-[10px] font-mono bg-[var(--border-subtle)] px-1 rounded">?</span>
+          <Keyboard className="w-3 h-3" />
+          <span>Shortcuts</span>
         </button>
+
+        <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />
+
+        <span className="text-[10px] text-[var(--fg-muted)]">v1.0.4-cad</span>
       </div>
     </footer>
   );

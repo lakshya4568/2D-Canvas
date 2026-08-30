@@ -1,12 +1,12 @@
 "use client";
 
 import React from "react";
-import { Shape, LineShape, RectangleShape, CircleShape } from "@/lib/geometry/types";
+import { Shape } from "@/lib/geometry/types";
 import { DimensionBadge } from "./DimensionBadge";
 
 interface ShapeRendererProps {
   shapes: Shape[];
-  selectedId: string | null;
+  selectedIds: string[];
   showDimensions: boolean;
   scale: number;
   onSelectShape: (id: string, e: React.PointerEvent) => void;
@@ -19,8 +19,10 @@ const SingleShape = React.memo<{
   scale: number;
   onSelectShape: (id: string, e: React.PointerEvent) => void;
 }>(({ shape, isSelected, showDimensions, scale, onSelectShape }) => {
-  const strokeColor = isSelected ? "var(--accent-select)" : shape.strokeColor || "#3b82f6";
-  const strokeWidth = (shape.strokeWidth || 2) * (isSelected ? 1.2 : 1);
+  if (shape.isVisible === false) return null;
+
+  const strokeColor = isSelected ? "#0066ff" : shape.strokeColor || "#c2c6d8";
+  const strokeWidth = (shape.strokeWidth || 1.5) * (isSelected ? 1.2 : 1);
   const opacity = shape.opacity ?? 1;
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -32,9 +34,9 @@ const SingleShape = React.memo<{
       id={`shape-${shape.id}`}
       className="cursor-pointer transition-colors duration-100 group"
       onPointerDown={handlePointerDown}
-      style={{ opacity }}
+      style={{ opacity: shape.isLocked ? opacity * 0.7 : opacity }}
     >
-      {/* Invisible thicker hit-testing area for fine lines / strokes */}
+      {/* Invisible hit-testing cushion */}
       {shape.type === "line" && (
         <line
           x1={shape.x1}
@@ -47,7 +49,7 @@ const SingleShape = React.memo<{
         />
       )}
 
-      {/* Render shape primitive */}
+      {/* Render Shape */}
       {shape.type === "line" && (
         <line
           x1={shape.x1}
@@ -58,7 +60,6 @@ const SingleShape = React.memo<{
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
           strokeLinecap="round"
-          className="transition-all duration-100"
         />
       )}
 
@@ -72,8 +73,7 @@ const SingleShape = React.memo<{
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
-          rx={2}
-          className="transition-all duration-100"
+          rx={0}
         />
       )}
 
@@ -86,7 +86,6 @@ const SingleShape = React.memo<{
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={shape.strokeDasharray}
-          className="transition-all duration-100"
         />
       )}
 
@@ -101,14 +100,14 @@ const SingleShape = React.memo<{
 SingleShape.displayName = "SingleShape";
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
-  ({ shapes, selectedId, showDimensions, scale, onSelectShape }) => {
+  ({ shapes, selectedIds, showDimensions, scale, onSelectShape }) => {
     return (
       <g id="shapes-layer">
         {shapes.map((shape) => (
           <SingleShape
             key={shape.id}
             shape={shape}
-            isSelected={shape.id === selectedId}
+            isSelected={selectedIds.includes(shape.id)}
             showDimensions={showDimensions}
             scale={scale}
             onSelectShape={onSelectShape}

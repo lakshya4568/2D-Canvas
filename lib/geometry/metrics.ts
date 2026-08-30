@@ -104,7 +104,7 @@ export function circleMetrics(
 }
 
 /**
- * Computes the axis-aligned bounding box (AABB) for any shape.
+ * Computes the axis-aligned bounding box (AABB) for any single shape.
  */
 export function computeShapeBounds(shape: Shape): BoundingBox {
   switch (shape.type) {
@@ -159,6 +159,38 @@ export function computeShapeBounds(shape: Shape): BoundingBox {
       };
     }
   }
+}
+
+/**
+ * Computes the collective bounding box enclosing multiple shapes (or a group).
+ */
+export function computeMultiShapeBounds(shapes: Shape[]): BoundingBox | null {
+  if (shapes.length === 0) return null;
+  if (shapes.length === 1) return computeShapeBounds(shapes[0]);
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const s of shapes) {
+    const b = computeShapeBounds(s);
+    if (b.minX < minX) minX = b.minX;
+    if (b.minY < minY) minY = b.minY;
+    if (b.maxX > maxX) maxX = b.maxX;
+    if (b.maxY > maxY) maxY = b.maxY;
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+  };
 }
 
 /**
