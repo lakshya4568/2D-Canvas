@@ -64,11 +64,6 @@ export function DrawingApp() {
         {/* Primary Interactive SVG Canvas */}
         <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)]">
           <DrawingCanvas onCursorChange={setCursorPos} />
-
-          {/* Floating Export Button in Bottom Right Corner */}
-          <div className="absolute bottom-4 right-4 z-30">
-            <ExportMenu direction="up" onNotification={addNotification} />
-          </div>
         </main>
 
         {/* Right Docked Property Inspector (Width 280px) */}
@@ -79,6 +74,7 @@ export function DrawingApp() {
       <StatusBar
         cursorPos={cursorPos}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onNotification={addNotification}
       />
 
       {/* Shortcuts Modal */}

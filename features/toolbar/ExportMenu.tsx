@@ -126,16 +126,16 @@ export function ExportMenu({ direction = "up", onNotification }: ExportMenuProps
       <div className="flex items-center">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="h-9 px-3.5 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-semibold shadow-lg transition-all cursor-pointer border border-blue-400/30"
+          className="h-[22px] px-2.5 flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded text-[11px] font-semibold font-sans shadow-sm transition-all cursor-pointer border border-blue-400/30"
           aria-expanded={isOpen}
           title="Export / Import Drawing"
         >
-          <Download className="w-4 h-4" />
+          <Download className="w-3 h-3" />
           <span>Export</span>
           {direction === "up" ? (
-            <ChevronUp className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+            <ChevronUp className={`w-3 h-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
           ) : (
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+            <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
           )}
         </button>
       </div>

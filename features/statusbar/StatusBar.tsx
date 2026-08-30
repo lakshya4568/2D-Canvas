@@ -3,14 +3,16 @@
 import React from "react";
 import { Point } from "@/lib/geometry/types";
 import { useDrawing } from "@/lib/state/drawingContext";
-import { Keyboard, BookOpen } from "lucide-react";
+import { Keyboard } from "lucide-react";
+import { ExportMenu } from "../toolbar/ExportMenu";
 
 interface StatusBarProps {
   cursorPos: Point | null;
   onOpenShortcuts: () => void;
+  onNotification?: (msg: { text: string; type: "success" | "error" }) => void;
 }
 
-export function StatusBar({ cursorPos, onOpenShortcuts }: StatusBarProps) {
+export function StatusBar({ cursorPos, onOpenShortcuts, onNotification }: StatusBarProps) {
   const { state } = useDrawing();
 
   const formattedX = cursorPos ? Math.round(cursorPos.x) : "—";
@@ -40,8 +42,8 @@ export function StatusBar({ cursorPos, onOpenShortcuts }: StatusBarProps) {
         </span>
       </div>
 
-      {/* Right status */}
-      <div className="flex items-center gap-3">
+      {/* Right status & Export in footer */}
+      <div className="flex items-center gap-2.5">
         <span>
           <b className="text-[var(--fg-primary)]">{state.shapes.length}</b> shapes
           {groupCount > 0 && <span className="text-blue-400 font-bold ml-1">({groupCount} groups)</span>}
@@ -51,7 +53,7 @@ export function StatusBar({ cursorPos, onOpenShortcuts }: StatusBarProps) {
 
         <button
           onClick={onOpenShortcuts}
-          className="flex items-center gap-1 hover:text-[var(--fg-primary)] cursor-pointer"
+          className="flex items-center gap-1 hover:text-[var(--fg-primary)] cursor-pointer transition-colors"
         >
           <Keyboard className="w-3 h-3" />
           <span>Shortcuts</span>
@@ -60,6 +62,11 @@ export function StatusBar({ cursorPos, onOpenShortcuts }: StatusBarProps) {
         <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />
 
         <span className="text-[10px] text-[var(--fg-muted)]">v1.0.4-cad</span>
+
+        <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />
+
+        {/* Embedded Footer Export Button */}
+        <ExportMenu direction="up" onNotification={onNotification} />
       </div>
     </footer>
   );
