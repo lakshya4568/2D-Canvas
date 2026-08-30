@@ -1,4 +1,5 @@
 import { Point, Shape } from "./types";
+import { rotatePoint, getShapeCenter } from "./metrics";
 
 /**
  * Calculates the shortest Euclidean distance from a test point P to a line segment AB.
@@ -48,7 +49,7 @@ export function hitTestRect(
 
   if (!inAABB) return false;
 
-  // Inside filled region
+  // Inside filled or bounded region
   if (
     p.x >= rect.x &&
     p.x <= rect.x + rect.width &&
@@ -86,29 +87,38 @@ export function hitTestCircle(
 
 /**
  * Hit tests an array of shapes in reverse order (topmost layer tested first).
+ * Supports rotated shapes by inverse-transforming test coordinates.
  * Returns the highest z-index shape that intersects the point, or null.
  */
-export function hitTestShapes(shapes: Shape[], point: Point, tolerance: number = 6): Shape | null {
+export function hitTestShapes(shapes: Shape[], point: Point, tolerance: number = 8): Shape | null {
   for (let i = shapes.length - 1; i >= 0; i--) {
     const shape = shapes[i];
+    if (shape.isVisible === false) continue;
+
+    // Apply inverse rotation if shape is rotated
+    let localPoint = point;
+    if (shape.rotation && shape.rotation !== 0) {
+      const center = getShapeCenter(shape);
+      localPoint = rotatePoint(point, center, -shape.rotation);
+    }
+
+    const strokeTol = Math.max(tolerance, (shape.strokeWidth ?? 2) / 2 + 6);
+
     switch (shape.type) {
       case "line": {
-        const strokeTol = Math.max(tolerance, (shape.strokeWidth ?? 2) / 2 + 4);
-        if (hitTestLine(point, shape, strokeTol)) {
+        if (hitTestLine(localPoint, shape, strokeTol)) {
           return shape;
         }
         break;
       }
       case "rectangle": {
-        const strokeTol = Math.max(tolerance, (shape.strokeWidth ?? 2) / 2 + 4);
-        if (hitTestRect(point, shape, strokeTol)) {
+        if (hitTestRect(localPoint, shape, strokeTol)) {
           return shape;
         }
         break;
       }
       case "circle": {
-        const strokeTol = Math.max(tolerance, (shape.strokeWidth ?? 2) / 2 + 4);
-        if (hitTestCircle(point, shape, strokeTol)) {
+        if (hitTestCircle(localPoint, shape, strokeTol)) {
           return shape;
         }
         break;

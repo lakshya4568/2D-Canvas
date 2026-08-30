@@ -29,6 +29,7 @@ const SingleShape = React.memo<{
   const center = getShapeCenter(shape);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
     onSelectShape(shape.id, e);
   };
 
@@ -37,12 +38,12 @@ const SingleShape = React.memo<{
   return (
     <g
       id={`shape-${shape.id}`}
-      className="cursor-pointer transition-colors duration-100 group"
+      className="cursor-pointer transition-colors duration-100 group pointer-events-auto"
       onPointerDown={handlePointerDown}
       transform={transformAttr}
       style={{ opacity: shape.isLocked ? opacity * 0.7 : opacity }}
     >
-      {/* Invisible hit-testing cushion */}
+      {/* Invisible hit-testing cushion for lines */}
       {shape.type === "line" && (
         <line
           x1={shape.x1}
@@ -50,7 +51,7 @@ const SingleShape = React.memo<{
           x2={shape.x2}
           y2={shape.y2}
           stroke="transparent"
-          strokeWidth={Math.max(16 / scale, strokeWidth + 10 / scale)}
+          strokeWidth={Math.max(20 / scale, strokeWidth + 14 / scale)}
           strokeLinecap="round"
         />
       )}
