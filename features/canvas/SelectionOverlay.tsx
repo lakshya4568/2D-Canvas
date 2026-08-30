@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Shape } from "@/lib/geometry/types";
-import { computeMultiShapeBounds, formatDimension } from "@/lib/geometry/metrics";
+import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import { DimensionBadge } from "./DimensionBadge";
 
 export type HandleType = "nw" | "ne" | "se" | "sw" | "n" | "s" | "e" | "w";
@@ -10,7 +10,7 @@ export type HandleType = "nw" | "ne" | "se" | "sw" | "n" | "s" | "e" | "w";
 interface SelectionOverlayProps {
   shapes: Shape[];
   scale: number;
-  onHandlePointerDown?: (handle: HandleType, e: React.PointerEvent) => void;
+  onHandlePointerDown?: (handle: HandleType, cursor: string, e: React.PointerEvent) => void;
   onRotatePointerDown?: (e: React.PointerEvent) => void;
 }
 
@@ -84,7 +84,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
           fill={handleFill}
           stroke={handleStroke}
           strokeWidth={strokeWidth}
-          className="cursor-grab hover:scale-125 transition-transform pointer-events-auto"
+          className="cursor-grab pointer-events-auto"
           onPointerDown={(e) => {
             e.stopPropagation();
             onRotatePointerDown?.(e);
@@ -93,30 +93,7 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
           <title>Drag to Rotate (Hold Shift to snap to 15°)</title>
         </circle>
 
-        {/* Figma-Style 4 Corner Rotation Zones (Outside corner handles) */}
-        {[
-          { id: "rot-nw", x: boxX - 8 / scale, y: boxY - 8 / scale },
-          { id: "rot-ne", x: boxX + boxW + 8 / scale, y: boxY - 8 / scale },
-          { id: "rot-se", x: boxX + boxW + 8 / scale, y: boxY + boxH + 8 / scale },
-          { id: "rot-sw", x: boxX - 8 / scale, y: boxY + boxH + 8 / scale },
-        ].map((rz) => (
-          <circle
-            key={rz.id}
-            cx={rz.x}
-            cy={rz.y}
-            r={10 / scale}
-            fill="transparent"
-            className="cursor-crosshair pointer-events-auto"
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              onRotatePointerDown?.(e);
-            }}
-          >
-            <title>Rotate Shape</title>
-          </circle>
-        ))}
-
-        {/* Figma-Style Interactive Resize Handles */}
+        {/* Figma-Style Interactive Resize Handles - Solid, zero-jitter */}
         {handles.map((h) => (
           <rect
             key={h.id}
@@ -127,11 +104,11 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
             fill={handleFill}
             stroke={handleStroke}
             strokeWidth={strokeWidth}
-            className="cursor-pointer pointer-events-auto hover:scale-125 transition-transform"
+            className="pointer-events-auto"
             style={{ cursor: h.cursor }}
             onPointerDown={(e) => {
               e.stopPropagation();
-              onHandlePointerDown?.(h.id, e);
+              onHandlePointerDown?.(h.id, h.cursor, e);
             }}
           />
         ))}

@@ -45,6 +45,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   const startWorldPointRef = useRef<Point>({ x: 0, y: 0 });
   const lastScreenPosRef = useRef<Point>({ x: 0, y: 0 });
   const activeResizeHandleRef = useRef<HandleType | null>(null);
+  const activeResizeCursorRef = useRef<string | null>(null);
   const initialBoundsRef = useRef<BoundingBox | null>(null);
   const initialShapesRef = useRef<Shape[]>([]);
 
@@ -55,6 +56,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [isPanActive, setIsPanActive] = useState(false);
+  const [activeCursor, setActiveCursor] = useState<string | null>(null);
   const [marqueeBox, setMarqueeBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   const getWorldPoint = useCallback(
@@ -74,13 +76,15 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
    * Handle Start of Handle Resize (Figma-Style Corner & Edge Scaling)
    */
   const handleResizeStart = useCallback(
-    (handle: HandleType, e: React.PointerEvent) => {
+    (handle: HandleType, cursor: string, e: React.PointerEvent) => {
       if (selectedShapes.length === 0) return;
       const bounds = computeMultiShapeBounds(selectedShapes);
       if (!bounds) return;
 
       isResizingRef.current = true;
       activeResizeHandleRef.current = handle;
+      activeResizeCursorRef.current = cursor;
+      setActiveCursor(cursor);
       initialBoundsRef.current = bounds;
       initialShapesRef.current = JSON.parse(JSON.stringify(selectedShapes));
       startWorldPointRef.current = getWorldPoint(e.clientX, e.clientY);
@@ -108,6 +112,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       if (!bounds) return;
 
       isRotatingRef.current = true;
+      setActiveCursor("grabbing");
       const center = { x: bounds.centerX, y: bounds.centerY };
       rotationCenterRef.current = center;
 
@@ -155,6 +160,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           const isShiftOrCtrl = e.shiftKey || e.ctrlKey || e.metaKey;
           selectShape(hitShape.id, isShiftOrCtrl);
           isMovingRef.current = true;
+          setActiveCursor("grabbing");
           dispatch({
             type: "RECORD_PRE_MOVE_SNAPSHOT",
             shapes: state.shapes,
@@ -482,6 +488,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
    */
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
+      setActiveCursor(null);
+
       if (isPanningRef.current) {
         isPanningRef.current = false;
         setIsPanActive(false);
@@ -502,6 +510,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       if (isResizingRef.current) {
         isResizingRef.current = false;
         activeResizeHandleRef.current = null;
+        activeResizeCursorRef.current = null;
         initialBoundsRef.current = null;
         try {
           (e.currentTarget as Element).releasePointerCapture(e.pointerId);
@@ -732,7 +741,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   }, [state.selectedIds, state.draft, state.viewport, dispatch, deleteSelected, duplicateSelected, groupSelected, ungroupSelected, selectShape, setTool]);
 
   let cursorStyle = "crosshair";
-  if (state.tool === "select") {
+  if (activeCursor) {
+    cursorStyle = activeCursor;
+  } else if (state.tool === "select") {
     cursorStyle = isMovingRef.current ? "grabbing" : isRotatingRef.current ? "grabbing" : "default";
   } else if (state.tool === "pan" || isSpaceHeld) {
     cursorStyle = isPanActive ? "grabbing" : "grab";
@@ -782,7 +793,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           {/* In-Progress Live Draft */}
           <DraftPreview draft={state.draft} scale={scale} />
 
-          {/* Figma-Style Selection Overlay with Corner/Edge Resizing & Top/Corner Rotation Handles */}
+          {/* Figma-Style Selection Overlay with Corner/Edge Resizing & Top Rotation Handle */}
           <SelectionOverlay
             shapes={selectedShapes}
             scale={scale}
