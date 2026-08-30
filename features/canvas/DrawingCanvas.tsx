@@ -492,33 +492,95 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   );
 
   /**
-   * Mouse Wheel
+   * Native Non-Passive Wheel & Pinch-Zoom Listener
+   * Prevents full browser page zoom and zooms only the internal SVG world coordinate system!
    */
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<SVGSVGElement>) => {
-      e.preventDefault();
-      if (!svgRef.current) return;
+  useEffect(() => {
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
 
-      const rect = svgRef.current.getBoundingClientRect();
+    const handleNativeWheel = (e: WheelEvent) => {
+      // Crucial: prevent browser whole-page zoom (Ctrl+wheel / Trackpad pinch)
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = svgEl.getBoundingClientRect();
       const screenPt: Point = {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
       };
 
+      // 1. Trackpad pinch or Ctrl/Cmd-wheel zoom
+      if (e.ctrlKey || e.metaKey) {
+        const zoomFactor = Math.exp(-e.deltaY * 0.01);
+        const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, 0.05, 20);
+        dispatch({ type: "SET_VIEWPORT", viewport: nextViewport });
+        return;
+      }
+
+      // 2. Shift + Wheel -> Horizontal Pan
+      if (e.shiftKey) {
+        dispatch({
+          type: "SET_VIEWPORT",
+          viewport: {
+            ...state.viewport,
+            x: state.viewport.x - e.deltaY,
+          },
+        });
+        return;
+      }
+
+      // 3. Mouse Wheel Zoom (or Trackpad 2-finger Scroll)
+      // Standard smooth CAD zoom anchored at cursor
       const zoomFactor = e.deltaY < 0 ? 1.08 : 0.925;
-      const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, 0.1, 10);
+      const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, 0.05, 20);
       dispatch({ type: "SET_VIEWPORT", viewport: nextViewport });
-    },
-    [state.viewport, dispatch]
-  );
+    };
+
+    const handleGesture = (e: Event) => {
+      e.preventDefault();
+    };
+
+    // Attach native non-passive listeners
+    svgEl.addEventListener("wheel", handleNativeWheel, { passive: false });
+    svgEl.addEventListener("gesturestart", handleGesture, { passive: false });
+    svgEl.addEventListener("gesturechange", handleGesture, { passive: false });
+    svgEl.addEventListener("gestureend", handleGesture, { passive: false });
+
+    return () => {
+      svgEl.removeEventListener("wheel", handleNativeWheel);
+      svgEl.removeEventListener("gesturestart", handleGesture);
+      svgEl.removeEventListener("gesturechange", handleGesture);
+      svgEl.removeEventListener("gestureend", handleGesture);
+    };
+  }, [state.viewport, dispatch]);
 
   /**
-   * Keyboard Shortcuts
+   * Keyboard Shortcuts & Browser Zoom Interceptor
    */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (targetTag === "input" || targetTag === "textarea" || targetTag === "select") {
+        return;
+      }
+
+      // Intercept browser Ctrl/Cmd + (+/-/= / 0) to zoom the canvas instead of the browser page
+      if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=" || e.key === "-" || e.key === "0")) {
+        e.preventDefault();
+        if (e.key === "+" || e.key === "=") {
+          dispatch({
+            type: "SET_VIEWPORT",
+            viewport: { ...state.viewport, scale: Math.min(20, state.viewport.scale * 1.2) },
+          });
+        } else if (e.key === "-") {
+          dispatch({
+            type: "SET_VIEWPORT",
+            viewport: { ...state.viewport, scale: Math.max(0.05, state.viewport.scale / 1.2) },
+          });
+        } else if (e.key === "0") {
+          dispatch({ type: "RESET_VIEWPORT" });
+        }
         return;
       }
 
@@ -600,7 +662,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [state.selectedIds, state.draft, dispatch, deleteSelected, duplicateSelected, groupSelected, ungroupSelected, selectShape, setTool]);
+  }, [state.selectedIds, state.draft, state.viewport, dispatch, deleteSelected, duplicateSelected, groupSelected, ungroupSelected, selectShape, setTool]);
 
   let cursorStyle = "crosshair";
   if (state.tool === "select") {
@@ -616,7 +678,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       <svg
         id="drawing-canvas-svg"
         ref={svgRef}
-        className="w-full h-full block select-none outline-none"
+        className="w-full h-full block select-none outline-none touch-none"
         tabIndex={0}
         style={{ cursor: cursorStyle }}
         onPointerDown={handlePointerDown}
@@ -625,7 +687,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         onPointerLeave={() => {
           onCursorChange?.(null);
         }}
-        onWheel={handleWheel}
       >
         <g
           id="world-layer"
