@@ -8,6 +8,13 @@ import { lineMetrics, rectMetrics, circleMetrics, getShapeCenter } from "../geom
 import { DependencyGraph } from "./dependencyGraph";
 import { parseFormula, evaluateFormula, SymbolTable } from "./expression";
 import { GeometricConstraint, solveConstraints, SolverResult } from "./constraints";
+import { LocalCoordinateSystem, Transform2D, Vector2D, AffineMatrix2D } from "./transform2d";
+import { GeometryObjectState, GeometryObject, RelativePlacementDef } from "./geometryObject";
+import { LCSSolver, LCSSolveReport } from "./solver";
+import { ConstraintGraph, DOFAnalysis } from "./constraintGraph";
+import { GeometricConstraintSolver, GeometricSolveResult } from "./constraintSolver";
+import { detectClosedLoops, analyzePolygon, ClosedShapeAnalysis, DetectedLoop } from "./closedGeometry";
+import { ConstructionManager } from "./constructionGeometry";
 
 export interface ParametricVariable {
   name: string;
@@ -30,6 +37,12 @@ export class ParametricModel {
   public variables = new Map<string, ParametricVariable>();
   public graph = new DependencyGraph();
   public constraints: GeometricConstraint[] = [];
+  public lcsSolver = new LCSSolver();
+  public cadObjects = new Map<string, GeometryObjectState>();
+  public constraintGraph = new ConstraintGraph();
+  public geometricSolver = new GeometricConstraintSolver();
+  public constructionManager = new ConstructionManager();
+  public activeLoops: DetectedLoop[] = [];
 
   constructor() {
     this.reset();
@@ -39,6 +52,10 @@ export class ParametricModel {
     this.variables.clear();
     this.graph.clear();
     this.constraints = [];
+    this.cadObjects.clear();
+    this.constraintGraph.clear();
+    this.constructionManager.clear();
+    this.activeLoops = [];
   }
 
   /**
@@ -348,6 +365,59 @@ export class ParametricModel {
             case "left_inner_rect":
               s.x1 = ox + T; s.y1 = oy + H - T; s.x2 = ox + T; s.y2 = oy + T;
               break;
+            case "miter_top_left":
+            case "miter_tl":
+              s.x1 = ox; s.y1 = oy; s.x2 = ox + T; s.y2 = oy + T;
+              break;
+            case "miter_top_right":
+            case "miter_tr":
+              s.x1 = ox + W; s.y1 = oy; s.x2 = ox + W - T; s.y2 = oy + T;
+              break;
+            case "miter_bottom_right":
+            case "miter_br":
+              s.x1 = ox + W; s.y1 = oy + H; s.x2 = ox + W - T; s.y2 = oy + H - T;
+              break;
+            case "miter_bottom_left":
+            case "miter_bl":
+              s.x1 = ox; s.y1 = oy + H; s.x2 = ox + T; s.y2 = oy + H - T;
+              break;
+          }
+        }
+      }
+    } else if (updatedShapes.some((s) => s.name === "edge_top")) {
+      const edgeTop = updatedShapes.find((s) => s.name === "edge_top")!;
+      const ox = (edgeTop as any).x1;
+      const oy = (edgeTop as any).y1;
+      const L_top = (getVarValue("top_edge_length") as number) ?? 177;
+      const L_tr = (getVarValue("tr_chamfer_length") as number) ?? 38;
+      const L_right = (getVarValue("right_edge_length") as number) ?? 92;
+      const L_br = (getVarValue("br_chamfer_length") as number) ?? 38;
+      const L_bot = (getVarValue("bottom_edge_length") as number) ?? 176;
+      const L_bl = (getVarValue("bl_chamfer_length") as number) ?? 46;
+      const L_left = (getVarValue("left_edge_length") as number) ?? 79;
+      const L_tl = (getVarValue("tl_chamfer_length") as number) ?? 44;
+
+      const v0 = { x: ox, y: oy };
+      const v1 = { x: ox + L_top, y: oy };
+      const v2 = { x: v1.x + L_tr * Math.SQRT1_2, y: v1.y + L_tr * Math.SQRT1_2 };
+      const v3 = { x: v2.x, y: v2.y + L_right };
+      const v4 = { x: v3.x - L_br * Math.SQRT1_2, y: v3.y + L_br * Math.SQRT1_2 };
+
+      const v7 = { x: v0.x - L_tl * Math.SQRT1_2, y: v0.y + L_tl * Math.SQRT1_2 };
+      const v6 = { x: v7.x, y: v7.y + L_left };
+      const v5 = { x: v6.x + L_bl * Math.SQRT1_2, y: v4.y };
+
+      for (const s of updatedShapes) {
+        if (s.type === "line") {
+          switch (s.name) {
+            case "edge_top": s.x1 = v0.x; s.y1 = v0.y; s.x2 = v1.x; s.y2 = v1.y; break;
+            case "edge_tr": s.x1 = v1.x; s.y1 = v1.y; s.x2 = v2.x; s.y2 = v2.y; break;
+            case "edge_right": s.x1 = v2.x; s.y1 = v2.y; s.x2 = v3.x; s.y2 = v3.y; break;
+            case "edge_br": s.x1 = v3.x; s.y1 = v3.y; s.x2 = v4.x; s.y2 = v4.y; break;
+            case "edge_bottom": s.x1 = v4.x; s.y1 = v4.y; s.x2 = v5.x; s.y2 = v5.y; break;
+            case "edge_bl": s.x1 = v5.x; s.y1 = v5.y; s.x2 = v6.x; s.y2 = v6.y; break;
+            case "edge_left": s.x1 = v6.x; s.y1 = v6.y; s.x2 = v7.x; s.y2 = v7.y; break;
+            case "edge_tl": s.x1 = v7.x; s.y1 = v7.y; s.x2 = v0.x; s.y2 = v0.y; break;
           }
         }
       }
@@ -386,5 +456,92 @@ export class ParametricModel {
     }
 
     return { updatedShapes, errors };
+  }
+
+  /**
+   * High-level Local Coordinate System (LCS) Solver
+   * Translates incoming shapes into stateful CAD elements with local frames,
+   * evaluates formulas and relative coordinate placements, resolves parent-child
+   * transforms, and projects resolved geometry back to CAD shapes.
+   */
+  public solveWithLCS(shapes: Shape[]): LCSSolveReport {
+    const objects = new Map<string, GeometryObjectState>();
+    for (const shape of shapes) {
+      const existing = this.cadObjects.get(shape.id);
+      if (existing) {
+        existing.name = shape.name || existing.name;
+        objects.set(shape.id, existing);
+      } else {
+        const obj = GeometryObject.fromShape(shape);
+        this.cadObjects.set(shape.id, obj);
+        objects.set(shape.id, obj);
+      }
+    }
+
+    return this.lcsSolver.solve(this.variables, objects, this.constraints);
+  }
+
+  /**
+   * Automatically analyzes shapes for closed geometric loops and exposes their exact mathematical properties
+   */
+  public detectLoops(shapes: Shape[]): DetectedLoop[] {
+    this.activeLoops = detectClosedLoops(shapes);
+    for (let i = 0; i < this.activeLoops.length; i++) {
+      const loop = this.activeLoops[i];
+      const prefix = `Loop_${i + 1}`;
+      const a = loop.analysis;
+      this.variables.set(`${prefix}.area`, { name: `${prefix}.area`, value: a.area, description: "Closed loop Shoelace area" });
+      this.variables.set(`${prefix}.perimeter`, { name: `${prefix}.perimeter`, value: a.perimeter, description: "Closed loop perimeter" });
+      this.variables.set(`${prefix}.centroid.x`, { name: `${prefix}.centroid.x`, value: a.centroid.x, description: "Centroid X" });
+      this.variables.set(`${prefix}.centroid.y`, { name: `${prefix}.centroid.y`, value: a.centroid.y, description: "Centroid Y" });
+      this.variables.set(`${prefix}.width`, { name: `${prefix}.width`, value: a.boundingBox.width, description: "Bounding box width" });
+      this.variables.set(`${prefix}.height`, { name: `${prefix}.height`, value: a.boundingBox.height, description: "Bounding box height" });
+    }
+    return this.activeLoops;
+  }
+
+  /**
+   * Comprehensive Parametric & Constraint-Aware Geometry Solver
+   * 1. Detects closed loops & computes Shoelace area, Centroid, Perimeter, Angles.
+   * 2. Runs Dependency Graph to evaluate algebraic relationships & formulas.
+   * 3. Runs Bipartite Constraint Graph & Geometric Solver (Gauss-Newton relaxation).
+   * 4. Synchronizes resolved coordinates back to canvas shapes.
+   */
+  public solveParametricGeometricModel(shapes: Shape[]): {
+    updatedShapes: Shape[];
+    loops: DetectedLoop[];
+    errors: string[];
+    dofAnalysis?: DOFAnalysis;
+  } {
+    // 1. Detect closed loops and publish derived metrics to symbol table
+    const loops = this.detectLoops(shapes);
+
+    // 2. Solve algebraic dependencies & LCS transforms
+    const lcsRes = this.solveWithLCS(shapes);
+    let resolvedShapes = lcsRes.shapes;
+
+    // 3. Populate constraint graph entities and solve geometric constraints if any exist
+    let dofAnalysis: DOFAnalysis | undefined;
+    if (this.constraintGraph.constraints.size > 0) {
+      dofAnalysis = this.constraintGraph.analyzeDOF();
+      const geomRes = this.geometricSolver.solve(this.constraintGraph);
+      resolvedShapes = resolvedShapes.map((s) => {
+        if (s.type === "line" || s.type === "arrow") {
+          const p1 = geomRes.points.get(`${s.id}_p1`);
+          const p2 = geomRes.points.get(`${s.id}_p2`);
+          if (p1 && p2) {
+            return { ...s, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+          }
+        }
+        return s;
+      });
+    }
+
+    return {
+      updatedShapes: resolvedShapes,
+      loops,
+      errors: lcsRes.errors,
+      dofAnalysis,
+    };
   }
 }

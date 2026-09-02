@@ -194,6 +194,14 @@ export class DependencyGraph {
   }
 
   /**
+   * Alias for getEvaluationOrder().order, falls back to all node keys if cycle exists.
+   */
+  public topologicalSort(): string[] {
+    const res = this.getEvaluationOrder();
+    return res.order.length > 0 ? res.order : Array.from(this.nodes.keys());
+  }
+
+  /**
    * Given a list of changed/dirty variable IDs, returns all affected downstream nodes in topological order.
    */
   public getDownstreamOrder(changedIds: string[]): { order: string[]; error?: string } {

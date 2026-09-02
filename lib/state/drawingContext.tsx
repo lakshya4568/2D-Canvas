@@ -49,10 +49,12 @@ export function DrawingProvider({ children }: { children: ReactNode }) {
 
   const selectedShape = state.shapes.find((s) => s.id === state.selectedId) || null;
   const selectedShapes = state.shapes.filter((s) => state.selectedIds.includes(s.id));
-
-  // Determine if the selection contains a unified group
   const groupIds = new Set(selectedShapes.map((s) => s.groupId).filter(Boolean));
   const isGroupSelected = selectedShapes.length > 1 && groupIds.size === 1 && selectedShapes.every((s) => !!s.groupId);
+
+  if (typeof window !== "undefined") {
+    (window as any).__DRAWING_CONTEXT__ = { state, dispatch };
+  }
 
   const value: DrawingContextType = {
     state,

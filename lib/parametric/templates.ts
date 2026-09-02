@@ -291,4 +291,144 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
       return { shapes, variables, constraints: [] };
     },
   },
+  {
+    id: "parametric_slab_miters",
+    name: "Parametric Slab with Corner Miters (12 Connected Lines)",
+    category: "Structural",
+    description: "Complete slab frame with 4 outer lines, 4 inner lines, and 4 diagonal corner miters (length 35) driven by relative coordinates.",
+    version: "1.1.0",
+    parameters: [
+      { name: "top_outer_rect", label: "Top Outer Line Length", defaultValue: 300, unit: "mm", min: 100, max: 800, step: 10 },
+      { name: "height_outer_rect", label: "Outer Frame Height", defaultValue: 180, unit: "mm", min: 80, max: 500, step: 10 },
+      { name: "wall_thickness", label: "Wall Margin / Thickness", defaultValue: 25, unit: "mm", min: 5, max: 60, step: 5 },
+    ],
+    formulas: [
+      { variable: "top_inner_rect", formula: "top_outer_rect - (wall_thickness * 2)" },
+      { variable: "height_inner_rect", formula: "height_outer_rect - (wall_thickness * 2)" },
+      { variable: "miter_length", formula: "wall_thickness * sqrt(2)" },
+    ],
+    constraints: [],
+    generator: (params) => {
+      const W = params.top_outer_rect ?? 300;
+      const H = params.height_outer_rect ?? 180;
+      const T = params.wall_thickness ?? 25;
+      const inW = W - T * 2;
+      const inH = H - T * 2;
+      const miterL = Number((T * Math.SQRT2).toFixed(1));
+
+      const ox = 120;
+      const oy = 100;
+      const ix = ox + T;
+      const iy = oy + T;
+
+      const shapes: Shape[] = [
+        // 4 Outer Frame Lines
+        { id: "line_top_outer_" + Date.now(), name: "top_outer_rect", type: "line", x1: ox, y1: oy, x2: ox + W, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_right_outer_" + Date.now(), name: "right_outer_rect", type: "line", x1: ox + W, y1: oy, x2: ox + W, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_bot_outer_" + Date.now(), name: "bottom_outer_rect", type: "line", x1: ox + W, y1: oy + H, x2: ox, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_left_outer_" + Date.now(), name: "left_outer_rect", type: "line", x1: ox, y1: oy + H, x2: ox, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
+        // 4 Inner Cutout Lines
+        { id: "line_top_inner_" + Date.now(), name: "top_inner_rect", type: "line", x1: ix, y1: iy, x2: ix + inW, y2: iy, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+        { id: "line_right_inner_" + Date.now(), name: "right_inner_rect", type: "line", x1: ix + inW, y1: iy, x2: ix + inW, y2: iy + inH, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+        { id: "line_bot_inner_" + Date.now(), name: "bottom_inner_rect", type: "line", x1: ix + inW, y1: iy + inH, x2: ix, y2: iy + inH, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+        { id: "line_left_inner_" + Date.now(), name: "left_inner_rect", type: "line", x1: ix, y1: iy + inH, x2: ix, y2: iy, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+        // 4 Corner Miter Lines
+        { id: "miter_tl_" + Date.now(), name: "miter_top_left", type: "line", x1: ox, y1: oy, x2: ix, y2: iy, strokeColor: "#f59e0b", strokeWidth: 1.5 },
+        { id: "miter_tr_" + Date.now(), name: "miter_top_right", type: "line", x1: ox + W, y1: oy, x2: ix + inW, y2: iy, strokeColor: "#f59e0b", strokeWidth: 1.5 },
+        { id: "miter_br_" + Date.now(), name: "miter_bottom_right", type: "line", x1: ox + W, y1: oy + H, x2: ix + inW, y2: iy + inH, strokeColor: "#f59e0b", strokeWidth: 1.5 },
+        { id: "miter_bl_" + Date.now(), name: "miter_bottom_left", type: "line", x1: ox, y1: oy + H, x2: ix, y2: iy + inH, strokeColor: "#f59e0b", strokeWidth: 1.5 },
+      ];
+
+      const variables: Record<string, ParametricVariable> = {
+        top_outer_rect: { name: "top_outer_rect", value: W, unit: "mm" },
+        height_outer_rect: { name: "height_outer_rect", value: H, unit: "mm" },
+        wall_thickness: { name: "wall_thickness", value: T, unit: "mm" },
+        bottom_outer_rect: { name: "bottom_outer_rect", value: W, formula: "top_outer_rect", unit: "mm" },
+        left_outer_rect: { name: "left_outer_rect", value: H, formula: "height_outer_rect", unit: "mm" },
+        right_outer_rect: { name: "right_outer_rect", value: H, formula: "height_outer_rect", unit: "mm" },
+        top_inner_rect: { name: "top_inner_rect", value: inW, formula: "top_outer_rect - (wall_thickness * 2)", unit: "mm" },
+        height_inner_rect: { name: "height_inner_rect", value: inH, formula: "height_outer_rect - (wall_thickness * 2)", unit: "mm" },
+        bottom_inner_rect: { name: "bottom_inner_rect", value: inW, formula: "top_inner_rect", unit: "mm" },
+        left_inner_rect: { name: "left_inner_rect", value: inH, formula: "height_inner_rect", unit: "mm" },
+        right_inner_rect: { name: "right_inner_rect", value: inH, formula: "height_inner_rect", unit: "mm" },
+        miter_length: { name: "miter_length", value: miterL, formula: "wall_thickness * sqrt(2)", unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
+  {
+    id: "chamfered_octagonal_polygon",
+    name: "8-Sided Chamfered Polygon (Closed Shape with 8 Edges)",
+    category: "Structural",
+    description: "Irregular closed polygon with 8 parametric edges, corner chamfers, exact Shoelace area, and mathematical centroid calculation.",
+    version: "1.2.0",
+    parameters: [
+      { name: "top_edge_length", label: "Top Edge Length", defaultValue: 177, unit: "mm", min: 50, max: 400, step: 1 },
+      { name: "tr_chamfer_length", label: "Top-Right Chamfer", defaultValue: 38, unit: "mm", min: 10, max: 100, step: 1 },
+      { name: "right_edge_length", label: "Right Edge Length", defaultValue: 92, unit: "mm", min: 30, max: 300, step: 1 },
+      { name: "br_chamfer_length", label: "Bottom-Right Chamfer", defaultValue: 38, unit: "mm", min: 10, max: 100, step: 1 },
+      { name: "bottom_edge_length", label: "Bottom Edge Length", defaultValue: 176, unit: "mm", min: 50, max: 400, step: 1 },
+      { name: "bl_chamfer_length", label: "Bottom-Left Chamfer", defaultValue: 46, unit: "mm", min: 10, max: 100, step: 1 },
+      { name: "left_edge_length", label: "Left Edge Length", defaultValue: 79, unit: "mm", min: 30, max: 300, step: 1 },
+      { name: "tl_chamfer_length", label: "Top-Left Chamfer", defaultValue: 44, unit: "mm", min: 10, max: 100, step: 1 },
+    ],
+    formulas: [],
+    constraints: [
+      { type: "horizontal", shapeIds: ["edge_top"], enabled: true },
+      { type: "vertical", shapeIds: ["edge_right"], enabled: true },
+      { type: "parallel", shapeIds: ["edge_bottom", "edge_top"], enabled: true },
+      { type: "parallel", shapeIds: ["edge_left", "edge_right"], enabled: true },
+    ],
+    generator: (params) => {
+      const L_top = params.top_edge_length ?? 177;
+      const L_tr = params.tr_chamfer_length ?? 38;
+      const L_right = params.right_edge_length ?? 92;
+      const L_br = params.br_chamfer_length ?? 38;
+      const L_bot = params.bottom_edge_length ?? 176;
+      const L_bl = params.bl_chamfer_length ?? 46;
+      const L_left = params.left_edge_length ?? 79;
+      const L_tl = params.tl_chamfer_length ?? 44;
+
+      const ox = 150;
+      const oy = 100;
+
+      // 8 Vertices
+      const v0 = { x: ox, y: oy };
+      const v1 = { x: ox + L_top, y: oy };
+      const v2 = { x: v1.x + L_tr * Math.SQRT1_2, y: v1.y + L_tr * Math.SQRT1_2 };
+      const v3 = { x: v2.x, y: v2.y + L_right };
+      const v4 = { x: v3.x - L_br * Math.SQRT1_2, y: v3.y + L_br * Math.SQRT1_2 };
+
+      const v7 = { x: v0.x - L_tl * Math.SQRT1_2, y: v0.y + L_tl * Math.SQRT1_2 };
+      const v6 = { x: v7.x, y: v7.y + L_left };
+      const v5 = { x: v6.x + L_bl * Math.SQRT1_2, y: v4.y };
+
+      const actualBotLen = Math.abs(v4.x - v5.x);
+
+      const shapes: Shape[] = [
+        { id: "edge_top", name: "edge_top", type: "line", x1: v0.x, y1: v0.y, x2: v1.x, y2: v1.y, strokeColor: "#000000", strokeWidth: 2 },
+        { id: "edge_tr", name: "edge_tr", type: "line", x1: v1.x, y1: v1.y, x2: v2.x, y2: v2.y, strokeColor: "#000000", strokeWidth: 2 },
+        { id: "edge_right", name: "edge_right", type: "line", x1: v2.x, y1: v2.y, x2: v3.x, y2: v3.y, strokeColor: "#000000", strokeWidth: 2 },
+        { id: "edge_br", name: "edge_br", type: "line", x1: v3.x, y1: v3.y, x2: v4.x, y2: v4.y, strokeColor: "#000000", strokeWidth: 2 },
+        { id: "edge_bottom", name: "edge_bottom", type: "line", x1: v4.x, y1: v4.y, x2: v5.x, y2: v5.y, strokeColor: "#000000", strokeWidth: 2 },
+        { id: "edge_bl", name: "edge_bl", type: "line", x1: v5.x, y1: v5.y, x2: v6.x, y2: v6.y, strokeColor: "#000000", strokeWidth: 2 },
+        { id: "edge_left", name: "edge_left", type: "line", x1: v6.x, y1: v6.y, x2: v7.x, y2: v7.y, strokeColor: "#000000", strokeWidth: 2 },
+        { id: "edge_tl", name: "edge_tl", type: "line", x1: v7.x, y1: v7.y, x2: v0.x, y2: v0.y, strokeColor: "#000000", strokeWidth: 2 },
+      ];
+
+      const variables: Record<string, ParametricVariable> = {
+        top_edge_length: { name: "top_edge_length", value: L_top, unit: "mm" },
+        tr_chamfer_length: { name: "tr_chamfer_length", value: L_tr, unit: "mm" },
+        right_edge_length: { name: "right_edge_length", value: L_right, unit: "mm" },
+        br_chamfer_length: { name: "br_chamfer_length", value: L_br, unit: "mm" },
+        bottom_edge_length: { name: "bottom_edge_length", value: actualBotLen, formula: "top_edge_length - 1", unit: "mm" },
+        bl_chamfer_length: { name: "bl_chamfer_length", value: L_bl, unit: "mm" },
+        left_edge_length: { name: "left_edge_length", value: L_left, unit: "mm" },
+        tl_chamfer_length: { name: "tl_chamfer_length", value: L_tl, unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
 ];

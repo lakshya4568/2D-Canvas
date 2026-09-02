@@ -32,6 +32,7 @@ import { FormulaEditor } from "../parametric/FormulaEditor";
 import { ConstraintsPanel } from "../parametric/ConstraintsPanel";
 import { TemplateModal } from "../parametric/TemplateModal";
 import { ParametricModel } from "@/lib/parametric/model";
+import { detectClosedLoops } from "@/lib/parametric/closedGeometry";
 
 const PRESET_COLORS = [
   "#f8fafc", // White (Dark Mode default)
@@ -63,6 +64,17 @@ export function PropertyInspector() {
   const [paramSubTab, setParamSubTab] = useState<"variables" | "formulas" | "constraints">("variables");
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const activeLoop = React.useMemo(() => {
+    if (!selectedShape) return null;
+    const loops = detectClosedLoops(state.shapes);
+    for (const loop of loops) {
+      if (loop.shapes.some((s) => s.id === selectedShape.id)) {
+        return loop;
+      }
+    }
+    return null;
+  }, [state.shapes, selectedShape]);
 
   const handleUpdate = (updates: Partial<Shape>) => {
     if (!state.selectedId) return;
@@ -583,6 +595,48 @@ export function PropertyInspector() {
                     <span className="text-[10px] text-[var(--fg-muted)]">deg</span>
                   </div>
                 </div>
+
+                {/* Closed Shape & Mathematical Analysis Card */}
+                {activeLoop && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-[var(--bg-panel-subtle)] border border-blue-500/25 flex flex-col gap-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-blue-400" />
+                        Closed Shape Analysis
+                      </span>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">
+                        {activeLoop.analysis.vertexCount} Edges (Closed)
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 font-mono text-[10px]">
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase">Shoelace Area</span>
+                        <span className="text-[11px] font-bold text-[var(--fg-primary)]">
+                          {activeLoop.analysis.area.toLocaleString()} px²
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase">Perimeter</span>
+                        <span className="text-[11px] font-bold text-[var(--fg-primary)]">
+                          {activeLoop.analysis.perimeter.toFixed(1)} px
+                        </span>
+                      </div>
+                      <div className="col-span-2 p-1.5 rounded bg-[var(--bg-app)] flex justify-between items-center">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase">Centroid (Cx, Cy)</span>
+                        <span className="text-[10px] font-semibold text-blue-400">
+                          ({activeLoop.analysis.centroid.x}, {activeLoop.analysis.centroid.y})
+                        </span>
+                      </div>
+                      <div className="col-span-2 p-1.5 rounded bg-[var(--bg-app)] flex justify-between items-center">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase">Bounding Box</span>
+                        <span className="text-[10px] text-[var(--fg-secondary)]">
+                          {activeLoop.analysis.boundingBox.width} × {activeLoop.analysis.boundingBox.height} px
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-3 rounded bg-[var(--bg-panel-subtle)] border border-[var(--border-subtle)] text-[var(--fg-secondary)] flex flex-col gap-2">

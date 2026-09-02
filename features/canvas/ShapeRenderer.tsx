@@ -4,6 +4,7 @@ import React from "react";
 import { Shape } from "@/lib/geometry/types";
 import { DimensionBadge } from "./DimensionBadge";
 import { getShapeCenter, getPolygonPoints, getStarPoints, pointsToSvgString } from "@/lib/geometry/metrics";
+import { detectClosedLoops } from "@/lib/parametric/closedGeometry";
 
 interface ShapeRendererProps {
   shapes: Shape[];
@@ -191,6 +192,11 @@ SingleShape.displayName = "SingleShape";
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
   ({ shapes, selectedIds, showDimensions, scale, isSelectTool, themeMode = "dark", onSelectShape }) => {
+    const loops = React.useMemo(() => {
+      if (!showDimensions && selectedIds.length === 0) return [];
+      return detectClosedLoops(shapes);
+    }, [shapes, showDimensions, selectedIds]);
+
     return (
       <g id="shapes-layer">
         {shapes.map((shape) => (
@@ -205,6 +211,58 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
             onSelectShape={onSelectShape}
           />
         ))}
+
+        {/* Render Mathematical Centroid Crosshair (⊕) for detected closed loops */}
+        {loops.map((loop) => {
+          const isLoopSelected = loop.shapes.some((s) => selectedIds.includes(s.id));
+          if (!showDimensions && !isLoopSelected) return null;
+          const { centroid } = loop.analysis;
+
+          return (
+            <g key={loop.id} pointerEvents="none" className="transition-opacity duration-200">
+              {/* Centroid Crosshair */}
+              <circle
+                cx={centroid.x}
+                cy={centroid.y}
+                r={4 / scale}
+                fill="none"
+                stroke="#38bdf8"
+                strokeWidth={1.5 / scale}
+                opacity={0.85}
+              />
+              <line
+                x1={centroid.x - 7 / scale}
+                y1={centroid.y}
+                x2={centroid.x + 7 / scale}
+                y2={centroid.y}
+                stroke="#38bdf8"
+                strokeWidth={1.2 / scale}
+                opacity={0.85}
+              />
+              <line
+                x1={centroid.x}
+                y1={centroid.y - 7 / scale}
+                x2={centroid.x}
+                y2={centroid.y + 7 / scale}
+                stroke="#38bdf8"
+                strokeWidth={1.2 / scale}
+                opacity={0.85}
+              />
+              {/* Label */}
+              <text
+                x={centroid.x + 8 / scale}
+                y={centroid.y + 3 / scale}
+                fill="#38bdf8"
+                fontSize={9 / scale}
+                fontFamily="ui-monospace, monospace"
+                fontWeight="bold"
+                opacity={0.9}
+              >
+                ⊕ C({centroid.x}, {centroid.y})
+              </text>
+            </g>
+          );
+        })}
       </g>
     );
   }
