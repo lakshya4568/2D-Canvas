@@ -3,7 +3,6 @@
 import React from "react";
 import { Shape } from "@/lib/geometry/types";
 import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
-import { DimensionBadge } from "./DimensionBadge";
 
 export type HandleType = "nw" | "ne" | "se" | "sw" | "n" | "s" | "e" | "w";
 
@@ -112,15 +111,12 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
           />
         ))}
 
-        {/* Single Shape Dimension & Rotation Badge */}
-        {shapes.length === 1 && (
-          <g>
-            <DimensionBadge shape={shapes[0]} scale={scale} />
-            {rotation !== 0 && (
-              <g
-                className="pointer-events-none select-none"
-                transform={`translate(${bounds.centerX}, ${rotHandleY - 14 / scale})`}
-              >
+        {/* Rotation Angle Indicator (if rotated) */}
+        {shapes.length === 1 && rotation !== 0 && (
+          <g
+            className="pointer-events-none select-none"
+            transform={`translate(${bounds.centerX}, ${rotHandleY - 14 / scale})`}
+          >
                 <rect
                   x={-28 / scale}
                   y={-10 / scale}
@@ -145,8 +141,6 @@ export const SelectionOverlay: React.FC<SelectionOverlayProps> = React.memo(
                 </text>
               </g>
             )}
-          </g>
-        )}
       </g>
     );
   }

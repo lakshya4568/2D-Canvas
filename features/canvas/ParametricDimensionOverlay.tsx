@@ -103,36 +103,35 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
           const isHorizontal = dx >= dy;
           const name = shape.name || "";
 
-          // Calculate directional non-colliding offsets
+          // Calculate directional non-colliding offsets with clearance for selection handles
           if (isHorizontal) {
-            // Horizontal lines: offset above or below
             badgeX = metrics.midpoint.x;
             const isTop = name.includes("top");
             const isBottom = name.includes("bot");
             const isInner = name.includes("inner");
 
             if (isTop) {
-              badgeY = metrics.midpoint.y - (isInner ? -13 : 14) / scale;
+              // 38px clearance above the selection box rotation handle
+              badgeY = metrics.midpoint.y - (isInner ? -16 : (isSelected ? 38 : 16)) / scale;
             } else if (isBottom) {
-              badgeY = metrics.midpoint.y + (isInner ? -13 : 14) / scale;
+              badgeY = metrics.midpoint.y + (isInner ? -16 : (isSelected ? 26 : 16)) / scale;
             } else {
-              badgeY = metrics.midpoint.y - 12 / scale;
+              badgeY = metrics.midpoint.y - (isSelected ? 38 : 14) / scale;
             }
           } else {
-            // Vertical lines: offset left/right AND stagger vertically for zero collision
+            // Vertical lines: clearance for handles
             const isLeft = name.includes("left");
             const isRight = name.includes("right");
             const isInner = name.includes("inner");
 
-            // Stagger vertically by 28px so inner and outer vertical badges never collide
             badgeY = metrics.midpoint.y + (isInner ? 28 : -28) / scale;
 
             if (isLeft) {
-              badgeX = metrics.midpoint.x - (isInner ? -36 : 44) / scale;
+              badgeX = metrics.midpoint.x - (isInner ? -40 : (isSelected ? 52 : 44)) / scale;
             } else if (isRight) {
-              badgeX = metrics.midpoint.x + (isInner ? -36 : 44) / scale;
+              badgeX = metrics.midpoint.x + (isInner ? -40 : (isSelected ? 52 : 44)) / scale;
             } else {
-              badgeX = metrics.midpoint.x + 30 / scale;
+              badgeX = metrics.midpoint.x + (isSelected ? 44 : 30) / scale;
             }
           }
 
@@ -219,27 +218,25 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                 className="cursor-pointer group"
                 onPointerDown={(e) => handleStartEdit(shape, rawExpr, e)}
               >
-                <title>{isFormulaDriven ? `Formula: ${rawExpr} (Click to edit)` : "Click to edit dimension"}</title>
-
-                {/* Minimalist Flat Backdrop */}
+                {/* Minimalist Solid Backdrop (100% opaque to prevent any bleed-through) */}
                 <rect
                   x={-badgeWidth / 2}
                   y={-badgeHeight / 2}
                   width={badgeWidth}
                   height={badgeHeight}
-                  rx={2 / scale}
-                  fill={isDark ? "rgba(13, 14, 17, 0.85)" : "rgba(255, 255, 255, 0.95)"}
+                  rx={3 / scale}
+                  fill={isDark ? "#090d16" : "#ffffff"}
                   stroke={
                     isSelected
                       ? "#0066ff"
                       : isFormulaDriven
-                      ? "rgba(34, 197, 94, 0.5)"
+                      ? "rgba(34, 197, 94, 0.6)"
                       : isDark
-                      ? "rgba(255, 255, 255, 0.12)"
-                      : "rgba(0, 0, 0, 0.15)"
+                      ? "rgba(255, 255, 255, 0.2)"
+                      : "rgba(0, 0, 0, 0.2)"
                   }
-                  strokeWidth={0.8 / scale}
-                  className="transition-colors group-hover:border-blue-400"
+                  strokeWidth={1 / scale}
+                  className="transition-colors group-hover:stroke-blue-400 shadow-sm"
                 />
 
                 {/* Formula indicator dot */}
