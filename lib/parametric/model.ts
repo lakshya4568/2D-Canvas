@@ -312,43 +312,62 @@ export class ParametricModel {
       return s;
     });
 
-    // 2b. Propagate endpoint shifts to connected lines sharing vertices (e.g. rectangles/slabs made of lines)
-    for (let i = 0; i < updatedShapes.length; i++) {
-      const curr = updatedShapes[i];
-      const orig = shapes[i];
-      if ((curr.type === "line" || curr.type === "arrow") && (orig.type === "line" || orig.type === "arrow")) {
-        const shiftX2 = curr.x2 - orig.x2;
-        const shiftY2 = curr.y2 - orig.y2;
-        if (Math.abs(shiftX2) > 1e-4 || Math.abs(shiftY2) > 1e-4) {
-          for (let j = 0; j < updatedShapes.length; j++) {
-            if (i === j) continue;
-            const other = updatedShapes[j];
-            if (other.type === "line" || other.type === "arrow") {
-              // If other line started at this line's old endpoint:
-              if (Math.hypot(other.x1 - orig.x2, other.y1 - orig.y2) < 4) {
-                const wasVertical = Math.abs(other.x2 - other.x1) < 1e-4;
-                const wasHorizontal = Math.abs(other.y2 - other.y1) < 1e-4;
-                other.x1 += shiftX2;
-                other.y1 += shiftY2;
-                // If other line was vertical, shift its other endpoint's x as well to keep it vertical
-                if (wasVertical) {
-                  other.x2 += shiftX2;
-                }
-                if (wasHorizontal) {
-                  other.y2 += shiftY2;
-                }
-              }
-              // If other line ended at this line's old endpoint:
-              else if (Math.hypot(other.x2 - orig.x2, other.y2 - orig.y2) < 4) {
-                const wasVertical = Math.abs(other.x2 - other.x1) < 1e-4;
-                const wasHorizontal = Math.abs(other.y2 - other.y1) < 1e-4;
-                other.x2 += shiftX2;
-                other.y2 += shiftY2;
-                if (wasVertical) {
+    // 2b. Canonical resolution for slab / multi-line frames
+    const topOuter = updatedShapes.find((s) => s.name === "top_outer_rect");
+    if (topOuter && topOuter.type === "line") {
+      const ox = topOuter.x1;
+      const oy = topOuter.y1;
+      const W = (getVarValue("top_outer_rect") as number) ?? 300;
+      const H = (getVarValue("height_outer_rect") as number) ?? 180;
+      const T = (getVarValue("wall_thickness") as number) ?? 25;
+
+      for (const s of updatedShapes) {
+        if (s.type === "line") {
+          switch (s.name) {
+            case "top_outer_rect":
+              s.x1 = ox; s.y1 = oy; s.x2 = ox + W; s.y2 = oy;
+              break;
+            case "right_outer_rect":
+              s.x1 = ox + W; s.y1 = oy; s.x2 = ox + W; s.y2 = oy + H;
+              break;
+            case "bottom_outer_rect":
+              s.x1 = ox + W; s.y1 = oy + H; s.x2 = ox; s.y2 = oy + H;
+              break;
+            case "left_outer_rect":
+              s.x1 = ox; s.y1 = oy + H; s.x2 = ox; s.y2 = oy;
+              break;
+            case "top_inner_rect":
+              s.x1 = ox + T; s.y1 = oy + T; s.x2 = ox + W - T; s.y2 = oy + T;
+              break;
+            case "right_inner_rect":
+              s.x1 = ox + W - T; s.y1 = oy + T; s.x2 = ox + W - T; s.y2 = oy + H - T;
+              break;
+            case "bottom_inner_rect":
+              s.x1 = ox + W - T; s.y1 = oy + H - T; s.x2 = ox + T; s.y2 = oy + H - T;
+              break;
+            case "left_inner_rect":
+              s.x1 = ox + T; s.y1 = oy + H - T; s.x2 = ox + T; s.y2 = oy + T;
+              break;
+          }
+        }
+      }
+    } else {
+      // General forward-only line connection: adjust connected lines without circular feedback
+      for (let i = 0; i < updatedShapes.length; i++) {
+        const curr = updatedShapes[i];
+        const orig = shapes[i];
+        if ((curr.type === "line" || curr.type === "arrow") && (orig.type === "line" || orig.type === "arrow")) {
+          const shiftX2 = curr.x2 - orig.x2;
+          const shiftY2 = curr.y2 - orig.y2;
+          if (Math.abs(shiftX2) > 1e-4 || Math.abs(shiftY2) > 1e-4) {
+            for (let j = i + 1; j < updatedShapes.length; j++) {
+              const other = updatedShapes[j];
+              if (other.type === "line" || other.type === "arrow") {
+                if (Math.hypot(other.x1 - orig.x2, other.y1 - orig.y2) < 4) {
                   other.x1 += shiftX2;
-                }
-                if (wasHorizontal) {
                   other.y1 += shiftY2;
+                  if (Math.abs(other.x2 - other.x1) < 1e-4) other.x2 += shiftX2;
+                  if (Math.abs(other.y2 - other.y1) < 1e-4) other.y2 += shiftY2;
                 }
               }
             }

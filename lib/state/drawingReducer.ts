@@ -105,7 +105,7 @@ export const initialDrawingState: DrawingState = {
   gridSnapEnabled: false,
   objectSnapEnabled: true,
   showGrid: true,
-  showDimensions: true,
+  showDimensions: false,
   activeSnap: null,
   themeMode: "dark",
   history: {
@@ -795,13 +795,31 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     }
 
     case "SET_VARIABLE": {
+      let val = 0;
+      let formulaStr: string | undefined = undefined;
+
+      if (typeof action.valueOrFormula === "number") {
+        val = action.valueOrFormula;
+      } else if (typeof action.valueOrFormula === "string") {
+        const trimmed = action.valueOrFormula.trim();
+        const parsedNum = Number(trimmed);
+        if (!isNaN(parsedNum) && trimmed !== "") {
+          val = parsedNum;
+          formulaStr = undefined; // Numeric constant
+        } else {
+          formulaStr = trimmed; // Mathematical formula expression
+          val = state.variables[action.name]?.value ?? 0;
+        }
+      }
+
       const nextVars = {
         ...state.variables,
         [action.name]: {
           name: action.name,
-          value: typeof action.valueOrFormula === "number" ? action.valueOrFormula : (state.variables[action.name]?.value ?? 0),
-          formula: typeof action.valueOrFormula === "string" ? action.valueOrFormula : undefined,
+          value: val,
+          formula: formulaStr,
           description: action.description ?? state.variables[action.name]?.description,
+          unit: state.variables[action.name]?.unit,
         },
       };
       const { updatedShapes, updatedVariables, errors } = runParametricSync(
@@ -926,8 +944,8 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         variables: updatedVariables,
         constraints: nextConstraints,
         parametricErrors: errors,
-        selectedIds: instance.shapes.map((s) => s.id),
-        selectedId: instance.shapes[0]?.id || null,
+        selectedIds: [],
+        selectedId: null,
         history: pushHistory(state, `Instantiate Template: ${template.name}`),
       };
     }

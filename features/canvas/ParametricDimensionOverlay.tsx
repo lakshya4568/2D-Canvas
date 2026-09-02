@@ -82,7 +82,8 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
           state.variables[ParametricModel.getShapeName(shape, state.shapes.indexOf(shape))]
         );
 
-        if (!state.showDimensions && !isSelected && !hasVariable) {
+        // Only show badge when the shape is specifically clicked / selected
+        if (!isSelected) {
           return null;
         }
 
