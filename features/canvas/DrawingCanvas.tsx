@@ -19,6 +19,7 @@ import { ShapeRenderer } from "./ShapeRenderer";
 import { DraftPreview } from "./DraftPreview";
 import { SelectionOverlay, HandleType } from "./SelectionOverlay";
 import { SnapIndicator } from "./SnapIndicator";
+import { ConstraintOverlays } from "./ConstraintOverlays";
 
 interface DrawingCanvasProps {
   onCursorChange?: (pos: Point | null) => void;
@@ -1158,6 +1159,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             onHandlePointerDown={handleResizeStart}
             onRotatePointerDown={handleRotateStart}
           />
+
+          {/* Geometric Constraint Visual Glyphs */}
+          <ConstraintOverlays />
 
           {/* Smart Magnetic Connection & Snap Target Indicator */}
           <SnapIndicator snap={state.activeSnap} scale={scale} />

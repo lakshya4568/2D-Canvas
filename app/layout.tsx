@@ -21,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased w-screen h-screen overflow-hidden select-none bg-[var(--bg-app)] text-[var(--fg-primary)] touch-none">
+      <body className="antialiased w-screen h-screen overflow-hidden select-none bg-(--bg-app) text-(--fg-primary) touch-none">
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -25,7 +25,13 @@ import {
   Check,
   RotateCcw,
   RotateCw,
+  Sparkles,
 } from "lucide-react";
+import { VariablesPanel } from "../parametric/VariablesPanel";
+import { FormulaEditor } from "../parametric/FormulaEditor";
+import { ConstraintsPanel } from "../parametric/ConstraintsPanel";
+import { TemplateModal } from "../parametric/TemplateModal";
+import { ParametricModel } from "@/lib/parametric/model";
 
 const PRESET_COLORS = [
   "#f8fafc", // White (Dark Mode default)
@@ -53,7 +59,9 @@ export function PropertyInspector() {
     jumpToHistory,
   } = useDrawing();
 
-  const [activeTab, setActiveTab] = useState<"transform" | "style" | "layers" | "history">("transform");
+  const [activeTab, setActiveTab] = useState<"transform" | "parametric" | "style" | "layers" | "history">("transform");
+  const [paramSubTab, setParamSubTab] = useState<"variables" | "formulas" | "constraints">("variables");
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleUpdate = (updates: Partial<Shape>) => {
@@ -109,6 +117,19 @@ export function PropertyInspector() {
         >
           <Move className="w-3.5 h-3.5" />
           <span className="text-[10px]">Transform</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("parametric")}
+          className={`flex-1 py-2 flex flex-col items-center gap-0.5 transition-colors ${
+            activeTab === "parametric"
+              ? "bg-[var(--bg-panel)] text-blue-500 font-semibold border-b-2 border-blue-500"
+              : "text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+          }`}
+          title="Parametric Variables & Constraints"
+        >
+          <span className="font-mono text-xs font-bold leading-none">ƒ(x)</span>
+          <span className="text-[10px]">Params</span>
         </button>
 
         <button
@@ -574,6 +595,82 @@ export function PropertyInspector() {
           </>
         )}
 
+        {/* ================= PARAMETRIC TAB ================= */}
+        {activeTab === "parametric" && (
+          <div className="flex flex-col gap-3">
+            {/* Template Library Trigger */}
+            <button
+              onClick={() => setIsTemplateModalOpen(true)}
+              className="w-full h-8 rounded bg-[var(--bg-app)] hover:bg-[var(--border-subtle)] border border-[var(--border-subtle)] text-[var(--fg-primary)] flex items-center justify-center gap-2 text-xs font-semibold cursor-pointer transition-all shadow-xs"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+              <span>Parametric CAD Templates</span>
+            </button>
+
+            {/* Selected Shape Parameters Binding */}
+            {selectedShape && (
+              <div className="p-2.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-blue-500 text-xs">
+                    {ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape))}
+                  </span>
+                  <span className="text-[10px] text-[var(--fg-muted)] uppercase">{selectedShape.type}</span>
+                </div>
+                <div className="space-y-1 font-mono text-[11px]">
+                  {ParametricModel.getShapeParameters(selectedShape).map((p) => (
+                    <div key={p.key} className="flex items-center justify-between text-[11px] py-0.5 border-b border-[var(--border-subtle)]/40 last:border-0">
+                      <span className="text-[var(--fg-muted)]">{p.label}:</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-[var(--fg-primary)]">{p.value}</span>
+                        {!p.readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const shapeName = ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
+                              const varName = `${shapeName}_${p.key}`;
+                              dispatch({
+                                type: "SET_VARIABLE",
+                                name: varName,
+                                valueOrFormula: p.value,
+                              });
+                            }}
+                            className="rounded px-1 text-[9px] bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+                            title="Bind parameter to new variable"
+                          >
+                            +Var
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sub-tab switcher */}
+            <div className="flex rounded bg-[var(--bg-panel-subtle)] p-0.5 border border-[var(--border-subtle)]">
+              {(["variables", "formulas", "constraints"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setParamSubTab(tab)}
+                  className={`flex-1 py-1 rounded text-[10px] font-semibold capitalize transition-all ${
+                    paramSubTab === tab
+                      ? "bg-[var(--bg-panel)] text-blue-500 shadow-xs"
+                      : "text-[var(--fg-muted)] hover:text-[var(--fg-primary)]"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Sub-tab view */}
+            {paramSubTab === "variables" && <VariablesPanel />}
+            {paramSubTab === "formulas" && <FormulaEditor />}
+            {paramSubTab === "constraints" && <ConstraintsPanel />}
+          </div>
+        )}
+
         {/* ================= STYLE TAB ================= */}
         {activeTab === "style" && (
           <div className="flex flex-col gap-3">
@@ -824,6 +921,12 @@ export function PropertyInspector() {
           </div>
         </div>
       )}
+
+      {/* Reusable Parametric CAD Template Modal */}
+      <TemplateModal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+      />
     </aside>
   );
 }

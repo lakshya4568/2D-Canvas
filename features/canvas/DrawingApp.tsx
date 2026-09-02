@@ -9,6 +9,7 @@ import { ExportMenu } from "../toolbar/ExportMenu";
 import { PropertyInspector } from "../inspector/PropertyInspector";
 import { StatusBar } from "../statusbar/StatusBar";
 import { ShortcutsModal } from "../shortcuts/ShortcutsModal";
+import { BottomFormulaBar } from "../parametric/BottomFormulaBar";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -61,9 +62,12 @@ export function DrawingApp() {
         {/* Collapsible Left Sidebar CAD Tools (Expandable with Tool Names & Shortcuts) */}
         <SidebarTools />
 
-        {/* Primary Interactive SVG Canvas */}
-        <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)]">
-          <DrawingCanvas onCursorChange={setCursorPos} />
+        {/* Primary Interactive SVG Canvas with Quick Parametric Formula Bar */}
+        <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)] flex flex-col">
+          <div className="flex-1 w-full h-full relative overflow-hidden">
+            <DrawingCanvas onCursorChange={setCursorPos} />
+          </div>
+          <BottomFormulaBar />
         </main>
 
         {/* Right Docked Property Inspector (Width 280px) */}
