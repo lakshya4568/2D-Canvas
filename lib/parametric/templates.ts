@@ -233,4 +233,56 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
       return { shapes, variables, constraints: [] };
     },
   },
+  {
+    id: "parametric_slab_lines",
+    name: "Parametric Slab (8 Connected Lines)",
+    category: "Structural",
+    description: "Outer frame and inner cutout built entirely from 8 individual lines with mutual formula dependencies (top_outer_rect, top_inner_rect).",
+    version: "1.0.0",
+    parameters: [
+      { name: "top_outer_rect", label: "Top Outer Line Length", defaultValue: 300, unit: "mm", min: 100, max: 800, step: 10 },
+      { name: "height_outer_rect", label: "Outer Frame Height", defaultValue: 180, unit: "mm", min: 80, max: 500, step: 10 },
+      { name: "wall_thickness", label: "Wall Margin / Thickness", defaultValue: 25, unit: "mm", min: 5, max: 60, step: 5 },
+    ],
+    formulas: [
+      { variable: "top_inner_rect", formula: "top_outer_rect - (wall_thickness * 2)" },
+      { variable: "height_inner_rect", formula: "height_outer_rect - (wall_thickness * 2)" },
+    ],
+    constraints: [],
+    generator: (params) => {
+      const W = params.top_outer_rect ?? 300;
+      const H = params.height_outer_rect ?? 180;
+      const T = params.wall_thickness ?? 25;
+      const inW = W - T * 2;
+      const inH = H - T * 2;
+
+      const ox = 120;
+      const oy = 100;
+      const ix = ox + T;
+      const iy = oy + T;
+
+      const shapes: Shape[] = [
+        // 4 Outer Frame Lines
+        { id: "line_top_outer_" + Date.now(), name: "top_outer_rect", type: "line", x1: ox, y1: oy, x2: ox + W, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_right_outer_" + Date.now(), name: "right_outer_rect", type: "line", x1: ox + W, y1: oy, x2: ox + W, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_bot_outer_" + Date.now(), name: "bottom_outer_rect", type: "line", x1: ox + W, y1: oy + H, x2: ox, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_left_outer_" + Date.now(), name: "left_outer_rect", type: "line", x1: ox, y1: oy + H, x2: ox, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
+        // 4 Inner Cutout Lines
+        { id: "line_top_inner_" + Date.now(), name: "top_inner_rect", type: "line", x1: ix, y1: iy, x2: ix + inW, y2: iy, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+        { id: "line_right_inner_" + Date.now(), name: "right_inner_rect", type: "line", x1: ix + inW, y1: iy, x2: ix + inW, y2: iy + inH, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+        { id: "line_bot_inner_" + Date.now(), name: "bottom_inner_rect", type: "line", x1: ix + inW, y1: iy + inH, x2: ix, y2: iy + inH, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+        { id: "line_left_inner_" + Date.now(), name: "left_inner_rect", type: "line", x1: ix, y1: iy + inH, x2: ix, y2: iy, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
+      ];
+
+      const variables: Record<string, ParametricVariable> = {
+        top_outer_rect: { name: "top_outer_rect", value: W, unit: "mm" },
+        height_outer_rect: { name: "height_outer_rect", value: H, unit: "mm" },
+        wall_thickness: { name: "wall_thickness", value: T, unit: "mm" },
+        top_inner_rect: { name: "top_inner_rect", value: inW, formula: "top_outer_rect - (wall_thickness * 2)", unit: "mm" },
+        height_inner_rect: { name: "height_inner_rect", value: inH, formula: "height_outer_rect - (wall_thickness * 2)", unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
 ];

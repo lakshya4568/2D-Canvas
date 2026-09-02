@@ -287,7 +287,16 @@ export class ParametricModel {
         }
         case "line":
         case "arrow": {
-          const boundL = getVarValue(`${shapeName}.length`, `${s.id}.length`, "L", "Length", "length");
+          const boundL = getVarValue(
+            s.name ?? "",
+            `${s.name}.length`,
+            shapeName,
+            `${shapeName}.length`,
+            `${s.id}.length`,
+            "L",
+            "Length",
+            "length"
+          );
           if (typeof boundL === "number" && boundL > 0) {
             const currentL = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
             if (Math.abs(boundL - currentL) > 1e-4 && currentL > 0) {
@@ -302,6 +311,51 @@ export class ParametricModel {
 
       return s;
     });
+
+    // 2b. Propagate endpoint shifts to connected lines sharing vertices (e.g. rectangles/slabs made of lines)
+    for (let i = 0; i < updatedShapes.length; i++) {
+      const curr = updatedShapes[i];
+      const orig = shapes[i];
+      if ((curr.type === "line" || curr.type === "arrow") && (orig.type === "line" || orig.type === "arrow")) {
+        const shiftX2 = curr.x2 - orig.x2;
+        const shiftY2 = curr.y2 - orig.y2;
+        if (Math.abs(shiftX2) > 1e-4 || Math.abs(shiftY2) > 1e-4) {
+          for (let j = 0; j < updatedShapes.length; j++) {
+            if (i === j) continue;
+            const other = updatedShapes[j];
+            if (other.type === "line" || other.type === "arrow") {
+              // If other line started at this line's old endpoint:
+              if (Math.hypot(other.x1 - orig.x2, other.y1 - orig.y2) < 4) {
+                const wasVertical = Math.abs(other.x2 - other.x1) < 1e-4;
+                const wasHorizontal = Math.abs(other.y2 - other.y1) < 1e-4;
+                other.x1 += shiftX2;
+                other.y1 += shiftY2;
+                // If other line was vertical, shift its other endpoint's x as well to keep it vertical
+                if (wasVertical) {
+                  other.x2 += shiftX2;
+                }
+                if (wasHorizontal) {
+                  other.y2 += shiftY2;
+                }
+              }
+              // If other line ended at this line's old endpoint:
+              else if (Math.hypot(other.x2 - orig.x2, other.y2 - orig.y2) < 4) {
+                const wasVertical = Math.abs(other.x2 - other.x1) < 1e-4;
+                const wasHorizontal = Math.abs(other.y2 - other.y1) < 1e-4;
+                other.x2 += shiftX2;
+                other.y2 += shiftY2;
+                if (wasVertical) {
+                  other.x1 += shiftX2;
+                }
+                if (wasHorizontal) {
+                  other.y1 += shiftY2;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
 
     // 3. Solve geometric constraints
     if (this.constraints.length > 0) {

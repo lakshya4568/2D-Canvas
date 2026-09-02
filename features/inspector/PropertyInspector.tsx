@@ -609,13 +609,90 @@ export function PropertyInspector() {
 
             {/* Selected Shape Parameters Binding */}
             {selectedShape && (
-              <div className="p-2.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] flex flex-col gap-2">
+              <div className="p-2.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-mono font-bold text-blue-500 text-xs">
-                    {ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape))}
+                    {selectedShape.name || ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape))}
                   </span>
-                  <span className="text-[10px] text-[var(--fg-muted)] uppercase">{selectedShape.type}</span>
+                  <span className="rounded bg-[var(--bg-panel-subtle)] px-1.5 py-0.5 text-[9px] text-[var(--fg-muted)] uppercase font-mono">
+                    {selectedShape.type}
+                  </span>
                 </div>
+
+                {/* Editable Shape Name / Identifier */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-[var(--fg-muted)] w-10">Name:</span>
+                  <input
+                    type="text"
+                    value={selectedShape.name || ""}
+                    placeholder={ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape))}
+                    onChange={(e) => handleUpdate({ name: e.target.value.trim() })}
+                    className="flex-1 bg-[var(--bg-panel-subtle)] border border-[var(--border-subtle)] rounded px-1.5 py-0.5 text-[11px] font-mono text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                    title="Set variable identifier for this shape (e.g. top_outer_rect)"
+                  />
+                </div>
+
+                {/* Dedicated Line Length & Formula Control */}
+                {(selectedShape.type === "line" || selectedShape.type === "arrow") && (
+                  <div className="rounded border border-blue-500/20 bg-blue-500/5 p-2 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-[10px] text-blue-400">Line Length & Formula</span>
+                      <span className="font-mono text-[10px] text-emerald-400 font-bold">
+                        L: {Math.hypot(selectedShape.x2 - selectedShape.x1, selectedShape.y2 - selectedShape.y1).toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        placeholder="e.g. 300 or top_outer - 40"
+                        defaultValue={
+                          state.variables[selectedShape.name ?? ""]?.formula ??
+                          state.variables[selectedShape.name ?? ""]?.value ??
+                          ""
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            const varName = selectedShape.name || ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
+                            if (val) {
+                              dispatch({ type: "SET_VARIABLE", name: varName, valueOrFormula: val });
+                              if (!selectedShape.name) handleUpdate({ name: varName });
+                            }
+                          }
+                        }}
+                        className="flex-1 bg-[var(--bg-panel-subtle)] border border-[var(--border-subtle)] rounded px-1.5 py-0.5 text-[11px] font-mono text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                          const val = input.value.trim();
+                          const varName = selectedShape.name || ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
+                          if (val) {
+                            dispatch({ type: "SET_VARIABLE", name: varName, valueOrFormula: val });
+                            if (!selectedShape.name) handleUpdate({ name: varName });
+                          }
+                        }}
+                        className="rounded bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-blue-500"
+                      >
+                        Set ↵
+                      </button>
+                    </div>
+                    {state.variables[selectedShape.name ?? ""] && (
+                      <div className="flex items-center gap-1 text-[9px] font-mono text-emerald-400">
+                        <span>●</span>
+                        <span>
+                          Bound to <b>{selectedShape.name}</b> ={" "}
+                          {state.variables[selectedShape.name!].formula
+                            ? state.variables[selectedShape.name!].formula
+                            : state.variables[selectedShape.name!].value}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Expose Shape Parameters */}
                 <div className="space-y-1 font-mono text-[11px]">
                   {ParametricModel.getShapeParameters(selectedShape).map((p) => (
                     <div key={p.key} className="flex items-center justify-between text-[11px] py-0.5 border-b border-[var(--border-subtle)]/40 last:border-0">
@@ -626,7 +703,7 @@ export function PropertyInspector() {
                           <button
                             type="button"
                             onClick={() => {
-                              const shapeName = ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
+                              const shapeName = selectedShape.name || ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
                               const varName = `${shapeName}_${p.key}`;
                               dispatch({
                                 type: "SET_VARIABLE",

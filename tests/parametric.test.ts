@@ -266,4 +266,60 @@ describe("Parametric Template System", () => {
     // Inner cutout height: 300 - 40 * 2 = 220
     expect(inner.height).toBe(220);
   });
+
+  it("instantiates the 8-line Parametric Slab template and evaluates formula dependencies", () => {
+    const template = BUILTIN_TEMPLATES.find((t) => t.id === "parametric_slab_lines")!;
+    expect(template).toBeDefined();
+
+    const instance = template.generator({ top_outer_rect: 400, height_outer_rect: 200, wall_thickness: 30 });
+    expect(instance.shapes).toHaveLength(8);
+
+    // Verify top outer line length is 400
+    const topOuter = instance.shapes.find((s) => s.name === "top_outer_rect") as LineShape;
+    expect(topOuter).toBeDefined();
+    expect(topOuter.x2 - topOuter.x1).toBe(400);
+
+    // Verify top inner line length is 400 - (30 * 2) = 340
+    const topInner = instance.shapes.find((s) => s.name === "top_inner_rect") as LineShape;
+    expect(topInner).toBeDefined();
+    expect(topInner.x2 - topInner.x1).toBe(340);
+  });
+
+  it("updates connected lines when a line's length parameter changes", () => {
+    // Two connected lines: line1 (horizontal) and line2 (vertical starting where line1 ends)
+    const line1: LineShape = {
+      id: "l1",
+      name: "top_outer_rect",
+      type: "line",
+      x1: 100,
+      y1: 100,
+      x2: 300,
+      y2: 100,
+    };
+    const line2: LineShape = {
+      id: "l2",
+      name: "right_outer_rect",
+      type: "line",
+      x1: 300,
+      y1: 100,
+      x2: 300,
+      y2: 250,
+    };
+
+    const model = new ParametricModel();
+    // Expand top_outer_rect from 200 to 400
+    model.setVariable("top_outer_rect", 400);
+
+    const { updatedShapes } = model.syncModel([line1, line2]);
+    const updatedLine1 = updatedShapes[0] as LineShape;
+    const updatedLine2 = updatedShapes[1] as LineShape;
+
+    // Line 1 length is now 400
+    expect(updatedLine1.x2 - updatedLine1.x1).toBe(400);
+    expect(updatedLine1.x2).toBe(500);
+
+    // Line 2 start and end X should have shifted to follow Line 1
+    expect(updatedLine2.x1).toBe(500);
+    expect(updatedLine2.x2).toBe(500);
+  });
 });

@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 @layer base {
-  :root {
+  :root,
+  .dark {
     --bg-app: #0d0e11;
     --bg-canvas: #121316;
     --bg-panel: #1a1c23;
@@ -28,6 +29,7 @@
     --text-muted: #8c90a1;
   }
 
+  :root.light,
   .light {
     --bg-app: #f1f5f9;
     --bg-canvas: #ffffff;

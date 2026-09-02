@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
+import { useTheme } from "next-themes";
 import {
   Undo2,
   Redo2,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 
 export function MainToolbar() {
+  const { theme, setTheme } = useTheme();
   const {
     state,
     undo,
@@ -29,12 +31,17 @@ export function MainToolbar() {
   } = useDrawing();
 
   const handleToggleTheme = () => {
-    if (state.themeMode === "dark") {
-      setThemeMode("light");
+    const nextMode = state.themeMode === "dark" ? "light" : "dark";
+    setThemeMode(nextMode);
+    try {
+      setTheme(nextMode);
+    } catch {
+      // fallback
+    }
+    if (nextMode === "light") {
       document.documentElement.classList.remove("dark");
       document.documentElement.classList.add("light");
     } else {
-      setThemeMode("dark");
       document.documentElement.classList.remove("light");
       document.documentElement.classList.add("dark");
     }
