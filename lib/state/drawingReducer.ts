@@ -1,5 +1,8 @@
 import { ID, Shape, ToolId, Viewport, SnapResult } from "../geometry/types";
 import { computeMultiShapeBounds, rotatePoint } from "../geometry/metrics";
+import { ParametricModel, ParametricVariable } from "../parametric/model";
+import { GeometricConstraint } from "../parametric/constraints";
+import { BUILTIN_TEMPLATES } from "../parametric/templates";
 
 const MAX_HISTORY_STEPS = 100;
 
@@ -38,6 +41,10 @@ export interface DrawingState {
     future: HistoryItem[];
   };
   currentStyle: ShapeStyleConfig;
+  // Parametric State Slice
+  variables: Record<string, ParametricVariable>;
+  constraints: GeometricConstraint[];
+  parametricErrors: string[];
 }
 
 export type DrawingAction =
@@ -77,7 +84,16 @@ export type DrawingAction =
   | { type: "SET_THEME_MODE"; mode: ThemeMode }
   | { type: "SET_ACTIVE_SNAP"; snap: SnapResult | null }
   | { type: "SET_CURRENT_STYLE"; style: Partial<ShapeStyleConfig> }
-  | { type: "LOAD_SHAPES"; shapes: Shape[] };
+  | { type: "LOAD_SHAPES"; shapes: Shape[] }
+  // Parametric Actions
+  | { type: "SET_VARIABLE"; name: string; valueOrFormula: number | string; description?: string }
+  | { type: "DELETE_VARIABLE"; name: string }
+  | { type: "ADD_CONSTRAINT"; constraint: GeometricConstraint }
+  | { type: "UPDATE_CONSTRAINT"; id: string; updates: Partial<GeometricConstraint> }
+  | { type: "DELETE_CONSTRAINT"; id: string }
+  | { type: "TOGGLE_CONSTRAINT"; id: string }
+  | { type: "INSTANTIATE_TEMPLATE"; templateId: string; params?: Record<string, number> }
+  | { type: "SYNC_PARAMETRIC_MODEL" };
 
 export const initialDrawingState: DrawingState = {
   shapes: [],
@@ -102,7 +118,38 @@ export const initialDrawingState: DrawingState = {
     fillColor: "transparent",
     opacity: 1,
   },
+  variables: {},
+  constraints: [],
+  parametricErrors: [],
 };
+
+/**
+ * Runs parametric formula evaluation and constraint solving on a shapes array
+ */
+function runParametricSync(
+  shapes: Shape[],
+  variables: Record<string, ParametricVariable>,
+  constraints: GeometricConstraint[]
+): { updatedShapes: Shape[]; updatedVariables: Record<string, ParametricVariable>; errors: string[] } {
+  const model = new ParametricModel();
+  for (const [name, v] of Object.entries(variables)) {
+    model.setVariable(name, v.formula ?? v.value, v.description);
+    if (v.unit) {
+      const stored = model.variables.get(name);
+      if (stored) stored.unit = v.unit;
+    }
+  }
+  model.constraints = constraints;
+
+  const { updatedShapes, errors } = model.syncModel(shapes);
+
+  const updatedVars: Record<string, ParametricVariable> = {};
+  for (const [name, v] of model.variables.entries()) {
+    updatedVars[name] = { ...v };
+  }
+
+  return { updatedShapes, updatedVariables: updatedVars, errors };
+}
 
 /**
  * Pushes the current shapes array to history.past with a human-readable description.
@@ -744,6 +791,158 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         selectedIds: [],
         draft: null,
         history: pushHistory(state, `Import ${action.shapes.length} Shapes`),
+      };
+    }
+
+    case "SET_VARIABLE": {
+      const nextVars = {
+        ...state.variables,
+        [action.name]: {
+          name: action.name,
+          value: typeof action.valueOrFormula === "number" ? action.valueOrFormula : (state.variables[action.name]?.value ?? 0),
+          formula: typeof action.valueOrFormula === "string" ? action.valueOrFormula : undefined,
+          description: action.description ?? state.variables[action.name]?.description,
+        },
+      };
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        nextVars,
+        state.constraints
+      );
+      return {
+        ...state,
+        variables: updatedVariables,
+        shapes: updatedShapes,
+        parametricErrors: errors,
+        history: pushHistory(state, `Set Variable ${action.name}`),
+      };
+    }
+
+    case "DELETE_VARIABLE": {
+      const nextVars = { ...state.variables };
+      delete nextVars[action.name];
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        nextVars,
+        state.constraints
+      );
+      return {
+        ...state,
+        variables: updatedVariables,
+        shapes: updatedShapes,
+        parametricErrors: errors,
+        history: pushHistory(state, `Delete Variable ${action.name}`),
+      };
+    }
+
+    case "ADD_CONSTRAINT": {
+      const nextConstraints = [...state.constraints, action.constraint];
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        state.variables,
+        nextConstraints
+      );
+      return {
+        ...state,
+        constraints: nextConstraints,
+        shapes: updatedShapes,
+        variables: updatedVariables,
+        parametricErrors: errors,
+        history: pushHistory(state, `Add Constraint ${action.constraint.type}`),
+      };
+    }
+
+    case "UPDATE_CONSTRAINT": {
+      const nextConstraints = state.constraints.map((c) =>
+        c.id === action.id ? { ...c, ...action.updates } : c
+      );
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        state.variables,
+        nextConstraints
+      );
+      return {
+        ...state,
+        constraints: nextConstraints,
+        shapes: updatedShapes,
+        variables: updatedVariables,
+        parametricErrors: errors,
+        history: pushHistory(state, `Update Constraint`),
+      };
+    }
+
+    case "DELETE_CONSTRAINT": {
+      const nextConstraints = state.constraints.filter((c) => c.id !== action.id);
+      return {
+        ...state,
+        constraints: nextConstraints,
+        history: pushHistory(state, `Delete Constraint`),
+      };
+    }
+
+    case "TOGGLE_CONSTRAINT": {
+      const nextConstraints = state.constraints.map((c) =>
+        c.id === action.id ? { ...c, enabled: !c.enabled } : c
+      );
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        state.variables,
+        nextConstraints
+      );
+      return {
+        ...state,
+        constraints: nextConstraints,
+        shapes: updatedShapes,
+        variables: updatedVariables,
+        parametricErrors: errors,
+        history: pushHistory(state, `Toggle Constraint`),
+      };
+    }
+
+    case "INSTANTIATE_TEMPLATE": {
+      const template = BUILTIN_TEMPLATES.find((t) => t.id === action.templateId);
+      if (!template) return state;
+
+      const defaultParams: Record<string, number> = {};
+      template.parameters.forEach((p) => {
+        defaultParams[p.name] = p.defaultValue;
+      });
+      const finalParams = { ...defaultParams, ...(action.params || {}) };
+
+      const instance = template.generator(finalParams);
+      const nextShapes = [...state.shapes, ...instance.shapes];
+      const nextVars = { ...state.variables, ...instance.variables };
+      const nextConstraints = [...state.constraints, ...instance.constraints];
+
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        nextShapes,
+        nextVars,
+        nextConstraints
+      );
+
+      return {
+        ...state,
+        shapes: updatedShapes,
+        variables: updatedVariables,
+        constraints: nextConstraints,
+        parametricErrors: errors,
+        selectedIds: instance.shapes.map((s) => s.id),
+        selectedId: instance.shapes[0]?.id || null,
+        history: pushHistory(state, `Instantiate Template: ${template.name}`),
+      };
+    }
+
+    case "SYNC_PARAMETRIC_MODEL": {
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        state.variables,
+        state.constraints
+      );
+      return {
+        ...state,
+        shapes: updatedShapes,
+        variables: updatedVariables,
+        parametricErrors: errors,
       };
     }
 
