@@ -16,6 +16,7 @@ import { GeometricConstraintSolver, GeometricSolveResult } from "./constraintSol
 import { detectClosedLoops, analyzePolygon, ClosedShapeAnalysis, DetectedLoop } from "./closedGeometry";
 import { ConstructionManager } from "./constructionGeometry";
 import { solveClosedStructuralLoop } from "./structuralLoopSolver";
+import { solveConnectedGeometry } from "./connectedComponentSolver";
 
 export interface ParametricVariable {
   name: string;
@@ -317,6 +318,22 @@ export class ParametricModel {
       }
     }
 
+    // Helper: determine if a line has connected neighbors (i.e. is part of a multi-line figure)
+    const isLineConnectedToOthers = (line: Shape): boolean => {
+      const l = line as any;
+      for (const other of shapes) {
+        if (other.id === line.id) continue;
+        if (other.type !== "line" && other.type !== "arrow") continue;
+        const o = other as any;
+        const d11 = Math.hypot(l.x1 - o.x1, l.y1 - o.y1);
+        const d12 = Math.hypot(l.x1 - o.x2, l.y1 - o.y2);
+        const d21 = Math.hypot(l.x2 - o.x1, l.y2 - o.y1);
+        const d22 = Math.hypot(l.x2 - o.x2, l.y2 - o.y2);
+        if (Math.min(d11, d12, d21, d22) <= 15.0) return true;
+      }
+      return false;
+    };
+
     const updatedShapes: Shape[] = shapes.map((shape, idx) => {
       const s = { ...shape };
       const shapeName = ParametricModel.getShapeName(s, idx);
@@ -342,9 +359,9 @@ export class ParametricModel {
         }
         case "line":
         case "arrow": {
-          // If this line is part of a closed loop, the structural loop solver handles it
-          // as a unified closed contour, strictly preserving coincident joints!
-          if (loopShapeIds.has(s.id)) {
+          // If this line is part of a closed loop or connected figure, the connected geometry
+          // solver handles it as a unified assembly, strictly preserving coincident joints!
+          if (loopShapeIds.has(s.id) || isLineConnectedToOthers(s)) {
             break;
           }
 
@@ -485,10 +502,24 @@ export class ParametricModel {
       syncTwin("edge_left", "left_edge_length", L_left);
       syncTwin("edge_tl", "tl_chamfer_length", L_tl);
     } else {
-      // Check if shapes form closed loops (e.g. triangle, polygon, octagonal frame)
-      let loopHandled = false;
+      // 1. Check connected component geometry (handles ANY connected figures:
+      // triangles, rectangles with diagonals, trusses, multi-loop assemblies, etc.)
+      const connRes = solveConnectedGeometry({
+        shapes,
+        variables: this.variables,
+      });
 
-      if (loops.length > 0) {
+      let handled = false;
+      if (connRes.handled) {
+        for (const s of connRes.updatedShapes) {
+          const idx = updatedShapes.findIndex((us) => us.id === s.id);
+          if (idx !== -1) {
+            updatedShapes[idx] = s;
+          }
+        }
+        handled = true;
+      } else if (loops.length > 0) {
+        // 2. Fallback to cyclical loop solver for multi-edge polygons
         for (const loop of loops) {
           const solveRes = solveClosedStructuralLoop({
             loopShapes: loop.shapes,
@@ -503,12 +534,12 @@ export class ParametricModel {
                 updatedShapes[idx] = solvedShape;
               }
             }
-            loopHandled = true;
+            handled = true;
           }
         }
       }
 
-      if (!loopHandled) {
+      if (!handled) {
         // General forward-only line connection: adjust connected lines without circular feedback
         for (let i = 0; i < updatedShapes.length; i++) {
           const curr = updatedShapes[i];
@@ -534,7 +565,10 @@ export class ParametricModel {
       }
     }
 
-    // 3. Solve geometric constraints
+    // 3. Re-evaluate formulas with freshly updated geometry variables
+    this.evaluateAllVariables(updatedShapes);
+
+    // 4. Solve geometric constraints
     if (this.constraints.length > 0) {
       const solverRes = solveConstraints(updatedShapes, this.constraints);
       return {

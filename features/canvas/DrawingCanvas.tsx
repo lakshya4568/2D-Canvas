@@ -1154,12 +1154,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           <DraftPreview draft={state.draft} scale={scale} />
 
           {/* Figma-Style Selection Overlay */}
-          <SelectionOverlay
-            shapes={selectedShapes}
-            scale={scale}
-            onHandlePointerDown={handleResizeStart}
-            onRotatePointerDown={handleRotateStart}
-          />
+          {state.tool === "select" && (
+            <SelectionOverlay
+              shapes={selectedShapes}
+              scale={scale}
+              onHandlePointerDown={handleResizeStart}
+              onRotatePointerDown={handleRotateStart}
+            />
+          )}
 
           {/* Geometric Constraint Visual Glyphs */}
           <ConstraintOverlays />

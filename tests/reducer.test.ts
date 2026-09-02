@@ -192,4 +192,49 @@ describe("Drawing Reducer & History Stack", () => {
     expect(rotL1.x2).toBeCloseTo(rotL2.x1);
     expect(rotL1.y2).toBeCloseTo(rotL2.y1);
   });
+
+  it("preserves manual line drag coordinates and clears stale variables on delete/clear", () => {
+    // 1. Suppose a stale variable L1 was previously 308
+    let state: DrawingState = {
+      ...initialDrawingState,
+      variables: {
+        L1: { name: "L1", value: 308, unit: "mm" },
+      },
+    };
+
+    // 2. User draws a brand new line by dragging to 150px
+    const lineDraft: Shape = {
+      id: "new_line",
+      type: "line",
+      x1: 50,
+      y1: 50,
+      x2: 200, // length = 150
+      y2: 50,
+    };
+
+    state = drawingReducer(state, { type: "START_DRAFT", shape: lineDraft });
+    state = drawingReducer(state, { type: "COMMIT_DRAFT" });
+
+    // Verify it stays 150px and DOES NOT adjust to 308!
+    const committed = state.shapes[0] as LineShape;
+    const len = Math.hypot(committed.x2 - committed.x1, committed.y2 - committed.y1);
+    expect(len).toBe(150);
+    expect(state.variables["L1"].value).toBe(150);
+
+    // 3. User deletes the shape
+    state = drawingReducer(state, { type: "DELETE_SELECTED" });
+    expect(state.shapes).toHaveLength(0);
+    // Variable L1 must be deleted!
+    expect(state.variables["L1"]).toBeUndefined();
+
+    // 4. CLEAR_ALL clears variables too
+    state = {
+      ...state,
+      variables: { L2: { name: "L2", value: 308, unit: "mm" } },
+      shapes: [{ id: "temp", type: "line", x1: 0, y1: 0, x2: 10, y2: 0 }],
+    };
+    state = drawingReducer(state, { type: "CLEAR_ALL" });
+    expect(state.shapes).toHaveLength(0);
+    expect(Object.keys(state.variables)).toHaveLength(0);
+  });
 });

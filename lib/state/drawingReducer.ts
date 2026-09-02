@@ -247,44 +247,47 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         };
       }
 
-      const shapeIndex = state.shapes.length;
-      const defaultName = state.draft.name || ParametricModel.getShapeName(state.draft, shapeIndex);
-      const committedShape: Shape = { ...state.draft, name: defaultName, isVisible: true };
-      const desc = `Draw ${defaultName}`;
+      const prefix =
+        state.draft.type === "line" || state.draft.type === "arrow"
+          ? "L"
+          : state.draft.type === "rectangle"
+          ? "R"
+          : state.draft.type === "circle"
+          ? "C"
+          : "S";
 
-      // Auto-register default variable for this shape (e.g. L1, L2, R1, C1)
-      const nextVars = { ...state.variables };
-      if (committedShape.type === "line" || committedShape.type === "arrow") {
-        const len = Math.round(Math.hypot(committedShape.x2 - committedShape.x1, committedShape.y2 - committedShape.y1));
-        if (!nextVars[defaultName]) {
-          nextVars[defaultName] = { name: defaultName, value: len, unit: "mm" };
-        }
-      } else if (committedShape.type === "rectangle") {
-        const wVar = `${defaultName}.width`;
-        const hVar = `${defaultName}.height`;
-        if (!nextVars[wVar]) {
-          nextVars[wVar] = { name: wVar, value: Math.round(committedShape.width), unit: "mm" };
-        }
-        if (!nextVars[hVar]) {
-          nextVars[hVar] = { name: hVar, value: Math.round(committedShape.height), unit: "mm" };
-        }
-      } else if (committedShape.type === "circle") {
-        const rVar = `${defaultName}.r`;
-        if (!nextVars[rVar]) {
-          nextVars[rVar] = { name: rVar, value: Math.round(committedShape.r), unit: "mm" };
+      let defaultName = state.draft.name;
+      if (!defaultName) {
+        let counter = 1;
+        defaultName = `${prefix}${counter}`;
+        while (state.shapes.some((s) => s.name === defaultName)) {
+          counter++;
+          defaultName = `${prefix}${counter}`;
         }
       }
 
-      const syncResult = runParametricSync(
-        [...state.shapes, committedShape],
-        nextVars,
-        state.constraints
-      );
+      const committedShape: Shape = { ...state.draft, name: defaultName, isVisible: true };
+      const desc = `Draw ${defaultName}`;
+
+      // Register default variable matching the freshly drawn shape's length/dimensions
+      const nextVars = { ...state.variables };
+      if (committedShape.type === "line" || committedShape.type === "arrow") {
+        const len = Math.round(Math.hypot(committedShape.x2 - committedShape.x1, committedShape.y2 - committedShape.y1));
+        nextVars[defaultName] = { name: defaultName, value: len, unit: "mm" };
+      } else if (committedShape.type === "rectangle") {
+        const wVar = `${defaultName}.width`;
+        const hVar = `${defaultName}.height`;
+        nextVars[wVar] = { name: wVar, value: Math.round(committedShape.width), unit: "mm" };
+        nextVars[hVar] = { name: hVar, value: Math.round(committedShape.height), unit: "mm" };
+      } else if (committedShape.type === "circle") {
+        const rVar = `${defaultName}.r`;
+        nextVars[rVar] = { name: rVar, value: Math.round(committedShape.r), unit: "mm" };
+      }
 
       return {
         ...state,
-        shapes: syncResult.updatedShapes,
-        variables: syncResult.updatedVariables,
+        shapes: [...state.shapes, committedShape],
+        variables: nextVars,
         draft: null,
         selectedId: committedShape.id,
         selectedIds: [committedShape.id],
@@ -570,9 +573,22 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const nextShapes = state.shapes.filter((s) => !delSet.has(s.id));
       const count = state.selectedIds.length;
 
+      // Clean up variables belonging to deleted shapes
+      const nextVars = { ...state.variables };
+      for (const s of state.shapes) {
+        if (delSet.has(s.id) && s.name && nextVars[s.name] && !nextVars[s.name].formula) {
+          delete nextVars[s.name];
+          delete nextVars[`${s.name}.length`];
+          delete nextVars[`${s.name}.width`];
+          delete nextVars[`${s.name}.height`];
+          delete nextVars[`${s.name}.r`];
+        }
+      }
+
       return {
         ...state,
         shapes: nextShapes,
+        variables: nextVars,
         selectedId: null,
         selectedIds: [],
         history: pushHistory(state, `Delete ${count > 1 ? `${count} Shapes` : "Shape"}`),
@@ -580,10 +596,21 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     }
 
     case "DELETE_SHAPE_BY_ID": {
+      const deletedShape = state.shapes.find((s) => s.id === action.id);
       const nextShapes = state.shapes.filter((s) => s.id !== action.id);
+      const nextVars = { ...state.variables };
+      if (deletedShape?.name && nextVars[deletedShape.name] && !nextVars[deletedShape.name].formula) {
+        delete nextVars[deletedShape.name];
+        delete nextVars[`${deletedShape.name}.length`];
+        delete nextVars[`${deletedShape.name}.width`];
+        delete nextVars[`${deletedShape.name}.height`];
+        delete nextVars[`${deletedShape.name}.r`];
+      }
+
       return {
         ...state,
         shapes: nextShapes,
+        variables: nextVars,
         selectedId: state.selectedId === action.id ? null : state.selectedId,
         selectedIds: state.selectedIds.filter((i) => i !== action.id),
         history: pushHistory(state, "Delete Shape"),
@@ -645,6 +672,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return {
         ...state,
         shapes: [],
+        variables: {},
         selectedId: null,
         selectedIds: [],
         draft: null,
@@ -816,9 +844,19 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     }
 
     case "LOAD_SHAPES": {
+      const nextVars = { ...state.variables };
+      for (const s of action.shapes) {
+        if (s.name) {
+          if (s.type === "line" || s.type === "arrow") {
+            const len = Math.round(Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+            nextVars[s.name] = { name: s.name, value: len, unit: "mm" };
+          }
+        }
+      }
       return {
         ...state,
         shapes: action.shapes,
+        variables: nextVars,
         selectedId: null,
         selectedIds: [],
         draft: null,

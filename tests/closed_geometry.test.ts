@@ -228,4 +228,91 @@ describe("Mathematical Closed Shape & Polygon Engine", () => {
       expect(jointGap).toBeLessThan(0.01);
     }
   });
+
+  it("scales user right triangle proportionally without warping or tilting when L1 changes from 240 to 300", () => {
+    // User's exact right triangle: L1 horizontal (240), L2 vertical (185.5), L3 hypotenuse (302.8)
+    const l1: Shape = { id: "l1", name: "L1", type: "line", x1: 440, y1: 116, x2: 680, y2: 116 };
+    const l2: Shape = { id: "l2", name: "L2", type: "line", x1: 440, y1: 116, x2: 440, y2: 301.5 };
+    const l3: Shape = { id: "l3", name: "L3", type: "line", x1: 440, y1: 301.5, x2: 680, y2: 116 };
+
+    const model = new ParametricModel();
+    model.setVariable("L1", 240);
+    model.setVariable("L2", 186);
+    model.setVariable("L3", 303);
+
+    // User changes L1 from 240 to 300
+    model.setVariable("L1", 300);
+
+    const { updatedShapes } = model.syncModel([l1, l2, l3]);
+
+    const s1 = updatedShapes.find((s) => s.name === "L1") as any;
+    const s2 = updatedShapes.find((s) => s.name === "L2") as any;
+    const s3 = updatedShapes.find((s) => s.name === "L3") as any;
+
+    // L1 remains strictly horizontal with length 300
+    expect(s1.y1).toBe(s1.y2);
+    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(300, 1);
+
+    // L2 remains strictly vertical with autocalculated length ~232
+    expect(s2.x1).toBe(s2.x2);
+    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(231.9, 1);
+
+    // L3 hypotenuse autocalculated to ~379
+    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(379.2, 1);
+
+    // All joints closed with 0 gap
+    expect(Math.hypot(s1.x1 - s2.x1, s1.y1 - s2.y1)).toBeLessThan(0.01);
+    expect(Math.hypot(s2.x2 - s3.x1, s2.y2 - s3.y1)).toBeLessThan(0.01);
+    expect(Math.hypot(s3.x2 - s1.x2, s3.y2 - s1.y2)).toBeLessThan(0.01);
+  });
+
+  it("scales rectangle with internal diagonal brace without any line detaching when diagonal changes from 300 to 150", () => {
+    // User's exact rectangle with diagonal: L1 top (262), L2 left (146), L4 bottom (262), L3 right (147), L5 diagonal (300)
+    const l1: Shape = { id: "l1", name: "L1", type: "line", x1: 375, y1: 142, x2: 637, y2: 142 };
+    const l2: Shape = { id: "l2", name: "L2", type: "line", x1: 375, y1: 142, x2: 375, y2: 288 };
+    const l4: Shape = { id: "l4", name: "L4", type: "line", x1: 375, y1: 288, x2: 637, y2: 288 };
+    const l3: Shape = { id: "l3", name: "L3", type: "line", x1: 637, y1: 288, x2: 637, y2: 142 };
+    const l5: Shape = { id: "l5", name: "L5", type: "line", x1: 375, y1: 288, x2: 637, y2: 142 };
+
+    const model = new ParametricModel();
+    model.setVariable("L1", 262);
+    model.setVariable("L2", 146);
+    model.setVariable("L4", 262);
+    model.setVariable("L3", 147);
+    model.setVariable("L5", 300);
+
+    // User changes diagonal L5 to 150
+    model.setVariable("L5", 150);
+
+    const { updatedShapes } = model.syncModel([l1, l2, l4, l3, l5]);
+
+    const s1 = updatedShapes.find((s) => s.name === "L1") as any;
+    const s2 = updatedShapes.find((s) => s.name === "L2") as any;
+    const s4 = updatedShapes.find((s) => s.name === "L4") as any;
+    const s3 = updatedShapes.find((s) => s.name === "L3") as any;
+    const s5 = updatedShapes.find((s) => s.name === "L5") as any;
+
+    // Diagonal scaled to 150
+    expect(Math.hypot(s5.x2 - s5.x1, s5.y2 - s5.y1)).toBeCloseTo(150, 1);
+
+    // Horizontal edges scaled to ~131
+    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(131, 1);
+    expect(Math.hypot(s4.x2 - s4.x1, s4.y2 - s4.y1)).toBeCloseTo(131, 1);
+
+    // Vertical edges scaled to ~73
+    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(73, 1);
+    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(73, 1);
+
+    // All joints STRICTLY coincident: 0 gap!
+    // Top-left: s1.start touches s2.start
+    expect(Math.hypot(s1.x1 - s2.x1, s1.y1 - s2.y1)).toBeLessThan(0.01);
+    // Bottom-left: s2.end, s4.start, and s5.start all meet at the same point
+    expect(Math.hypot(s2.x2 - s5.x1, s2.y2 - s5.y1)).toBeLessThan(0.01);
+    expect(Math.hypot(s4.x1 - s5.x1, s4.y1 - s5.y1)).toBeLessThan(0.01);
+    // Top-right: s1.end, s3.end, and s5.end all meet at the same point
+    expect(Math.hypot(s1.x2 - s5.x2, s1.y2 - s5.y2)).toBeLessThan(0.01);
+    expect(Math.hypot(s3.x2 - s5.x2, s3.y2 - s5.y2)).toBeLessThan(0.01);
+    // Bottom-right: s4.end touches s3.start
+    expect(Math.hypot(s4.x2 - s3.x1, s4.y2 - s3.y1)).toBeLessThan(0.01);
+  });
 });
