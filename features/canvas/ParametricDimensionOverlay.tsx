@@ -165,10 +165,15 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         }
 
         const isEditing = editingShapeId === shape.id;
-        const fontSize = Math.max(9, Math.min(10.5, 9.5 / Math.sqrt(scale)));
-        const badgeWidth = Math.max(30, (displayLabel.length + 1.5) * (fontSize * 0.58)) / scale;
-        const badgeHeight = 15 / scale;
+        const fontSize = 11 / scale;
+        const charWidth = 6.8 / scale;
+        const textWidth = displayLabel.length * charWidth;
+        const dotPadding = isFormulaDriven ? 10 / scale : 0;
+        const badgeWidth = Math.max(36 / scale, textWidth + 18 / scale + dotPadding);
+        const badgeHeight = 20 / scale;
         const isDark = state.themeMode !== "light";
+
+        const editWidth = Math.max(130 / scale, badgeWidth + 16 / scale);
 
         return (
           <g
@@ -178,14 +183,14 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
           >
             {isEditing ? (
               <foreignObject
-                x={-60 / scale}
-                y={-10 / scale}
-                width={120 / scale}
-                height={22 / scale}
+                x={-editWidth / 2}
+                y={-13 / scale}
+                width={editWidth}
+                height={26 / scale}
                 className="overflow-visible"
               >
                 <div
-                  className="flex items-center gap-1 rounded bg-slate-900/95 border border-blue-500/80 px-1 py-0.5 shadow-sm"
+                  className="flex items-center gap-1 rounded bg-slate-900 border border-blue-500/80 px-1 py-0.5 shadow-sm"
                   style={{
                     transformOrigin: "center center",
                     transform: `scale(${1 / scale})`,
@@ -224,7 +229,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                   y={-badgeHeight / 2}
                   width={badgeWidth}
                   height={badgeHeight}
-                  rx={3 / scale}
+                  rx={4 / scale}
                   fill={isDark ? "#090d16" : "#ffffff"}
                   stroke={
                     isSelected
@@ -242,24 +247,23 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                 {/* Formula indicator dot */}
                 {isFormulaDriven && (
                   <circle
-                    cx={-badgeWidth / 2 + 4 / scale}
+                    cx={-badgeWidth / 2 + 7 / scale}
                     cy={0}
-                    r={1.4 / scale}
+                    r={2 / scale}
                     fill="#22c55e"
                   />
                 )}
 
                 {/* Crisp Minimalist Monospace Text */}
                 <text
-                  x={isFormulaDriven ? 2.5 / scale : 0}
-                  y={0.5 / scale}
+                  x={isFormulaDriven ? 4 / scale : 0}
+                  y={0}
                   textAnchor="middle"
-                  dominantBaseline="middle"
+                  dominantBaseline="central"
                   fill={isDark ? "#e2e8f0" : "#0f172a"}
                   fontSize={fontSize}
-                  fontFamily="ui-monospace, SFMono-Regular, monospace"
-                  fontWeight="500"
-                  letterSpacing="-0.01em"
+                  fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+                  fontWeight="600"
                   className="group-hover:fill-blue-400"
                 >
                   {displayLabel}
