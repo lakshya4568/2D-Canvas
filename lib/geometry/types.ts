@@ -129,6 +129,7 @@ export type SnapCategory =
   | "perpendicular"
   | "intersection"
   | "edge"
+  | "chamfer_ref"
   | "grid";
 
 export interface SnapResult {
@@ -137,6 +138,8 @@ export interface SnapResult {
   snapType: SnapType;
   category?: SnapCategory;
   targetPoint?: Point;
+  sourcePoint?: Point;
+  snapLabel?: string;
   guideLines?: { x1: number; y1: number; x2: number; y2: number }[];
 }
 

@@ -419,13 +419,21 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
 
       const variables: Record<string, ParametricVariable> = {
         top_edge_length: { name: "top_edge_length", value: L_top, unit: "mm" },
+        edge_top: { name: "edge_top", value: L_top, unit: "mm" },
         tr_chamfer_length: { name: "tr_chamfer_length", value: L_tr, unit: "mm" },
+        edge_tr: { name: "edge_tr", value: L_tr, unit: "mm" },
         right_edge_length: { name: "right_edge_length", value: L_right, unit: "mm" },
+        edge_right: { name: "edge_right", value: L_right, unit: "mm" },
         br_chamfer_length: { name: "br_chamfer_length", value: L_br, unit: "mm" },
+        edge_br: { name: "edge_br", value: L_br, unit: "mm" },
         bottom_edge_length: { name: "bottom_edge_length", value: actualBotLen, formula: "top_edge_length - 1", unit: "mm" },
+        edge_bottom: { name: "edge_bottom", value: actualBotLen, formula: "top_edge_length - 1", unit: "mm" },
         bl_chamfer_length: { name: "bl_chamfer_length", value: L_bl, unit: "mm" },
+        edge_bl: { name: "edge_bl", value: L_bl, unit: "mm" },
         left_edge_length: { name: "left_edge_length", value: L_left, unit: "mm" },
+        edge_left: { name: "edge_left", value: L_left, unit: "mm" },
         tl_chamfer_length: { name: "tl_chamfer_length", value: L_tl, unit: "mm" },
+        edge_tl: { name: "edge_tl", value: L_tl, unit: "mm" },
       };
 
       return { shapes, variables, constraints: [] };

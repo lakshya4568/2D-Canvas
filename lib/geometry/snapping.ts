@@ -1,5 +1,6 @@
 import { Point, Shape, SnapResult, SnapCategory } from "./types";
 import { getShapeCenter, rotatePoint, getPolygonPoints, getStarPoints } from "./metrics";
+import { getChamferReferenceSnap } from "./chamferReference";
 
 export interface KeySnapPoint {
   point: Point;
@@ -260,6 +261,19 @@ export function applySnapping(
         targetPoint: closestSnap.point,
         guideLines,
       };
+    }
+
+    // 1b. Chamfer Extension & Reference Snapping (Guides touching previous chamfer)
+    if (startPoint) {
+      const chamferSnap = getChamferReferenceSnap({
+        shapes,
+        startPoint,
+        rawPoint,
+        worldThreshold,
+      });
+      if (chamferSnap) {
+        return chamferSnap;
+      }
     }
 
     // 2. Line-Line Intersections

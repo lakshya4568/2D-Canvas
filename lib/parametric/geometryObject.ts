@@ -342,7 +342,12 @@ export class GeometryObject {
     const objNameOrId = parts[0];
     let targetObj: GeometryObjectState | undefined;
     for (const obj of objects.values()) {
-      if (obj.name === objNameOrId || obj.id === objNameOrId) {
+      if (
+        obj.name === objNameOrId ||
+        obj.id === objNameOrId ||
+        (obj.name && objNameOrId.startsWith("Line_") && obj.name === `L${objNameOrId.slice(5)}`) ||
+        (obj.name && objNameOrId.startsWith("L") && obj.name === `Line_${objNameOrId.slice(1)}`)
+      ) {
         targetObj = obj;
         break;
       }

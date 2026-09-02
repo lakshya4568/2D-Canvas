@@ -135,18 +135,21 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
             }
           }
 
-          const boundVar = (shape.name && state.variables[shape.name]) || state.variables[`Line_${state.shapes.indexOf(shape) + 1}`];
+          const shapeIdx = state.shapes.indexOf(shape);
+          const defName = ParametricModel.getShapeName(shape, shapeIdx);
+          const boundVar =
+            (shape.name && state.variables[shape.name]) ||
+            state.variables[defName] ||
+            state.variables[`L${shapeIdx + 1}`] ||
+            state.variables[`Line_${shapeIdx + 1}`];
 
           if (boundVar) {
             isFormulaDriven = Boolean(boundVar.formula);
             rawExpr = boundVar.formula ? boundVar.formula : String(Math.round(len));
             displayLabel = `${boundVar.name}: ${Math.round(len)}`;
-          } else if (shape.name) {
-            rawExpr = String(Math.round(len));
-            displayLabel = `${shape.name}: ${Math.round(len)}`;
           } else {
             rawExpr = String(Math.round(len));
-            displayLabel = `${Math.round(len)}`;
+            displayLabel = `${shape.name || defName}: ${Math.round(len)}`;
           }
         } else if (shape.type === "rectangle") {
           badgeX = shape.x + shape.width / 2;

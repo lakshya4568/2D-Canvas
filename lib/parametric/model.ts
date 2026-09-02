@@ -15,6 +15,7 @@ import { ConstraintGraph, DOFAnalysis } from "./constraintGraph";
 import { GeometricConstraintSolver, GeometricSolveResult } from "./constraintSolver";
 import { detectClosedLoops, analyzePolygon, ClosedShapeAnalysis, DetectedLoop } from "./closedGeometry";
 import { ConstructionManager } from "./constructionGeometry";
+import { solveClosedStructuralLoop } from "./structuralLoopSolver";
 
 export interface ParametricVariable {
   name: string;
@@ -59,12 +60,28 @@ export class ParametricModel {
   }
 
   /**
-   * Generates canonical shape name if none exists (e.g. Rectangle_1)
+   * Generates canonical shape name if none exists (e.g. L1, L2, R1, C1)
    */
   public static getShapeName(shape: Shape, index: number): string {
     if (shape.name) return shape.name;
-    const prefix = shape.type.charAt(0).toUpperCase() + shape.type.slice(1);
-    return `${prefix}_${index + 1}`;
+    switch (shape.type) {
+      case "line":
+        return `L${index + 1}`;
+      case "arrow":
+        return `A${index + 1}`;
+      case "rectangle":
+        return `R${index + 1}`;
+      case "circle":
+        return `C${index + 1}`;
+      case "ellipse":
+        return `E${index + 1}`;
+      case "polygon":
+        return `P${index + 1}`;
+      case "star":
+        return `S${index + 1}`;
+      default:
+        return `Shape_${index + 1}`;
+    }
   }
 
   /**
@@ -159,16 +176,29 @@ export class ParametricModel {
       symbols[name] = v.value;
     }
 
-    // 2. Shape properties (e.g. Rectangle_1.width, Line_1.length, r1.width)
+    // 2. Shape properties (e.g. L1.length, Line_1.length, R1.width, Rectangle_1.width)
     shapes.forEach((s, idx) => {
       const shapeName = ParametricModel.getShapeName(s, idx);
+      const legacyPrefix = s.type.charAt(0).toUpperCase() + s.type.slice(1) + `_${idx + 1}`;
       const params = ParametricModel.getShapeParameters(s);
 
       for (const p of params) {
         symbols[`${shapeName}.${p.key}`] = p.value;
+        symbols[`${legacyPrefix}.${p.key}`] = p.value;
         if (s.id) {
           symbols[`${s.id}.${p.key}`] = p.value;
         }
+      }
+
+      // Direct scalar property access (e.g. L1 = 300, R1 = width)
+      if (s.type === "line" || s.type === "arrow") {
+        const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+        symbols[shapeName] = Number(len.toFixed(2));
+        symbols[legacyPrefix] = Number(len.toFixed(2));
+      } else if (s.type === "rectangle") {
+        symbols[shapeName] = s.width;
+      } else if (s.type === "circle") {
+        symbols[shapeName] = s.r;
       }
     });
 
@@ -279,6 +309,14 @@ export class ParametricModel {
     };
 
     // 2. Map variables into shapes if variable names match (e.g. if a shape parameter is bound)
+    const loops = detectClosedLoops(shapes, 25.0);
+    const loopShapeIds = new Set<string>();
+    for (const loop of loops) {
+      for (const s of loop.shapes) {
+        loopShapeIds.add(s.id);
+      }
+    }
+
     const updatedShapes: Shape[] = shapes.map((shape, idx) => {
       const s = { ...shape };
       const shapeName = ParametricModel.getShapeName(s, idx);
@@ -304,6 +342,12 @@ export class ParametricModel {
         }
         case "line":
         case "arrow": {
+          // If this line is part of a closed loop, the structural loop solver handles it
+          // as a unified closed contour, strictly preserving coincident joints!
+          if (loopShapeIds.has(s.id)) {
+            break;
+          }
+
           const boundL = getVarValue(
             s.name ?? "",
             `${s.name}.length`,
@@ -388,14 +432,14 @@ export class ParametricModel {
       const edgeTop = updatedShapes.find((s) => s.name === "edge_top")!;
       const ox = (edgeTop as any).x1;
       const oy = (edgeTop as any).y1;
-      const L_top = (getVarValue("top_edge_length") as number) ?? 177;
-      const L_tr = (getVarValue("tr_chamfer_length") as number) ?? 38;
-      const L_right = (getVarValue("right_edge_length") as number) ?? 92;
-      const L_br = (getVarValue("br_chamfer_length") as number) ?? 38;
-      const L_bot = (getVarValue("bottom_edge_length") as number) ?? 176;
-      const L_bl = (getVarValue("bl_chamfer_length") as number) ?? 46;
-      const L_left = (getVarValue("left_edge_length") as number) ?? 79;
-      const L_tl = (getVarValue("tl_chamfer_length") as number) ?? 44;
+      const L_top = (getVarValue("edge_top", "edge_top.length", "top_edge_length") as number) ?? 177;
+      const L_tr = (getVarValue("edge_tr", "edge_tr.length", "tr_chamfer_length") as number) ?? 38;
+      const L_right = (getVarValue("edge_right", "edge_right.length", "right_edge_length") as number) ?? 92;
+      const L_br = (getVarValue("edge_br", "edge_br.length", "br_chamfer_length") as number) ?? 38;
+      const L_bot = (getVarValue("edge_bottom", "edge_bottom.length", "bottom_edge_length") as number) ?? 176;
+      const L_bl = (getVarValue("edge_bl", "edge_bl.length", "bl_chamfer_length") as number) ?? 46;
+      const L_left = (getVarValue("edge_left", "edge_left.length", "left_edge_length") as number) ?? 79;
+      const L_tl = (getVarValue("edge_tl", "edge_tl.length", "tl_chamfer_length") as number) ?? 44;
 
       const v0 = { x: ox, y: oy };
       const v1 = { x: ox + L_top, y: oy };
@@ -421,23 +465,67 @@ export class ParametricModel {
           }
         }
       }
+
+      const syncTwin = (name1: string, name2: string, val: number) => {
+        if (this.variables.has(name1)) {
+          const v = this.variables.get(name1)!;
+          if (!v.formula) v.value = val;
+        }
+        if (this.variables.has(name2)) {
+          const v = this.variables.get(name2)!;
+          if (!v.formula) v.value = val;
+        }
+      };
+      syncTwin("edge_top", "top_edge_length", L_top);
+      syncTwin("edge_tr", "tr_chamfer_length", L_tr);
+      syncTwin("edge_right", "right_edge_length", L_right);
+      syncTwin("edge_br", "br_chamfer_length", L_br);
+      syncTwin("edge_bottom", "bottom_edge_length", L_bot);
+      syncTwin("edge_bl", "bl_chamfer_length", L_bl);
+      syncTwin("edge_left", "left_edge_length", L_left);
+      syncTwin("edge_tl", "tl_chamfer_length", L_tl);
     } else {
-      // General forward-only line connection: adjust connected lines without circular feedback
-      for (let i = 0; i < updatedShapes.length; i++) {
-        const curr = updatedShapes[i];
-        const orig = shapes[i];
-        if ((curr.type === "line" || curr.type === "arrow") && (orig.type === "line" || orig.type === "arrow")) {
-          const shiftX2 = curr.x2 - orig.x2;
-          const shiftY2 = curr.y2 - orig.y2;
-          if (Math.abs(shiftX2) > 1e-4 || Math.abs(shiftY2) > 1e-4) {
-            for (let j = i + 1; j < updatedShapes.length; j++) {
-              const other = updatedShapes[j];
-              if (other.type === "line" || other.type === "arrow") {
-                if (Math.hypot(other.x1 - orig.x2, other.y1 - orig.y2) < 4) {
-                  other.x1 += shiftX2;
-                  other.y1 += shiftY2;
-                  if (Math.abs(other.x2 - other.x1) < 1e-4) other.x2 += shiftX2;
-                  if (Math.abs(other.y2 - other.y1) < 1e-4) other.y2 += shiftY2;
+      // Check if shapes form closed loops (e.g. triangle, polygon, octagonal frame)
+      let loopHandled = false;
+
+      if (loops.length > 0) {
+        for (const loop of loops) {
+          const solveRes = solveClosedStructuralLoop({
+            loopShapes: loop.shapes,
+            loopVertices: loop.vertices,
+            variables: this.variables,
+          });
+
+          if (solveRes.closed) {
+            for (const solvedShape of solveRes.updatedShapes) {
+              const idx = updatedShapes.findIndex((s) => s.id === solvedShape.id);
+              if (idx !== -1) {
+                updatedShapes[idx] = solvedShape;
+              }
+            }
+            loopHandled = true;
+          }
+        }
+      }
+
+      if (!loopHandled) {
+        // General forward-only line connection: adjust connected lines without circular feedback
+        for (let i = 0; i < updatedShapes.length; i++) {
+          const curr = updatedShapes[i];
+          const orig = shapes[i];
+          if ((curr.type === "line" || curr.type === "arrow") && (orig.type === "line" || orig.type === "arrow")) {
+            const shiftX2 = curr.x2 - orig.x2;
+            const shiftY2 = curr.y2 - orig.y2;
+            if (Math.abs(shiftX2) > 1e-4 || Math.abs(shiftY2) > 1e-4) {
+              for (let j = i + 1; j < updatedShapes.length; j++) {
+                const other = updatedShapes[j];
+                if (other.type === "line" || other.type === "arrow") {
+                  if (Math.hypot(other.x1 - orig.x2, other.y1 - orig.y2) < 4) {
+                    other.x1 += shiftX2;
+                    other.y1 += shiftY2;
+                    if (Math.abs(other.x2 - other.x1) < 1e-4) other.x2 += shiftX2;
+                    if (Math.abs(other.y2 - other.y1) < 1e-4) other.y2 += shiftY2;
+                  }
                 }
               }
             }

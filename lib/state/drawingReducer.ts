@@ -247,12 +247,44 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         };
       }
 
-      const committedShape: Shape = { ...state.draft, isVisible: true };
-      const desc = `Draw ${committedShape.type.charAt(0).toUpperCase() + committedShape.type.slice(1)}`;
+      const shapeIndex = state.shapes.length;
+      const defaultName = state.draft.name || ParametricModel.getShapeName(state.draft, shapeIndex);
+      const committedShape: Shape = { ...state.draft, name: defaultName, isVisible: true };
+      const desc = `Draw ${defaultName}`;
+
+      // Auto-register default variable for this shape (e.g. L1, L2, R1, C1)
+      const nextVars = { ...state.variables };
+      if (committedShape.type === "line" || committedShape.type === "arrow") {
+        const len = Math.round(Math.hypot(committedShape.x2 - committedShape.x1, committedShape.y2 - committedShape.y1));
+        if (!nextVars[defaultName]) {
+          nextVars[defaultName] = { name: defaultName, value: len, unit: "mm" };
+        }
+      } else if (committedShape.type === "rectangle") {
+        const wVar = `${defaultName}.width`;
+        const hVar = `${defaultName}.height`;
+        if (!nextVars[wVar]) {
+          nextVars[wVar] = { name: wVar, value: Math.round(committedShape.width), unit: "mm" };
+        }
+        if (!nextVars[hVar]) {
+          nextVars[hVar] = { name: hVar, value: Math.round(committedShape.height), unit: "mm" };
+        }
+      } else if (committedShape.type === "circle") {
+        const rVar = `${defaultName}.r`;
+        if (!nextVars[rVar]) {
+          nextVars[rVar] = { name: rVar, value: Math.round(committedShape.r), unit: "mm" };
+        }
+      }
+
+      const syncResult = runParametricSync(
+        [...state.shapes, committedShape],
+        nextVars,
+        state.constraints
+      );
 
       return {
         ...state,
-        shapes: [...state.shapes, committedShape],
+        shapes: syncResult.updatedShapes,
+        variables: syncResult.updatedVariables,
         draft: null,
         selectedId: committedShape.id,
         selectedIds: [committedShape.id],
@@ -812,6 +844,26 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         }
       }
 
+      const OCTAGON_TWIN_PAIRS: Record<string, string> = {
+        edge_top: "top_edge_length",
+        top_edge_length: "edge_top",
+        edge_tr: "tr_chamfer_length",
+        tr_chamfer_length: "edge_tr",
+        edge_right: "right_edge_length",
+        right_edge_length: "edge_right",
+        edge_br: "br_chamfer_length",
+        br_chamfer_length: "edge_br",
+        edge_bottom: "bottom_edge_length",
+        bottom_edge_length: "edge_bottom",
+        edge_bl: "bl_chamfer_length",
+        bl_chamfer_length: "edge_bl",
+        edge_left: "left_edge_length",
+        left_edge_length: "edge_left",
+        edge_tl: "tl_chamfer_length",
+        tl_chamfer_length: "edge_tl",
+      };
+
+      const twin = OCTAGON_TWIN_PAIRS[action.name];
       const nextVars = {
         ...state.variables,
         [action.name]: {
@@ -822,6 +874,14 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           unit: state.variables[action.name]?.unit,
         },
       };
+
+      if (twin && state.variables[twin]) {
+        nextVars[twin] = {
+          ...state.variables[twin],
+          value: val,
+          formula: formulaStr,
+        };
+      }
       const { updatedShapes, updatedVariables, errors } = runParametricSync(
         state.shapes,
         nextVars,

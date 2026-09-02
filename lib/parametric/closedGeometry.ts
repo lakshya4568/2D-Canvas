@@ -320,7 +320,7 @@ function createDegenerateAnalysis(vertices: Point[]): ClosedShapeAnalysis {
  * Automatically detects closed loops / cycles from an arbitrary collection of line shapes.
  * Builds an endpoint graph within tolerance eps and extracts closed paths.
  */
-export function detectClosedLoops(shapes: Shape[], tolerance: number = 2.0): DetectedLoop[] {
+export function detectClosedLoops(shapes: Shape[], tolerance: number = 25.0): DetectedLoop[] {
   const lineShapes = shapes.filter((s) => s.type === "line" || s.type === "arrow") as Array<
     Shape & { x1: number; y1: number; x2: number; y2: number }
   >;

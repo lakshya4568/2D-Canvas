@@ -13,11 +13,24 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
 
   const { x, y } = snap.targetPoint;
   const isVertex = snap.snapType === "vertex";
-  const strokeColor = snap.category === "perpendicular" ? "#38bdf8" : isVertex ? "#ff9500" : "#0066ff";
-  const ringRadius = (isVertex ? 7 : 5) / scale;
-  const dotRadius = (isVertex ? 2.5 : 2) / scale;
+  const isChamferRef = snap.category === "chamfer_ref";
+  const strokeColor = isChamferRef
+    ? "#f59e0b"
+    : snap.category === "perpendicular"
+    ? "#38bdf8"
+    : isVertex
+    ? "#ff9500"
+    : "#0066ff";
+  const ringRadius = (isChamferRef ? 8 : isVertex ? 7 : 5) / scale;
+  const dotRadius = (isChamferRef ? 3 : isVertex ? 2.5 : 2) / scale;
 
-  const categoryLabel = snap.category ? snap.category.toUpperCase() : isVertex ? "VERTEX" : "GRID";
+  const categoryLabel = snap.snapLabel
+    ? snap.snapLabel
+    : snap.category
+    ? snap.category.toUpperCase()
+    : isVertex
+    ? "VERTEX"
+    : "GRID";
 
   return (
     <g id="snap-indicator-layer" className="pointer-events-none select-none">
@@ -29,12 +42,54 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
           y1={line.y1}
           x2={line.x2}
           y2={line.y2}
-          stroke="#38bdf8"
-          strokeWidth={1 / scale}
+          stroke={isChamferRef ? "#f59e0b" : "#38bdf8"}
+          strokeWidth={(isChamferRef ? 1.5 : 1) / scale}
           strokeDasharray={`${4 / scale}, ${4 / scale}`}
-          opacity={0.8}
+          opacity={0.9}
         />
       ))}
+
+      {/* Anchor point touching previous chamfer */}
+      {isChamferRef && snap.sourcePoint && (
+        <g id="chamfer-touch-anchor">
+          <circle
+            cx={snap.sourcePoint.x}
+            cy={snap.sourcePoint.y}
+            r={6 / scale}
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth={1.5 / scale}
+          />
+          <circle
+            cx={snap.sourcePoint.x}
+            cy={snap.sourcePoint.y}
+            r={2.5 / scale}
+            fill="#f59e0b"
+          />
+          <g transform={`translate(${snap.sourcePoint.x + 8 / scale}, ${snap.sourcePoint.y - 6 / scale})`}>
+            <rect
+              x={0}
+              y={0}
+              width={75 / scale}
+              height={13 / scale}
+              rx={2 / scale}
+              fill="rgba(15, 23, 42, 0.9)"
+              stroke="#f59e0b"
+              strokeWidth={0.8 / scale}
+            />
+            <text
+              x={4 / scale}
+              y={9.5 / scale}
+              fill="#fbbf24"
+              fontSize={7.5 / scale}
+              fontFamily="JetBrains Mono, monospace"
+              fontWeight="bold"
+            >
+              PREV CHAMFER
+            </text>
+          </g>
+        </g>
+      )}
 
       {/* Target Marker */}
       <g transform={`translate(${x}, ${y})`}>
@@ -49,7 +104,7 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
         <circle r={dotRadius} fill={strokeColor} />
 
         {/* Crosshair lines for vertex snap */}
-        {isVertex && (
+        {(isVertex || isChamferRef) && (
           <>
             <line
               x1={-ringRadius - 3 / scale}
@@ -75,17 +130,17 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
           <rect
             x={0}
             y={0}
-            width={categoryLabel.length * 6.5 / scale + 10 / scale}
-            height={15 / scale}
+            width={categoryLabel.length * 6.5 / scale + 12 / scale}
+            height={16 / scale}
             rx={2 / scale}
             fill="rgba(15, 23, 42, 0.95)"
             stroke={strokeColor}
-            strokeWidth={1 / scale}
+            strokeWidth={1.2 / scale}
           />
           <text
-            x={5 / scale}
-            y={10.5 / scale}
-            fill="#ffffff"
+            x={6 / scale}
+            y={11.5 / scale}
+            fill={isChamferRef ? "#fde047" : "#ffffff"}
             fontSize={8.5 / scale}
             fontFamily="JetBrains Mono, monospace"
             fontWeight="bold"
