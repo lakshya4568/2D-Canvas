@@ -19,6 +19,13 @@
 
     --grid-dot: rgba(140, 144, 161, 0.25);
     --grid-line: rgba(43, 47, 62, 0.4);
+
+    --surface-base: #1a1c23;
+    --surface-sunken: #0d0e11;
+    --border-default: #2b2f3e;
+    --text-primary: #f2f4f8;
+    --text-secondary: #c2c6d8;
+    --text-muted: #8c90a1;
   }
 
   .light {
@@ -39,6 +46,13 @@
 
     --grid-dot: rgba(15, 23, 42, 0.18);
     --grid-line: rgba(15, 23, 42, 0.08);
+
+    --surface-base: #ffffff;
+    --surface-sunken: #f1f5f9;
+    --border-default: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
   }
 
   * {

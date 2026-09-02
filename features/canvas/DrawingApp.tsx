@@ -58,13 +58,13 @@ export function DrawingApp() {
       </header>
 
       {/* Main Workspace Body */}
-      <div className="flex-1 w-full flex relative overflow-hidden">
+      <div className="flex-1 w-full flex relative overflow-hidden pb-[28px]">
         {/* Collapsible Left Sidebar CAD Tools (Expandable with Tool Names & Shortcuts) */}
         <SidebarTools />
 
         {/* Primary Interactive SVG Canvas with Quick Parametric Formula Bar */}
-        <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)] flex flex-col">
-          <div className="flex-1 w-full h-full relative overflow-hidden">
+        <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)] flex flex-col mr-[280px]">
+          <div className="flex-1 min-h-0 w-full relative overflow-hidden">
             <DrawingCanvas onCursorChange={setCursorPos} />
           </div>
           <BottomFormulaBar />

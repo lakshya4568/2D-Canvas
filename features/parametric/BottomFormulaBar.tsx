@@ -44,7 +44,7 @@ export const BottomFormulaBar: React.FC = () => {
   const activeVariables = Object.values(state.variables);
 
   return (
-    <div className="flex items-center gap-3 border-t border-[var(--border-subtle)] bg-[var(--surface-base)]/95 px-4 py-2 backdrop-blur-md text-xs shadow-lg">
+    <div className="flex items-center gap-3 border-t border-[var(--border-subtle)] bg-[var(--surface-base)] px-4 py-2 text-xs shadow-lg shrink-0 z-20">
       <div className="flex items-center gap-1.5 font-mono text-[var(--accent-draw)] font-bold">
         <span>ƒ(x)</span>
         <span className="text-[11px] text-[var(--text-secondary)] font-sans font-medium">Quick Formula:</span>
