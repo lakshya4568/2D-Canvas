@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { Shape } from "@/lib/geometry/types";
-import { lineMetrics, formatDimension } from "@/lib/geometry/metrics";
+import { lineMetrics } from "@/lib/geometry/metrics";
 import { ParametricModel } from "@/lib/parametric/model";
 
 interface ParametricDimensionOverlayProps {
@@ -16,7 +16,6 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus input when entering edit mode
   useEffect(() => {
     if (editingShapeId && inputRef.current) {
       inputRef.current.focus();
@@ -35,8 +34,6 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
     if (!editingShapeId) return;
     const trimmed = editValue.trim();
     if (trimmed) {
-      // Determine variable name and expression
-      // Supports formats: "top_outer_rect = 350", "350", or "top_outer_rect - 40"
       const eqIdx = trimmed.indexOf("=");
       let varName = shape.name || ParametricModel.getShapeName(shape, state.shapes.indexOf(shape));
       let expr = trimmed;
@@ -46,7 +43,6 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         expr = trimmed.substring(eqIdx + 1).trim();
       }
 
-      // Update shape name if newly specified
       if (varName && varName !== shape.name) {
         dispatch({
           type: "UPDATE_SHAPE",
@@ -55,7 +51,6 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         });
       }
 
-      // Dispatch variable update which runs dependency graph and re-solves model
       dispatch({
         type: "SET_VARIABLE",
         name: varName,
@@ -87,54 +82,93 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
           state.variables[ParametricModel.getShapeName(shape, state.shapes.indexOf(shape))]
         );
 
-        // Always show for selected shapes or shapes with variables, or when showDimensions is on
         if (!state.showDimensions && !isSelected && !hasVariable) {
           return null;
         }
 
         let badgeX = 0;
         let badgeY = 0;
-        let currentValueStr = "";
+        let displayLabel = "";
         let rawExpr = "";
+        let isFormulaDriven = false;
 
         if (shape.type === "line" || shape.type === "arrow") {
           const metrics = lineMetrics({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
-          badgeX = metrics.midpoint.x;
-          badgeY = metrics.midpoint.y - 18 / scale;
-          const currentL = metrics.length;
+          const len = metrics.length;
+          if (len < 8) return null;
+
+          const dx = Math.abs(shape.x2 - shape.x1);
+          const dy = Math.abs(shape.y2 - shape.y1);
+          const isHorizontal = dx >= dy;
+          const name = shape.name || "";
+
+          // Calculate directional non-colliding offsets
+          if (isHorizontal) {
+            // Horizontal lines: offset above or below
+            badgeX = metrics.midpoint.x;
+            const isTop = name.includes("top");
+            const isBottom = name.includes("bot");
+            const isInner = name.includes("inner");
+
+            if (isTop) {
+              badgeY = metrics.midpoint.y - (isInner ? -13 : 14) / scale;
+            } else if (isBottom) {
+              badgeY = metrics.midpoint.y + (isInner ? -13 : 14) / scale;
+            } else {
+              badgeY = metrics.midpoint.y - 12 / scale;
+            }
+          } else {
+            // Vertical lines: offset left/right AND stagger vertically for zero collision
+            const isLeft = name.includes("left");
+            const isRight = name.includes("right");
+            const isInner = name.includes("inner");
+
+            // Stagger vertically by 28px so inner and outer vertical badges never collide
+            badgeY = metrics.midpoint.y + (isInner ? 28 : -28) / scale;
+
+            if (isLeft) {
+              badgeX = metrics.midpoint.x - (isInner ? -36 : 44) / scale;
+            } else if (isRight) {
+              badgeX = metrics.midpoint.x + (isInner ? -36 : 44) / scale;
+            } else {
+              badgeX = metrics.midpoint.x + 30 / scale;
+            }
+          }
+
           const boundVar = (shape.name && state.variables[shape.name]) || state.variables[`Line_${state.shapes.indexOf(shape) + 1}`];
 
           if (boundVar) {
-            rawExpr = boundVar.formula ? boundVar.formula : String(boundVar.value);
-            currentValueStr = boundVar.formula
-              ? `${boundVar.name} = ${boundVar.formula} (${currentL.toFixed(1)})`
-              : `${boundVar.name} = ${currentL.toFixed(1)}`;
+            isFormulaDriven = Boolean(boundVar.formula);
+            rawExpr = boundVar.formula ? boundVar.formula : String(Math.round(len));
+            displayLabel = `${boundVar.name}: ${Math.round(len)}`;
           } else if (shape.name) {
-            rawExpr = currentL.toFixed(1);
-            currentValueStr = `${shape.name} = ${currentL.toFixed(1)}`;
+            rawExpr = String(Math.round(len));
+            displayLabel = `${shape.name}: ${Math.round(len)}`;
           } else {
-            rawExpr = currentL.toFixed(1);
-            currentValueStr = `L: ${formatDimension(currentL)}`;
+            rawExpr = String(Math.round(len));
+            displayLabel = `${Math.round(len)}`;
           }
         } else if (shape.type === "rectangle") {
           badgeX = shape.x + shape.width / 2;
-          badgeY = shape.y - 18 / scale;
+          badgeY = shape.y - 10 / scale;
           const boundVarW = (shape.name && state.variables[`${shape.name}.width`]) || state.variables.W || state.variables.Width;
           if (boundVarW) {
-            rawExpr = boundVarW.formula ? boundVarW.formula : String(boundVarW.value);
-            currentValueStr = `${boundVarW.name} = ${shape.width.toFixed(1)} × ${shape.height.toFixed(1)}`;
+            isFormulaDriven = Boolean(boundVarW.formula);
+            rawExpr = boundVarW.formula ? boundVarW.formula : String(Math.round(shape.width));
+            displayLabel = `${boundVarW.name}: ${Math.round(shape.width)} × ${Math.round(shape.height)}`;
           } else {
-            rawExpr = `${shape.width.toFixed(1)}`;
-            currentValueStr = `${shape.name ? `${shape.name}: ` : ""}${formatDimension(shape.width)} × ${formatDimension(shape.height)}`;
+            rawExpr = String(Math.round(shape.width));
+            displayLabel = `${shape.name ? `${shape.name}: ` : ""}${Math.round(shape.width)} × ${Math.round(shape.height)}`;
           }
         } else {
           return null;
         }
 
         const isEditing = editingShapeId === shape.id;
-        const fontSize = Math.max(10, Math.min(13, 11 / Math.sqrt(scale)));
-        const badgeWidth = Math.max(80, (currentValueStr.length + 4) * (fontSize * 0.62)) / scale;
-        const badgeHeight = 22 / scale;
+        const fontSize = Math.max(9, Math.min(10.5, 9.5 / Math.sqrt(scale)));
+        const badgeWidth = Math.max(30, (displayLabel.length + 1.5) * (fontSize * 0.58)) / scale;
+        const badgeHeight = 15 / scale;
+        const isDark = state.themeMode !== "light";
 
         return (
           <g
@@ -144,21 +178,20 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
           >
             {isEditing ? (
               <foreignObject
-                x={-badgeWidth / 2}
-                y={-badgeHeight / 2}
-                width={Math.max(160 / scale, badgeWidth + 50 / scale)}
-                height={badgeHeight * 2}
+                x={-60 / scale}
+                y={-10 / scale}
+                width={120 / scale}
+                height={22 / scale}
                 className="overflow-visible"
               >
                 <div
-                  className="flex items-center gap-1 rounded bg-slate-900 p-1 shadow-2xl border-2 border-blue-500"
+                  className="flex items-center gap-1 rounded bg-slate-900/95 border border-blue-500/80 px-1 py-0.5 shadow-sm"
                   style={{
                     transformOrigin: "center center",
                     transform: `scale(${1 / scale})`,
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <span className="text-[10px] font-mono font-bold text-blue-400 pl-1">ƒ(x)</span>
                   <input
                     ref={inputRef}
                     type="text"
@@ -166,8 +199,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                     onChange={(e) => setEditValue(e.target.value)}
                     onKeyDown={(e) => handleKeyDown(e, shape)}
                     onBlur={() => handleCommitEdit(shape)}
-                    placeholder="e.g. 400 or top_outer - 40"
-                    className="w-36 rounded bg-slate-950 px-1.5 py-0.5 font-mono text-[11px] text-white focus:outline-none"
+                    className="w-full bg-transparent px-0.5 font-mono text-[10px] text-white focus:outline-none"
                   />
                   <button
                     type="button"
@@ -175,65 +207,64 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                       e.stopPropagation();
                       handleCommitEdit(shape);
                     }}
-                    className="rounded bg-blue-600 px-1.5 py-0.5 font-sans text-[10px] font-bold text-white hover:bg-blue-500 cursor-pointer"
+                    className="text-[10px] text-blue-400 hover:text-blue-300 px-0.5 cursor-pointer font-bold"
                   >
-                    ✓
+                    ↵
                   </button>
                 </div>
               </foreignObject>
             ) : (
               <g
                 className="cursor-pointer group"
-                onPointerDown={(e) => handleStartEdit(shape, rawExpr || currentValueStr, e)}
+                onPointerDown={(e) => handleStartEdit(shape, rawExpr, e)}
               >
-                <title>Click to edit variable / formula directly on canvas</title>
-                {/* Badge Background Pill */}
+                <title>{isFormulaDriven ? `Formula: ${rawExpr} (Click to edit)` : "Click to edit dimension"}</title>
+
+                {/* Minimalist Flat Backdrop */}
                 <rect
                   x={-badgeWidth / 2}
                   y={-badgeHeight / 2}
                   width={badgeWidth}
                   height={badgeHeight}
-                  rx={4 / scale}
-                  fill="rgba(15, 23, 42, 0.90)"
-                  stroke={hasVariable ? "var(--accent-draw)" : isSelected ? "#0066ff" : "var(--border-strong)"}
-                  strokeWidth={(hasVariable || isSelected ? 1.5 : 1) / scale}
-                  strokeDasharray={hasVariable ? undefined : `${3 / scale}, ${2 / scale}`}
-                  className="transition-all duration-150 group-hover:stroke-blue-400 group-hover:fill-slate-900"
-                  style={{
-                    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.3))",
-                  }}
+                  rx={2 / scale}
+                  fill={isDark ? "rgba(13, 14, 17, 0.85)" : "rgba(255, 255, 255, 0.95)"}
+                  stroke={
+                    isSelected
+                      ? "#0066ff"
+                      : isFormulaDriven
+                      ? "rgba(34, 197, 94, 0.5)"
+                      : isDark
+                      ? "rgba(255, 255, 255, 0.12)"
+                      : "rgba(0, 0, 0, 0.15)"
+                  }
+                  strokeWidth={0.8 / scale}
+                  className="transition-colors group-hover:border-blue-400"
                 />
 
-                {/* Variable Symbol ƒ(x) */}
-                {hasVariable && (
-                  <text
-                    x={-badgeWidth / 2 + 8 / scale}
-                    y={1 / scale}
-                    textAnchor="start"
-                    dominantBaseline="middle"
-                    fill="var(--accent-draw)"
-                    fontSize={fontSize * 0.9}
-                    fontFamily="monospace"
-                    fontWeight="bold"
-                  >
-                    ƒ(x)
-                  </text>
+                {/* Formula indicator dot */}
+                {isFormulaDriven && (
+                  <circle
+                    cx={-badgeWidth / 2 + 4 / scale}
+                    cy={0}
+                    r={1.4 / scale}
+                    fill="#22c55e"
+                  />
                 )}
 
-                {/* Main Label: Variable Name & Length/Value */}
+                {/* Crisp Minimalist Monospace Text */}
                 <text
-                  x={hasVariable ? 4 / scale : 0}
-                  y={1 / scale}
+                  x={isFormulaDriven ? 2.5 / scale : 0}
+                  y={0.5 / scale}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill="#f8fafc"
+                  fill={isDark ? "#e2e8f0" : "#0f172a"}
                   fontSize={fontSize}
-                  fontFamily="JetBrains Mono, monospace"
-                  fontWeight="600"
-                  letterSpacing="0.02em"
-                  className="group-hover:fill-blue-300"
+                  fontFamily="ui-monospace, SFMono-Regular, monospace"
+                  fontWeight="500"
+                  letterSpacing="-0.01em"
+                  className="group-hover:fill-blue-400"
                 >
-                  {currentValueStr}
+                  {displayLabel}
                 </text>
               </g>
             )}

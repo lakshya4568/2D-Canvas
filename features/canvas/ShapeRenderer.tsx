@@ -183,11 +183,6 @@ const SingleShape = React.memo<{
           strokeDasharray={shape.strokeDasharray}
         />
       )}
-
-      {/* Persistent Dimension Badge */}
-      {showDimensions && !isSelected && (
-        <DimensionBadge shape={shape} scale={scale} />
-      )}
     </g>
   );
 });

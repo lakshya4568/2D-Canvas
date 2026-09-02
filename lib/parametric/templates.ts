@@ -278,8 +278,14 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
         top_outer_rect: { name: "top_outer_rect", value: W, unit: "mm" },
         height_outer_rect: { name: "height_outer_rect", value: H, unit: "mm" },
         wall_thickness: { name: "wall_thickness", value: T, unit: "mm" },
+        bottom_outer_rect: { name: "bottom_outer_rect", value: W, formula: "top_outer_rect", unit: "mm" },
+        left_outer_rect: { name: "left_outer_rect", value: H, formula: "height_outer_rect", unit: "mm" },
+        right_outer_rect: { name: "right_outer_rect", value: H, formula: "height_outer_rect", unit: "mm" },
         top_inner_rect: { name: "top_inner_rect", value: inW, formula: "top_outer_rect - (wall_thickness * 2)", unit: "mm" },
         height_inner_rect: { name: "height_inner_rect", value: inH, formula: "height_outer_rect - (wall_thickness * 2)", unit: "mm" },
+        bottom_inner_rect: { name: "bottom_inner_rect", value: inW, formula: "top_inner_rect", unit: "mm" },
+        left_inner_rect: { name: "left_inner_rect", value: inH, formula: "height_inner_rect", unit: "mm" },
+        right_inner_rect: { name: "right_inner_rect", value: inH, formula: "height_inner_rect", unit: "mm" },
       };
 
       return { shapes, variables, constraints: [] };
