@@ -23,6 +23,7 @@ import {
   createTwoSpanCulvertModel,
   solveTwoSpanCulvertBay1,
 } from "../state/index";
+import { detectGADAssemblies, solveGADAssemblyAdjustment } from "../geometry/gadAssemblyEngine";
 
 export interface ParametricVariable {
   name: string;
@@ -340,7 +341,7 @@ export class ParametricModel {
       return false;
     };
 
-    const updatedShapes: Shape[] = shapes.map((shape, idx) => {
+    let updatedShapes: Shape[] = shapes.map((shape, idx) => {
       const s = { ...shape };
       const shapeName = ParametricModel.getShapeName(s, idx);
 
@@ -395,6 +396,32 @@ export class ParametricModel {
 
       return s;
     });
+
+    // 0. General GAD Assembly Auto-Calculation (Arbitrary drawings, nested rectangles, multi-cell assemblies)
+    const assemblies = detectGADAssemblies(updatedShapes);
+    for (const asm of assemblies) {
+      for (let fIdx = 0; fIdx < asm.features.length; fIdx++) {
+        const feat = asm.features[fIdx];
+        const spanKeys = [
+          "clear_span", "span", "Span", "width", "Width",
+          `bay${fIdx + 1}_span`, `bay_${fIdx + 1}_span`,
+          `${feat.id}.width`, feat.id,
+          ...feat.shapeIds.map((id) => `${id}.length`),
+          ...feat.shapeIds.map((id) => id),
+        ];
+        const targetSpan = getVarValue(...spanKeys) as number | undefined;
+        if (targetSpan !== undefined && typeof targetSpan === "number" && targetSpan > 0 && Math.abs(targetSpan - feat.span) > 0.5) {
+          const gadRes = solveGADAssemblyAdjustment(updatedShapes, {
+            assemblyId: asm.id,
+            featureIndex: fIdx,
+            newSpan: targetSpan,
+          });
+          if (gadRes.solved) {
+            updatedShapes = gadRes.updatedShapes;
+          }
+        }
+      }
+    }
 
     const culvertOuter = updatedShapes.find((s) => s.id === "culvert_outer" || s.name === "culvert_outer");
     if (culvertOuter && culvertOuter.type === "rectangle") {

@@ -26,6 +26,11 @@ import {
   RotateCcw,
   RotateCw,
   Sparkles,
+  ShieldAlert,
+  AlertTriangle,
+  Link2,
+  CheckCircle2,
+  Edit3,
 } from "lucide-react";
 import { VariablesPanel } from "../parametric/VariablesPanel";
 import { FormulaEditor } from "../parametric/FormulaEditor";
@@ -34,6 +39,7 @@ import { TemplateModal } from "../parametric/TemplateModal";
 import { ParametricModel } from "@/lib/parametric/model";
 import { detectClosedLoops } from "@/lib/parametric/closedGeometry";
 import { computePolygonMoments } from "@/lib/geometry/metrics/polygonMoments";
+import { isShapeInGADAssembly, detectGADAssemblies } from "@/lib/geometry/gadAssemblyEngine";
 
 const PRESET_COLORS = [
   "#f8fafc", // White (Dark Mode default)
@@ -95,6 +101,57 @@ export function PropertyInspector() {
       id: state.selectedId,
       updates,
     });
+  };
+
+  const gadRole = React.useMemo(() => {
+    if (!selectedShape) return { inAssembly: false };
+    return isShapeInGADAssembly(state.shapes, selectedShape.id);
+  }, [state.shapes, selectedShape]);
+
+  const gadAssembly = gadRole.assembly;
+  const currentFeature =
+    gadAssembly && gadRole.featureIndex !== undefined
+      ? gadAssembly.features[gadRole.featureIndex]
+      : undefined;
+
+  const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
+  const [editFormulaExpr, setEditFormulaExpr] = useState<string>("");
+
+  const activeBoundaryEval = React.useMemo(() => {
+    if (!selectedShape) return null;
+    return state.boundaryEvaluations?.find((b) => b.shapeId === selectedShape.id) || null;
+  }, [state.boundaryEvaluations, selectedShape]);
+
+  const relevantFormulas = React.useMemo(() => {
+    if (!selectedShape) return [];
+    return state.inferredFormulas?.filter((f) => f.targetShapeId === selectedShape.id) || [];
+  }, [state.inferredFormulas, selectedShape]);
+
+  const handleLineLengthChange = (newL: number) => {
+    if (!selectedShape || (selectedShape.type !== "line" && selectedShape.type !== "arrow")) return;
+    const curLen = lineMetrics(
+      { x: selectedShape.x1, y: selectedShape.y1 },
+      { x: selectedShape.x2, y: selectedShape.y2 }
+    ).length;
+    if (curLen <= 0) return;
+
+    if (gadRole.inAssembly && gadRole.role === "inner") {
+      dispatch({
+        type: "ADJUST_GAD_ASSEMBLY",
+        target: {
+          shapeId: selectedShape.id,
+          assemblyId: gadAssembly?.id,
+          featureIndex: gadRole.featureIndex ?? 0,
+          deltaSpan: newL - curLen,
+        },
+      });
+    } else {
+      const angle = Math.atan2(selectedShape.y2 - selectedShape.y1, selectedShape.x2 - selectedShape.x1);
+      handleUpdate({
+        x2: selectedShape.x1 + Math.cos(angle) * newL,
+        y2: selectedShape.y1 + Math.sin(angle) * newL,
+      });
+    }
   };
 
   if (isCollapsed) {
@@ -300,9 +357,20 @@ export function PropertyInspector() {
                       />
                     </div>
 
-                    <div className="col-span-2 p-2 rounded bg-[var(--bg-panel-subtle)] flex justify-between text-[10px] text-[var(--fg-secondary)]">
-                      <span>Length: {lineMetrics({ x: selectedShape.x1, y: selectedShape.y1 }, { x: selectedShape.x2, y: selectedShape.y2 }).length.toFixed(1)} px</span>
-                      <span>Angle: {lineMetrics({ x: selectedShape.x1, y: selectedShape.y1 }, { x: selectedShape.x2, y: selectedShape.y2 }).angleDeg.toFixed(1)}°</span>
+                    <div className="col-span-2 p-2 rounded bg-[var(--bg-panel-subtle)] flex flex-col gap-1.5">
+                      <div className="flex items-center gap-1.5 font-mono">
+                        <span className="text-[10px] text-[var(--fg-muted)] w-10">Length</span>
+                        <input
+                          type="number"
+                          value={Math.round(lineMetrics({ x: selectedShape.x1, y: selectedShape.y1 }, { x: selectedShape.x2, y: selectedShape.y2 }).length)}
+                          onChange={(e) => handleLineLengthChange(Number(e.target.value))}
+                          className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
+                        />
+                        <span className="text-[10px] text-[var(--fg-muted)]">px</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-[var(--fg-secondary)]">
+                        <span>Angle: {lineMetrics({ x: selectedShape.x1, y: selectedShape.y1 }, { x: selectedShape.x2, y: selectedShape.y2 }).angleDeg.toFixed(1)}°</span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -570,6 +638,291 @@ export function PropertyInspector() {
                         onChange={(e) => handleUpdate({ outerR: Math.max(1, Number(e.target.value)) })}
                         className="w-full h-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-1.5 text-[11px] text-[var(--fg-primary)] focus:border-blue-500 focus:outline-none"
                       />
+                    </div>
+                  </div>
+                )}
+
+                {/* GAD Assembly Intelligence Card */}
+                {gadAssembly && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-[var(--bg-panel-subtle)] border border-blue-500/30 flex flex-col gap-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-blue-400" />
+                        GAD Assembly Intelligence
+                      </span>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">
+                        {gadRole.role === "inner"
+                          ? gadRole.depth && gadRole.depth > 1
+                            ? `Embedded (Level ${gadRole.depth})`
+                            : "Internal Opening"
+                          : "Boundary Frame"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 font-mono text-[10px]">
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[8px] text-[var(--fg-muted)] uppercase">Clearance (L / R)</span>
+                        <span className="text-[10px] font-bold text-[var(--fg-primary)]">
+                          {(gadRole.clearancesToParent?.left ?? gadAssembly.clearances.left)}px / {(gadRole.clearancesToParent?.right ?? gadAssembly.clearances.right)}px
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[8px] text-[var(--fg-muted)] uppercase">Clearance (Top / Bot)</span>
+                        <span className="text-[10px] font-bold text-[var(--fg-primary)]">
+                          {(gadRole.clearancesToParent?.top ?? gadAssembly.clearances.top)}px / {(gadRole.clearancesToParent?.bottom ?? gadAssembly.clearances.bottom)}px
+                        </span>
+                      </div>
+                      {gadAssembly.clearances.radial !== undefined && (
+                        <div className="col-span-2 p-1.5 rounded bg-[var(--bg-app)] flex justify-between items-center">
+                          <span className="text-[8px] text-[var(--fg-muted)] uppercase">Radial Clearance</span>
+                          <span className="text-[10px] font-bold text-blue-400">{gadAssembly.clearances.radial} px</span>
+                        </div>
+                      )}
+                      {gadAssembly.clearances.mid !== undefined && (
+                        <div className="col-span-2 p-1.5 rounded bg-[var(--bg-app)] flex justify-between items-center">
+                          <span className="text-[8px] text-[var(--fg-muted)] uppercase">Intermediate Partition</span>
+                          <span className="text-[10px] font-bold text-amber-400">{gadAssembly.clearances.mid} px</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedShape.type === "circle" ? (
+                      <div className="flex flex-col gap-1 pt-1.5 border-t border-[var(--border-subtle)]">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase font-semibold">
+                          Auto-Calculate Radius (No Formula):
+                        </span>
+                        <div className="flex items-center gap-1.5 font-mono">
+                          <span className="text-[10px] text-blue-400 font-bold w-10">Radius</span>
+                          <input
+                            type="number"
+                            value={Math.round(selectedShape.r)}
+                            onChange={(e) => {
+                              const newR = Number(e.target.value);
+                              if (newR > 0) {
+                                dispatch({
+                                  type: "ADJUST_GAD_ASSEMBLY",
+                                  target: {
+                                    shapeId: selectedShape.id,
+                                    assemblyId: gadAssembly.id,
+                                    featureIndex: gadRole.featureIndex ?? 0,
+                                    newRadius: newR,
+                                  },
+                                });
+                              }
+                            }}
+                            className="w-full h-6 bg-[var(--bg-app)] border border-blue-500/40 rounded px-1.5 text-[11px] text-[var(--fg-primary)] font-bold focus:border-blue-500 focus:outline-none"
+                          />
+                          <span className="text-[10px] text-[var(--fg-muted)]">px</span>
+                        </div>
+                      </div>
+                    ) : currentFeature ? (
+                      <div className="flex flex-col gap-1 pt-1.5 border-t border-[var(--border-subtle)]">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase font-semibold">
+                          Auto-Calculate Span (No Formula):
+                        </span>
+                        <div className="flex items-center gap-1.5 font-mono">
+                          <span className="text-[10px] text-blue-400 font-bold w-10">Span</span>
+                          <input
+                            type="number"
+                            value={Math.round(currentFeature.span)}
+                            onChange={(e) => {
+                              const newSpan = Number(e.target.value);
+                              if (newSpan > 0 && selectedShape) {
+                                dispatch({
+                                  type: "ADJUST_GAD_ASSEMBLY",
+                                  target: {
+                                    shapeId: selectedShape.id,
+                                    assemblyId: gadAssembly.id,
+                                    featureIndex: gadRole.featureIndex ?? 0,
+                                    newSpan,
+                                  },
+                                });
+                              }
+                            }}
+                            className="w-full h-6 bg-[var(--bg-app)] border border-blue-500/40 rounded px-1.5 text-[11px] text-[var(--fg-primary)] font-bold focus:border-blue-500 focus:outline-none"
+                          />
+                          <span className="text-[10px] text-[var(--fg-muted)]">px</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Boundary & Span Limits Card */}
+                {activeBoundaryEval && (
+                  <div
+                    className={`mt-2 p-2.5 rounded-lg border flex flex-col gap-2 shadow-xs transition-colors ${
+                      activeBoundaryEval.state === "Exceeded"
+                        ? "bg-rose-500/10 border-rose-500/40 text-rose-300"
+                        : activeBoundaryEval.state === "Approaching Limit"
+                        ? "bg-amber-500/10 border-amber-500/40 text-amber-300"
+                        : "bg-[var(--bg-panel-subtle)] border-blue-500/30"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        Boundary & Span Limits
+                      </span>
+                      <span
+                        className={`text-[9px] font-mono px-2 py-0.5 rounded font-bold uppercase border ${
+                          activeBoundaryEval.state === "Exceeded"
+                            ? "bg-rose-500/25 text-rose-300 border-rose-500/50 animate-pulse"
+                            : activeBoundaryEval.state === "Approaching Limit"
+                            ? "bg-amber-500/25 text-amber-300 border-amber-500/50"
+                            : activeBoundaryEval.state === "At Limit"
+                            ? "bg-blue-500/25 text-blue-300 border-blue-500/50"
+                            : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                        }`}
+                      >
+                        {activeBoundaryEval.state}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-1.5 font-mono text-[10px]">
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[8px] text-[var(--fg-muted)] uppercase">Max Span</span>
+                        <span className="text-[10px] font-bold text-[var(--fg-primary)]">
+                          {activeBoundaryEval.maximumSpan}px
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[8px] text-[var(--fg-muted)] uppercase">Current</span>
+                        <span className="text-[10px] font-bold text-[var(--fg-primary)]">
+                          {activeBoundaryEval.currentSpan}px
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[8px] text-[var(--fg-muted)] uppercase">Remaining</span>
+                        <span
+                          className={`text-[10px] font-bold ${
+                            activeBoundaryEval.remainingUnits < 0
+                              ? "text-rose-400 font-extrabold"
+                              : activeBoundaryEval.remainingUnits < 40
+                              ? "text-amber-400"
+                              : "text-emerald-400"
+                          }`}
+                        >
+                          {activeBoundaryEval.remainingUnits}px
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Mode Selector */}
+                    <div className="flex items-center justify-between pt-1 border-t border-[var(--border-subtle)] text-[9px]">
+                      <span className="text-[var(--fg-muted)] uppercase font-semibold">Limit Mode:</span>
+                      <div className="flex items-center gap-1">
+                        {(["warning", "constraint", "adaptive"] as const).map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => dispatch({ type: "SET_BOUNDARY_MODE", mode: m })}
+                            className={`px-1.5 py-0.5 rounded uppercase font-bold transition-colors cursor-pointer ${
+                              state.boundaryMode === m
+                                ? "bg-blue-500/30 text-blue-300 border border-blue-500/50"
+                                : "text-[var(--fg-muted)] hover:text-[var(--fg-primary)]"
+                            }`}
+                          >
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Alert Message Banner */}
+                    {activeBoundaryEval.state === "Exceeded" && (
+                      <div className="p-1.5 rounded bg-rose-500/20 border border-rose-500/40 text-[10px] font-medium text-rose-200 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                        <span>{activeBoundaryEval.message}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Inferred Parametric Formulas Card */}
+                {relevantFormulas && relevantFormulas.length > 0 && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-[var(--bg-panel-subtle)] border border-blue-500/25 flex flex-col gap-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1">
+                        <Link2 className="w-3 h-3 text-blue-400" />
+                        Inferred Formulas ({relevantFormulas.length})
+                      </span>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">
+                        Auto-Derived
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      {relevantFormulas.map((f) => (
+                        <div
+                          key={f.id}
+                          className="p-2 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] flex flex-col gap-1.5 text-[10px]"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-[var(--fg-primary)]">{f.displayTarget}</span>
+                            <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-semibold">
+                              {Math.round(f.confidence * 100)}% Confidence
+                            </span>
+                          </div>
+
+                          {editingFormulaId === f.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={editFormulaExpr}
+                                onChange={(e) => setEditFormulaExpr(e.target.value)}
+                                className="w-full h-6 bg-[var(--bg-panel-subtle)] border border-blue-500/50 rounded px-1.5 text-[11px] font-mono text-[var(--fg-primary)]"
+                              />
+                              <button
+                                onClick={() => {
+                                  dispatch({
+                                    type: "UPDATE_INFERRED_FORMULA",
+                                    id: f.id,
+                                    expression: editFormulaExpr,
+                                  });
+                                  setEditingFormulaId(null);
+                                }}
+                                className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 cursor-pointer"
+                                title="Save edit"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="font-mono text-[11px] text-blue-300 font-semibold bg-[var(--bg-panel-subtle)] px-2 py-1 rounded flex items-center justify-between">
+                              <span>
+                                {f.targetProperty} = {f.expression}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setEditingFormulaId(f.id);
+                                  setEditFormulaExpr(f.expression);
+                                }}
+                                className="text-[var(--fg-muted)] hover:text-[var(--fg-primary)] p-0.5 cursor-pointer"
+                                title="Edit formula"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+
+                          <span className="text-[9px] text-[var(--fg-muted)] italic">{f.reason}</span>
+
+                          <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-[var(--border-subtle)]">
+                            <button
+                              onClick={() => dispatch({ type: "ACCEPT_INFERRED_FORMULA", id: f.id })}
+                              className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-semibold text-[9px] cursor-pointer"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              onClick={() => dispatch({ type: "REJECT_INFERRED_FORMULA", id: f.id })}
+                              className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-[9px] cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

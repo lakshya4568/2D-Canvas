@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { ParametricModel } from "@/lib/parametric/model";
+import { detectGADAssemblies } from "@/lib/geometry/gadAssemblyEngine";
 
 export const BottomFormulaBar: React.FC = () => {
   const { state, dispatch } = useDrawing();
@@ -64,6 +65,31 @@ export const BottomFormulaBar: React.FC = () => {
       name: cleanVarName,
       valueOrFormula: expr,
     });
+
+    const num = Number(expr);
+    if (!isNaN(num) && num > 0) {
+      const assemblies = detectGADAssemblies(state.shapes);
+      if (assemblies.length > 0) {
+        const selectedShape = state.shapes.find((s) => s.id === state.selectedId);
+        if (selectedShape?.type === "circle") {
+          dispatch({
+            type: "ADJUST_GAD_ASSEMBLY",
+            target: {
+              shapeId: state.selectedId ?? undefined,
+              newRadius: num,
+            },
+          });
+        } else {
+          dispatch({
+            type: "ADJUST_GAD_ASSEMBLY",
+            target: {
+              shapeId: state.selectedId ?? undefined,
+              newSpan: num,
+            },
+          });
+        }
+      }
+    }
 
     setFeedback(`✓ ${cleanVarName} = ${expr}`);
     setTimeout(() => setFeedback(null), 3000);
@@ -130,6 +156,14 @@ export const BottomFormulaBar: React.FC = () => {
             title="Load Two-Span Box Culvert Benchmark"
           >
             Culvert (2-Span)
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "INSTANTIATE_TEMPLATE", templateId: "rcc_bridge" })}
+            className="rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-1 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
+            title="Load Parametric RCC Box Girder Bridge Benchmark"
+          >
+            RCC Bridge
           </button>
         </div>
 

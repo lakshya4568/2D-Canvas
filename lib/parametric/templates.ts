@@ -573,4 +573,147 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
       return { shapes, variables, constraints: [] };
     },
   },
+  {
+    id: "rcc_bridge",
+    name: "RCC Box Girder Bridge (Multi-Cell & Piers)",
+    category: "Structural",
+    description: "Fully parametric RCC bridge assembly with deck slab, centerline, symmetric piers, parapets, and cellular voids.",
+    version: "1.0.0",
+    parameters: [
+      { name: "span", label: "Overall Span", defaultValue: 600, unit: "mm", min: 300, max: 1200, step: 20 },
+      { name: "deck_width", label: "Deck Width", defaultValue: 700, unit: "mm", min: 400, max: 1400, step: 20 },
+      { name: "deck_thickness", label: "Deck Slab Thickness", defaultValue: 60, unit: "mm", min: 30, max: 150, step: 5 },
+      { name: "pier_spacing", label: "Pier Spacing", defaultValue: 340, unit: "mm", min: 100, max: 800, step: 10 },
+      { name: "pier_width", label: "Pier Width", defaultValue: 60, unit: "mm", min: 20, max: 150, step: 5 },
+      { name: "wall_thickness", label: "Internal Wall Thickness", defaultValue: 30, unit: "mm", min: 10, max: 60, step: 5 },
+    ],
+    formulas: [
+      { variable: "cell_width", formula: "(deck_width - 4 * wall_thickness) / 2" },
+      { variable: "pier_left_x", formula: "500 - pier_spacing / 2 - pier_width / 2" },
+      { variable: "pier_right_x", formula: "500 + pier_spacing / 2 - pier_width / 2" },
+    ],
+    constraints: [],
+    generator: (params) => {
+      const span = params.span ?? 600;
+      const deckWidth = params.deck_width ?? 700;
+      const deckThickness = params.deck_thickness ?? 60;
+      const pierSpacing = params.pier_spacing ?? 340;
+      const pierWidth = params.pier_width ?? 60;
+      const wallThickness = params.wall_thickness ?? 30;
+
+      const centerX = 500;
+      const deckTopY = 200;
+      const deckX = centerX - deckWidth / 2;
+      const pierY = deckTopY + deckThickness;
+
+      const cellWidth = (deckWidth - 4 * wallThickness) / 2;
+      const cellHeight = Math.max(15, deckThickness - 2 * wallThickness);
+
+      const shapes: Shape[] = [
+        {
+          id: "bridge_deck_slab",
+          name: "RCC Bridge Deck",
+          type: "rectangle",
+          x: deckX,
+          y: deckTopY,
+          width: deckWidth,
+          height: deckThickness,
+          strokeColor: "#f8fafc",
+          strokeWidth: 2,
+        },
+        {
+          id: "bridge_centerline",
+          name: "Bridge Centerline",
+          type: "line",
+          x1: centerX,
+          y1: deckTopY - 60,
+          x2: centerX,
+          y2: deckTopY + deckThickness + 180 + 60,
+          strokeColor: "#38bdf8",
+          strokeWidth: 1.5,
+          strokeDasharray: "8 4 2 4",
+        },
+        {
+          id: "bridge_parapet_left",
+          name: "Left Parapet Barrier",
+          type: "rectangle",
+          x: deckX,
+          y: deckTopY - 35,
+          width: 25,
+          height: 35,
+          strokeColor: "#94a3b8",
+          strokeWidth: 2,
+        },
+        {
+          id: "bridge_parapet_right",
+          name: "Right Parapet Barrier",
+          type: "rectangle",
+          x: deckX + deckWidth - 25,
+          y: deckTopY - 35,
+          width: 25,
+          height: 35,
+          strokeColor: "#94a3b8",
+          strokeWidth: 2,
+        },
+        {
+          id: "bridge_pier_left",
+          name: "Pier Column (Left)",
+          type: "rectangle",
+          x: centerX - pierSpacing / 2 - pierWidth / 2,
+          y: pierY,
+          width: pierWidth,
+          height: 180,
+          strokeColor: "#e2e8f0",
+          strokeWidth: 2,
+        },
+        {
+          id: "bridge_pier_right",
+          name: "Pier Column (Right)",
+          type: "rectangle",
+          x: centerX + pierSpacing / 2 - pierWidth / 2,
+          y: pierY,
+          width: pierWidth,
+          height: 180,
+          strokeColor: "#e2e8f0",
+          strokeWidth: 2,
+        },
+        {
+          id: "deck_cell_1",
+          name: "Deck Cell 1",
+          type: "rectangle",
+          x: deckX + wallThickness,
+          y: deckTopY + wallThickness,
+          width: cellWidth,
+          height: cellHeight,
+          strokeColor: "#38bdf8",
+          strokeWidth: 1.5,
+        },
+        {
+          id: "deck_cell_2",
+          name: "Deck Cell 2",
+          type: "rectangle",
+          x: deckX + 2 * wallThickness + cellWidth,
+          y: deckTopY + wallThickness,
+          width: cellWidth,
+          height: cellHeight,
+          strokeColor: "#38bdf8",
+          strokeWidth: 1.5,
+        },
+      ];
+
+      const variables: Record<string, ParametricVariable> = {
+        span: { name: "span", value: span, unit: "mm" },
+        deck_width: { name: "deck_width", value: deckWidth, unit: "mm" },
+        deck_thickness: { name: "deck_thickness", value: deckThickness, unit: "mm" },
+        pier_spacing: { name: "pier_spacing", value: pierSpacing, unit: "mm" },
+        pier_width: { name: "pier_width", value: pierWidth, unit: "mm" },
+        wall_thickness: { name: "wall_thickness", value: wallThickness, unit: "mm" },
+        cell_width: { name: "cell_width", value: cellWidth, formula: "(deck_width - 4 * wall_thickness) / 2", unit: "mm" },
+        pier_left_x: { name: "pier_left_x", value: centerX - pierSpacing / 2 - pierWidth / 2, formula: "500 - pier_spacing / 2 - pier_width / 2", unit: "mm" },
+        pier_right_x: { name: "pier_right_x", value: centerX + pierSpacing / 2 - pierWidth / 2, formula: "500 + pier_spacing / 2 - pier_width / 2", unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
 ];

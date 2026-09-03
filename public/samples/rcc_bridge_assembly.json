@@ -1,0 +1,132 @@
+[
+  {
+    "id": "rcc_deck_slab",
+    "name": "RCC Deck Slab",
+    "type": "rectangle",
+    "x": 50,
+    "y": 50,
+    "width": 1000,
+    "height": 350,
+    "strokeColor": "#f8fafc",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_roof",
+    "name": "Bay 1 Roof",
+    "type": "line",
+    "x1": 130,
+    "y1": 100,
+    "x2": 450,
+    "y2": 100,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_tr",
+    "name": "Bay 1 Chamfer TR",
+    "type": "line",
+    "x1": 450,
+    "y1": 100,
+    "x2": 480,
+    "y2": 130,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_wall_right",
+    "name": "Bay 1 Right Wall",
+    "type": "line",
+    "x1": 480,
+    "y1": 130,
+    "x2": 480,
+    "y2": 320,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_br",
+    "name": "Bay 1 Chamfer BR",
+    "type": "line",
+    "x1": 480,
+    "y1": 320,
+    "x2": 450,
+    "y2": 350,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_floor",
+    "name": "Bay 1 Floor",
+    "type": "line",
+    "x1": 450,
+    "y1": 350,
+    "x2": 130,
+    "y2": 350,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_bl",
+    "name": "Bay 1 Chamfer BL",
+    "type": "line",
+    "x1": 130,
+    "y1": 350,
+    "x2": 100,
+    "y2": 320,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_wall_left",
+    "name": "Bay 1 Left Wall",
+    "type": "line",
+    "x1": 100,
+    "y1": 320,
+    "x2": 100,
+    "y2": 130,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_tl",
+    "name": "Bay 1 Chamfer TL",
+    "type": "line",
+    "x1": 100,
+    "y1": 130,
+    "x2": 130,
+    "y2": 100,
+    "strokeColor": "#38bdf8",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay1_drain_pipe",
+    "name": "Drainage Pipe Duct",
+    "type": "circle",
+    "cx": 290,
+    "cy": 225,
+    "r": 40,
+    "strokeColor": "#0284c7",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay2_box_cavity",
+    "name": "Bay 2 Box Girder Cavity",
+    "type": "rectangle",
+    "x": 540,
+    "y": 100,
+    "width": 400,
+    "height": 250,
+    "strokeColor": "#a855f7",
+    "strokeWidth": 2
+  },
+  {
+    "id": "bay2_tendon_duct",
+    "name": "Prestressing Tendon Duct",
+    "type": "circle",
+    "cx": 740,
+    "cy": 225,
+    "r": 50,
+    "strokeColor": "#eab308",
+    "strokeWidth": 2
+  }
+]
