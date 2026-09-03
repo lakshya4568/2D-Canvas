@@ -199,9 +199,9 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
 
     return (
       <g id="shapes-layer">
-        {shapes.map((shape) => (
+        {shapes.map((shape, index) => (
           <SingleShape
-            key={shape.id}
+            key={`${shape.id}_${index}`}
             shape={shape}
             isSelected={selectedIds.includes(shape.id)}
             showDimensions={showDimensions}
@@ -212,14 +212,13 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
           />
         ))}
 
-        {/* Render Mathematical Centroid Crosshair (⊕) for detected closed loops */}
-        {loops.map((loop) => {
+        {loops.map((loop, loopIdx) => {
           const isLoopSelected = loop.shapes.some((s) => selectedIds.includes(s.id));
           if (!showDimensions && !isLoopSelected) return null;
           const { centroid } = loop.analysis;
 
           return (
-            <g key={loop.id} pointerEvents="none" className="transition-opacity duration-200">
+            <g key={`${loop.id}_${loopIdx}`} pointerEvents="none" className="transition-opacity duration-200">
               {/* Centroid Crosshair */}
               <circle
                 cx={centroid.x}

@@ -1026,7 +1026,19 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const finalParams = { ...defaultParams, ...(action.params || {}) };
 
       const instance = template.generator(finalParams);
-      const nextShapes = [...state.shapes, ...instance.shapes];
+      const incomingIds = new Set(instance.shapes.map((s) => s.id));
+      const isCulvert = action.templateId.includes("culvert");
+      const culvertPrefixes = ["culvert_", "two_span_", "b1_", "b2_"];
+
+      const filteredShapes = state.shapes.filter((s) => {
+        if (incomingIds.has(s.id)) return false;
+        if (isCulvert && culvertPrefixes.some((prefix) => s.id.startsWith(prefix))) {
+          return false;
+        }
+        return true;
+      });
+
+      const nextShapes = [...filteredShapes, ...instance.shapes];
       const nextVars = { ...state.variables, ...instance.variables };
       const nextConstraints = [...state.constraints, ...instance.constraints];
 

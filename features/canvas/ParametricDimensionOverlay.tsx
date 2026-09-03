@@ -73,7 +73,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
 
   return (
     <g id="parametric-dimensions-layer">
-      {state.shapes.map((shape) => {
+      {state.shapes.map((shape, index) => {
         if (shape.isVisible === false) return null;
 
         const isSelected = state.selectedIds.includes(shape.id);
@@ -180,7 +180,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
 
         return (
           <g
-            key={`param-badge-${shape.id}`}
+            key={`param-badge-${shape.id}-${index}`}
             transform={`translate(${badgeX}, ${badgeY})`}
             className="select-none"
           >
