@@ -33,6 +33,7 @@ import { ConstraintsPanel } from "../parametric/ConstraintsPanel";
 import { TemplateModal } from "../parametric/TemplateModal";
 import { ParametricModel } from "@/lib/parametric/model";
 import { detectClosedLoops } from "@/lib/parametric/closedGeometry";
+import { computePolygonMoments } from "@/lib/geometry/metrics/polygonMoments";
 
 const PRESET_COLORS = [
   "#f8fafc", // White (Dark Mode default)
@@ -75,6 +76,17 @@ export function PropertyInspector() {
     }
     return null;
   }, [state.shapes, selectedShape]);
+
+  const moments = React.useMemo(() => {
+    if (!activeLoop?.vertices || activeLoop.vertices.length < 3) return null;
+    return computePolygonMoments(activeLoop.vertices);
+  }, [activeLoop]);
+
+  const systemDof = React.useMemo(() => {
+    const vCount = state.shapes.length * 2;
+    const cCount = state.constraints.filter((c) => c.enabled).length;
+    return Math.max(0, vCount - cCount - 3);
+  }, [state.shapes.length, state.constraints]);
 
   const handleUpdate = (updates: Partial<Shape>) => {
     if (!state.selectedId) return;
@@ -622,10 +634,32 @@ export function PropertyInspector() {
                           {activeLoop.analysis.perimeter.toFixed(1)} px
                         </span>
                       </div>
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase">Inertia Ixx</span>
+                        <span className="text-[10px] font-semibold text-sky-400">
+                          {moments?.IxxCentroid ? moments.IxxCentroid.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded bg-[var(--bg-app)] flex flex-col">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase">Inertia Iyy</span>
+                        <span className="text-[10px] font-semibold text-sky-400">
+                          {moments?.IyyCentroid ? moments.IyyCentroid.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "N/A"}
+                        </span>
+                      </div>
                       <div className="col-span-2 p-1.5 rounded bg-[var(--bg-app)] flex justify-between items-center">
                         <span className="text-[9px] text-[var(--fg-muted)] uppercase">Centroid (Cx, Cy)</span>
                         <span className="text-[10px] font-semibold text-blue-400">
                           ({activeLoop.analysis.centroid.x}, {activeLoop.analysis.centroid.y})
+                        </span>
+                      </div>
+                      <div className="col-span-2 p-1.5 rounded bg-[var(--bg-app)] flex justify-between items-center">
+                        <span className="text-[9px] text-[var(--fg-muted)] uppercase">System Mobility (DOF)</span>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                          systemDof === 0
+                            ? "bg-emerald-500/20 text-emerald-300"
+                            : "bg-blue-500/20 text-blue-300"
+                        }`}>
+                          {systemDof === 0 ? "Well-Constrained (0 DOF)" : `Under-Constrained (${systemDof} DOFs)`}
                         </span>
                       </div>
                       <div className="col-span-2 p-1.5 rounded bg-[var(--bg-app)] flex justify-between items-center">

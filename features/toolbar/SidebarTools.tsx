@@ -19,6 +19,10 @@ import {
   PanelLeftOpen,
   Copy,
   Trash2,
+  Spline,
+  CornerUpRight,
+  Crosshair,
+  Ruler,
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -32,11 +36,15 @@ interface ToolItem {
 const TOOLS: ToolItem[] = [
   { id: "select", label: "Select & Move", shortcut: "V", icon: MousePointer },
   { id: "line", label: "Line", shortcut: "L", icon: Minus },
-  { id: "arrow", label: "Arrow", shortcut: "A", icon: ArrowUpRight },
+  { id: "polyline", label: "Polyline", shortcut: "P", icon: Spline },
   { id: "rectangle", label: "Rectangle", shortcut: "R", icon: Square },
-  { id: "circle", label: "Circle", shortcut: "C", icon: Circle },
+  { id: "polygon", label: "Polygon / N-gon", shortcut: "G", icon: Triangle },
+  { id: "chamfer", label: "Chamfer / Haunch", shortcut: "C", icon: CornerUpRight },
+  { id: "construction", label: "Construction Datum", shortcut: "X", icon: Crosshair },
+  { id: "dimension", label: "Dimension Tool", shortcut: "D", icon: Ruler },
+  { id: "arrow", label: "Arrow", shortcut: "A", icon: ArrowUpRight },
+  { id: "circle", label: "Circle", shortcut: "O", icon: Circle },
   { id: "ellipse", label: "Ellipse", shortcut: "E", icon: CircleDot },
-  { id: "polygon", label: "Triangle / Poly", shortcut: "T", icon: Triangle },
   { id: "star", label: "Star", shortcut: "S", icon: Star },
   { id: "pan", label: "Pan Canvas", shortcut: "H", icon: Hand },
 ];

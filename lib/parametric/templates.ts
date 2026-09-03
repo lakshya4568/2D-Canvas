@@ -439,4 +439,138 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
       return { shapes, variables, constraints: [] };
     },
   },
+  {
+    id: "single_cell_box_culvert",
+    name: "Single-Cell Box Culvert (45° Haunches)",
+    category: "Structural",
+    description: "Reinforced concrete box culvert with outer boundary, internal octagonal void, 45° corner haunches, and constant wall thickness.",
+    version: "2.0.0",
+    parameters: [
+      { name: "clear_span", label: "Clear Span", defaultValue: 300, unit: "mm", min: 100, max: 1000, step: 10 },
+      { name: "clear_height", label: "Clear Height", defaultValue: 200, unit: "mm", min: 100, max: 800, step: 10 },
+      { name: "wall_thickness", label: "Wall Thickness", defaultValue: 30, unit: "mm", min: 10, max: 100, step: 5 },
+      { name: "haunch_leg", label: "Haunch Leg", defaultValue: 35, unit: "mm", min: 10, max: 80, step: 5 },
+    ],
+    formulas: [],
+    constraints: [],
+    generator: (params) => {
+      const s = params.clear_span ?? 300;
+      const H = params.clear_height ?? 200;
+      const t = params.wall_thickness ?? 30;
+      const h = params.haunch_leg ?? 35;
+
+      const outerW = s + 2 * t;
+      const outerH = H + 2 * t;
+      const ox = 100;
+      const oy = 80;
+
+      const shapes: Shape[] = [
+        {
+          id: "culvert_outer",
+          name: "culvert_outer",
+          type: "rectangle",
+          x: ox,
+          y: oy,
+          width: outerW,
+          height: outerH,
+          strokeColor: "#38bdf8",
+          strokeWidth: 2.5,
+          fillColor: "rgba(56, 189, 248, 0.05)",
+        },
+        { id: "culvert_inner_top", name: "roof", type: "line", x1: ox + t + h, y1: oy + t, x2: ox + t + s - h, y2: oy + t, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "culvert_haunch_tr", name: "haunch_tr", type: "line", x1: ox + t + s - h, y1: oy + t, x2: ox + t + s, y2: oy + t + h, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "culvert_inner_right", name: "right_wall", type: "line", x1: ox + t + s, y1: oy + t + h, x2: ox + t + s, y2: oy + t + H - h, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "culvert_haunch_br", name: "haunch_br", type: "line", x1: ox + t + s, y1: oy + t + H - h, x2: ox + t + s - h, y2: oy + t + H, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "culvert_inner_bottom", name: "floor", type: "line", x1: ox + t + s - h, y1: oy + t + H, x2: ox + t + h, y2: oy + t + H, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "culvert_haunch_bl", name: "haunch_bl", type: "line", x1: ox + t + h, y1: oy + t + H, x2: ox + t, y2: oy + t + H - h, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "culvert_inner_left", name: "left_wall", type: "line", x1: ox + t, y1: oy + t + H - h, x2: ox + t, y2: oy + t + h, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "culvert_haunch_tl", name: "haunch_tl", type: "line", x1: ox + t, y1: oy + t + h, x2: ox + t + h, y2: oy + t, strokeColor: "#a855f7", strokeWidth: 2 },
+      ];
+
+      const variables: Record<string, ParametricVariable> = {
+        clear_span: { name: "clear_span", value: s, unit: "mm" },
+        clear_height: { name: "clear_height", value: H, unit: "mm" },
+        wall_thickness: { name: "wall_thickness", value: t, unit: "mm" },
+        haunch_leg: { name: "haunch_leg", value: h, unit: "mm" },
+        outer_width: { name: "outer_width", value: outerW, formula: "clear_span + (wall_thickness * 2)", unit: "mm" },
+        outer_height: { name: "outer_height", value: outerH, formula: "clear_height + (wall_thickness * 2)", unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
+  {
+    id: "two_span_box_culvert",
+    name: "Two-Span Multi-Cell Culvert (Intermediate Wall)",
+    category: "Structural",
+    description: "Two-span box culvert with common dividing wall, 45° corner haunches, and independent bay span controls.",
+    version: "2.0.0",
+    parameters: [
+      { name: "bay1_span", label: "Bay 1 Clear Span", defaultValue: 250, unit: "mm", min: 100, max: 800, step: 10 },
+      { name: "bay2_span", label: "Bay 2 Clear Span", defaultValue: 250, unit: "mm", min: 100, max: 800, step: 10 },
+      { name: "clear_height", label: "Clear Height", defaultValue: 200, unit: "mm", min: 100, max: 600, step: 10 },
+      { name: "ext_wall", label: "Exterior Wall Thickness", defaultValue: 30, unit: "mm", min: 10, max: 80, step: 5 },
+      { name: "mid_wall", label: "Dividing Wall Thickness", defaultValue: 40, unit: "mm", min: 10, max: 100, step: 5 },
+      { name: "haunch_leg", label: "Haunch Leg", defaultValue: 35, unit: "mm", min: 10, max: 80, step: 5 },
+    ],
+    formulas: [],
+    constraints: [],
+    generator: (params) => {
+      const s1 = params.bay1_span ?? 250;
+      const s2 = params.bay2_span ?? 250;
+      const H = params.clear_height ?? 200;
+      const tExt = params.ext_wall ?? 30;
+      const tMid = params.mid_wall ?? 40;
+      const h = params.haunch_leg ?? 35;
+
+      const totalW = tExt + s1 + tMid + s2 + tExt;
+      const totalH = H + 2 * tExt;
+      const ox = 60;
+      const oy = 80;
+
+      const shapes: Shape[] = [
+        {
+          id: "two_span_outer",
+          name: "outer_frame",
+          type: "rectangle",
+          x: ox,
+          y: oy,
+          width: totalW,
+          height: totalH,
+          strokeColor: "#38bdf8",
+          strokeWidth: 2.5,
+          fillColor: "rgba(56, 189, 248, 0.05)",
+        },
+        { id: "b1_top", name: "b1_top", type: "line", x1: ox + tExt + h, y1: oy + tExt, x2: ox + tExt + s1 - h, y2: oy + tExt, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b1_haunch_tr", name: "b1_htr", type: "line", x1: ox + tExt + s1 - h, y1: oy + tExt, x2: ox + tExt + s1, y2: oy + tExt + h, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "b1_right", name: "b1_right", type: "line", x1: ox + tExt + s1, y1: oy + tExt + h, x2: ox + tExt + s1, y2: oy + tExt + H - h, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b1_haunch_br", name: "b1_hbr", type: "line", x1: ox + tExt + s1, y1: oy + tExt + H - h, x2: ox + tExt + s1 - h, y2: oy + tExt + H, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "b1_bottom", name: "b1_bottom", type: "line", x1: ox + tExt + s1 - h, y1: oy + tExt + H, x2: ox + tExt + h, y2: oy + tExt + H, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b1_haunch_bl", name: "b1_hbl", type: "line", x1: ox + tExt + h, y1: oy + tExt + H, x2: ox + tExt, y2: oy + tExt + H - h, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "b1_left", name: "b1_left", type: "line", x1: ox + tExt, y1: oy + tExt + H - h, x2: ox + tExt, y2: oy + tExt + h, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b1_haunch_tl", name: "b1_htl", type: "line", x1: ox + tExt, y1: oy + tExt + h, x2: ox + tExt + h, y2: oy + tExt, strokeColor: "#a855f7", strokeWidth: 2 },
+
+        { id: "b2_top", name: "b2_top", type: "line", x1: ox + tExt + s1 + tMid + h, y1: oy + tExt, x2: ox + tExt + s1 + tMid + s2 - h, y2: oy + tExt, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b2_haunch_tr", name: "b2_htr", type: "line", x1: ox + tExt + s1 + tMid + s2 - h, y1: oy + tExt, x2: ox + tExt + s1 + tMid + s2, y2: oy + tExt + h, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "b2_right", name: "b2_right", type: "line", x1: ox + tExt + s1 + tMid + s2, y1: oy + tExt + h, x2: ox + tExt + s1 + tMid + s2, y2: oy + tExt + H - h, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b2_haunch_br", name: "b2_hbr", type: "line", x1: ox + tExt + s1 + tMid + s2, y1: oy + tExt + H - h, x2: ox + tExt + s1 + tMid + s2 - h, y2: oy + tExt + H, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "b2_bottom", name: "b2_bottom", type: "line", x1: ox + tExt + s1 + tMid + s2 - h, y1: oy + tExt + H, x2: ox + tExt + s1 + tMid + h, y2: oy + tExt + H, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b2_haunch_bl", name: "b2_hbl", type: "line", x1: ox + tExt + s1 + tMid + h, y1: oy + tExt + H, x2: ox + tExt + s1 + tMid, y2: oy + tExt + H - h, strokeColor: "#a855f7", strokeWidth: 2 },
+        { id: "b2_left", name: "b2_left", type: "line", x1: ox + tExt + s1 + tMid, y1: oy + tExt + H - h, x2: ox + tExt + s1 + tMid, y2: oy + tExt + h, strokeColor: "#f8fafc", strokeWidth: 2 },
+        { id: "b2_haunch_tl", name: "b2_htl", type: "line", x1: ox + tExt + s1 + tMid, y1: oy + tExt + h, x2: ox + tExt + s1 + tMid + h, y2: oy + tExt, strokeColor: "#a855f7", strokeWidth: 2 },
+      ];
+
+      const variables: Record<string, ParametricVariable> = {
+        bay1_span: { name: "bay1_span", value: s1, unit: "mm" },
+        bay2_span: { name: "bay2_span", value: s2, unit: "mm" },
+        clear_height: { name: "clear_height", value: H, unit: "mm" },
+        ext_wall: { name: "ext_wall", value: tExt, unit: "mm" },
+        mid_wall: { name: "mid_wall", value: tMid, unit: "mm" },
+        haunch_leg: { name: "haunch_leg", value: h, unit: "mm" },
+        total_width: { name: "total_width", value: totalW, formula: "ext_wall + bay1_span + mid_wall + bay2_span + ext_wall", unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
 ];

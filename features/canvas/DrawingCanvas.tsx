@@ -257,6 +257,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       let draftShape: Shape;
       switch (state.tool) {
         case "line":
+        case "polyline":
+        case "dimension":
           draftShape = {
             id: newId,
             type: "line",
@@ -267,6 +269,35 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             opacity: state.currentStyle.opacity,
+            rotation: 0,
+          };
+          break;
+        case "chamfer":
+          draftShape = {
+            id: newId,
+            type: "line",
+            x1: startPt.x,
+            y1: startPt.y,
+            x2: startPt.x,
+            y2: startPt.y,
+            strokeColor: "#a855f7",
+            strokeWidth: 2,
+            opacity: state.currentStyle.opacity,
+            rotation: 0,
+          };
+          break;
+        case "construction":
+          draftShape = {
+            id: newId,
+            type: "line",
+            x1: startPt.x,
+            y1: startPt.y,
+            x2: startPt.x,
+            y2: startPt.y,
+            strokeColor: "#f59e0b",
+            strokeWidth: 1,
+            strokeDasharray: "4 4",
+            opacity: 0.8,
             rotation: 0,
           };
           break;
@@ -355,6 +386,20 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             strokeColor: defaultStroke,
             strokeWidth: state.currentStyle.strokeWidth,
             fillColor: state.currentStyle.fillColor,
+            opacity: state.currentStyle.opacity,
+            rotation: 0,
+          };
+          break;
+        default:
+          draftShape = {
+            id: newId,
+            type: "line",
+            x1: startPt.x,
+            y1: startPt.y,
+            x2: startPt.x,
+            y2: startPt.y,
+            strokeColor: defaultStroke,
+            strokeWidth: state.currentStyle.strokeWidth,
             opacity: state.currentStyle.opacity,
             rotation: 0,
           };

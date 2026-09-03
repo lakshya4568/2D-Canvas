@@ -93,11 +93,15 @@ export type ShapeType = Shape["type"];
 export type ToolId =
   | "select"
   | "line"
+  | "polyline"
   | "arrow"
   | "rectangle"
   | "circle"
   | "ellipse"
   | "polygon"
+  | "chamfer"
+  | "construction"
+  | "dimension"
   | "star"
   | "pan";
 

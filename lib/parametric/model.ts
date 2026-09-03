@@ -17,6 +17,12 @@ import { detectClosedLoops, analyzePolygon, ClosedShapeAnalysis, DetectedLoop } 
 import { ConstructionManager } from "./constructionGeometry";
 import { solveClosedStructuralLoop } from "./structuralLoopSolver";
 import { solveConnectedGeometry } from "./connectedComponentSolver";
+import {
+  createSingleCellCulvertModel,
+  solveSingleCellCulvertSpan,
+  createTwoSpanCulvertModel,
+  solveTwoSpanCulvertBay1,
+} from "../state/index";
 
 export interface ParametricVariable {
   name: string;
@@ -390,6 +396,170 @@ export class ParametricModel {
       return s;
     });
 
+    const culvertOuter = updatedShapes.find((s) => s.id === "culvert_outer" || s.name === "culvert_outer");
+    if (culvertOuter && culvertOuter.type === "rectangle") {
+      const ox = culvertOuter.x;
+      const oy = culvertOuter.y;
+      const targetSpan = (getVarValue("clear_span", "Span", "span") as number) ?? 300;
+      const clearH = (getVarValue("clear_height", "Height", "height") as number) ?? 200;
+      const wallT = (getVarValue("wall_thickness") as number) ?? 30;
+      const haunchL = (getVarValue("haunch_leg") as number) ?? 35;
+
+      const culvert = createSingleCellCulvertModel({
+        clearSpan: 300,
+        clearHeight: clearH,
+        wallThickness: wallT,
+        haunchLeg: haunchL,
+      });
+
+      const solved = solveSingleCellCulvertSpan(culvert, targetSpan);
+      if (solved.converged) {
+        culvertOuter.width = solved.outerWidth;
+        culvertOuter.height = solved.outerHeight;
+
+        const innerPts = solved.innerLoop;
+        for (const s of updatedShapes) {
+          if (s.type === "line") {
+            switch (s.id) {
+              case "culvert_inner_top":
+                s.x1 = ox + innerPts[0].x; s.y1 = oy + innerPts[0].y;
+                s.x2 = ox + innerPts[1].x; s.y2 = oy + innerPts[1].y;
+                break;
+              case "culvert_haunch_tr":
+                s.x1 = ox + innerPts[1].x; s.y1 = oy + innerPts[1].y;
+                s.x2 = ox + innerPts[2].x; s.y2 = oy + innerPts[2].y;
+                break;
+              case "culvert_inner_right":
+                s.x1 = ox + innerPts[2].x; s.y1 = oy + innerPts[2].y;
+                s.x2 = ox + innerPts[3].x; s.y2 = oy + innerPts[3].y;
+                break;
+              case "culvert_haunch_br":
+                s.x1 = ox + innerPts[3].x; s.y1 = oy + innerPts[3].y;
+                s.x2 = ox + innerPts[4].x; s.y2 = oy + innerPts[4].y;
+                break;
+              case "culvert_inner_bottom":
+                s.x1 = ox + innerPts[4].x; s.y1 = oy + innerPts[4].y;
+                s.x2 = ox + innerPts[5].x; s.y2 = oy + innerPts[5].y;
+                break;
+              case "culvert_haunch_bl":
+                s.x1 = ox + innerPts[5].x; s.y1 = oy + innerPts[5].y;
+                s.x2 = ox + innerPts[6].x; s.y2 = oy + innerPts[6].y;
+                break;
+              case "culvert_inner_left":
+                s.x1 = ox + innerPts[6].x; s.y1 = oy + innerPts[6].y;
+                s.x2 = ox + innerPts[7].x; s.y2 = oy + innerPts[7].y;
+                break;
+              case "culvert_haunch_tl":
+                s.x1 = ox + innerPts[7].x; s.y1 = oy + innerPts[7].y;
+                s.x2 = ox + innerPts[0].x; s.y2 = oy + innerPts[0].y;
+                break;
+            }
+          }
+        }
+      }
+    } else if (updatedShapes.some((s) => s.id === "two_span_outer" || s.name === "outer_frame")) {
+      const twoSpanOuter = updatedShapes.find((s) => s.id === "two_span_outer" || s.name === "outer_frame");
+      if (twoSpanOuter && twoSpanOuter.type === "rectangle") {
+        const ox = twoSpanOuter.x;
+        const oy = twoSpanOuter.y;
+        const b1Span = (getVarValue("bay1_span") as number) ?? 250;
+        const b2Span = (getVarValue("bay2_span") as number) ?? 250;
+        const clearH = (getVarValue("clear_height") as number) ?? 200;
+        const extW = (getVarValue("ext_wall") as number) ?? 30;
+        const midW = (getVarValue("mid_wall") as number) ?? 40;
+        const haunchL = (getVarValue("haunch_leg") as number) ?? 35;
+
+        const culvert = createTwoSpanCulvertModel({
+          bay1Span: 250,
+          bay2Span: b2Span,
+          clearHeight: clearH,
+          extWallThickness: extW,
+          midWallThickness: midW,
+          haunchLeg: haunchL,
+        });
+
+        const solved = solveTwoSpanCulvertBay1(culvert, b1Span);
+        if (solved.converged) {
+          twoSpanOuter.width = solved.totalWidth;
+          twoSpanOuter.height = solved.totalHeight;
+
+          const b1Pts = solved.bay1Loop;
+          const b2Pts = solved.bay2Loop;
+
+          for (const s of updatedShapes) {
+            if (s.type === "line") {
+              switch (s.id) {
+                case "b1_top":
+                  s.x1 = ox + b1Pts[0].x; s.y1 = oy + b1Pts[0].y;
+                  s.x2 = ox + b1Pts[1].x; s.y2 = oy + b1Pts[1].y;
+                  break;
+                case "b1_haunch_tr":
+                  s.x1 = ox + b1Pts[1].x; s.y1 = oy + b1Pts[1].y;
+                  s.x2 = ox + b1Pts[2].x; s.y2 = oy + b1Pts[2].y;
+                  break;
+                case "b1_right":
+                  s.x1 = ox + b1Pts[2].x; s.y1 = oy + b1Pts[2].y;
+                  s.x2 = ox + b1Pts[3].x; s.y2 = oy + b1Pts[3].y;
+                  break;
+                case "b1_haunch_br":
+                  s.x1 = ox + b1Pts[3].x; s.y1 = oy + b1Pts[3].y;
+                  s.x2 = ox + b1Pts[4].x; s.y2 = oy + b1Pts[4].y;
+                  break;
+                case "b1_bottom":
+                  s.x1 = ox + b1Pts[4].x; s.y1 = oy + b1Pts[4].y;
+                  s.x2 = ox + b1Pts[5].x; s.y2 = oy + b1Pts[5].y;
+                  break;
+                case "b1_haunch_bl":
+                  s.x1 = ox + b1Pts[5].x; s.y1 = oy + b1Pts[5].y;
+                  s.x2 = ox + b1Pts[6].x; s.y2 = oy + b1Pts[6].y;
+                  break;
+                case "b1_left":
+                  s.x1 = ox + b1Pts[6].x; s.y1 = oy + b1Pts[6].y;
+                  s.x2 = ox + b1Pts[7].x; s.y2 = oy + b1Pts[7].y;
+                  break;
+                case "b1_haunch_tl":
+                  s.x1 = ox + b1Pts[7].x; s.y1 = oy + b1Pts[7].y;
+                  s.x2 = ox + b1Pts[0].x; s.y2 = oy + b1Pts[0].y;
+                  break;
+
+                case "b2_top":
+                  s.x1 = ox + b2Pts[0].x; s.y1 = oy + b2Pts[0].y;
+                  s.x2 = ox + b2Pts[1].x; s.y2 = oy + b2Pts[1].y;
+                  break;
+                case "b2_haunch_tr":
+                  s.x1 = ox + b2Pts[1].x; s.y1 = oy + b2Pts[1].y;
+                  s.x2 = ox + b2Pts[2].x; s.y2 = oy + b2Pts[2].y;
+                  break;
+                case "b2_right":
+                  s.x1 = ox + b2Pts[2].x; s.y1 = oy + b2Pts[2].y;
+                  s.x2 = ox + b2Pts[3].x; s.y2 = oy + b2Pts[3].y;
+                  break;
+                case "b2_haunch_br":
+                  s.x1 = ox + b2Pts[3].x; s.y1 = oy + b2Pts[3].y;
+                  s.x2 = ox + b2Pts[4].x; s.y2 = oy + b2Pts[4].y;
+                  break;
+                case "b2_bottom":
+                  s.x1 = ox + b2Pts[4].x; s.y1 = oy + b2Pts[4].y;
+                  s.x2 = ox + b2Pts[5].x; s.y2 = oy + b2Pts[5].y;
+                  break;
+                case "b2_haunch_bl":
+                  s.x1 = ox + b2Pts[5].x; s.y1 = oy + b2Pts[5].y;
+                  s.x2 = ox + b2Pts[6].x; s.y2 = oy + b2Pts[6].y;
+                  break;
+                case "b2_left":
+                  s.x1 = ox + b2Pts[6].x; s.y1 = oy + b2Pts[6].y;
+                  s.x2 = ox + b2Pts[7].x; s.y2 = oy + b2Pts[7].y;
+                  break;
+                case "b2_haunch_tl":
+                  s.x1 = ox + b2Pts[7].x; s.y1 = oy + b2Pts[7].y;
+                  s.x2 = ox + b2Pts[0].x; s.y2 = oy + b2Pts[0].y;
+                  break;
+              }
+            }
+          }
+        }
+      }
+    } else {
     // 2b. Canonical resolution for slab / multi-line frames
     const topOuter = updatedShapes.find((s) => s.name === "top_outer_rect");
     if (topOuter && topOuter.type === "line") {
@@ -563,6 +733,7 @@ export class ParametricModel {
           }
         }
       }
+    }
     }
 
     // 3. Re-evaluate formulas with freshly updated geometry variables

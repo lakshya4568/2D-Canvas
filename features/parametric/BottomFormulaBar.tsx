@@ -103,7 +103,7 @@ export const BottomFormulaBar: React.FC = () => {
             type="text"
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
-            placeholder="e.g. top_outer_rect = 450, wall_thickness = 25, top_inner_rect = top_outer_rect - 50"
+            placeholder="e.g. clear_span = 500, wall_thickness = 30, Span_1 = 400"
             className="flex-1 rounded border border-[var(--border-default)] bg-[var(--surface-sunken)] px-3 py-1 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-draw)] focus:outline-none transition-colors"
           />
           <button
@@ -113,6 +113,25 @@ export const BottomFormulaBar: React.FC = () => {
             Execute ↵
           </button>
         </form>
+
+        <div className="flex items-center gap-1.5 shrink-0 border-l border-[var(--border-subtle)] pl-2">
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "INSTANTIATE_TEMPLATE", templateId: "single_cell_box_culvert" })}
+            className="rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 px-2 py-1 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
+            title="Load Single-Cell Box Culvert Benchmark"
+          >
+            Culvert (1-Cell)
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "INSTANTIATE_TEMPLATE", templateId: "two_span_box_culvert" })}
+            className="rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-1 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
+            title="Load Two-Span Box Culvert Benchmark"
+          >
+            Culvert (2-Span)
+          </button>
+        </div>
 
         {feedback && (
           <span className="font-mono text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded animate-pulse shrink-0">
