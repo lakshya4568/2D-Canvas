@@ -35,20 +35,20 @@ describe("Autonomous Formula & Variable Synthesizer", () => {
 
     expect(formulas.length).toBeGreaterThanOrEqual(2);
 
-    const widthFormula = formulas.find((f) => f.targetProperty === "inner_cavity.width");
+    const widthFormula = formulas.find((f) => f.targetProperty.includes("Width"));
     expect(widthFormula).toBeDefined();
-    expect(widthFormula?.expression).toBe("outer_box.width - 2 * T");
+    expect(widthFormula?.expression).toBe("Outer_Box_Width - 2 * WallThickness");
     expect(widthFormula?.confidence).toBeGreaterThanOrEqual(0.95);
     expect(widthFormula?.provenance).toBe("inferred");
     expect(widthFormula?.reason).toContain("Uniform 40px clearance");
 
-    const tVar = widthFormula?.variables.find((v) => v.name === "T");
+    const tVar = widthFormula?.variables.find((v) => v.name === "WallThickness");
     expect(tVar?.value).toBe(40);
     expect(tVar?.role).toBe("Wall Thickness");
 
-    const heightFormula = formulas.find((f) => f.targetProperty === "inner_cavity.height");
+    const heightFormula = formulas.find((f) => f.targetProperty.includes("Height"));
     expect(heightFormula).toBeDefined();
-    expect(heightFormula?.expression).toBe("outer_box.height - 2 * T");
+    expect(heightFormula?.expression).toBe("Outer_Box_Height - 2 * WallThickness");
   });
 
   it("should synthesize centering formulas for circular duct inside cavity", () => {
@@ -74,9 +74,9 @@ describe("Autonomous Formula & Variable Synthesizer", () => {
     const shapes: Shape[] = [cavity, circularDuct];
     const formulas = synthesizeFormulasFromGeometry(shapes);
 
-    const ductCenter = formulas.find((f) => f.targetProperty === "tendon_duct.cx");
+    const ductCenter = formulas.find((f) => f.displayTarget.includes("Centerline"));
     expect(ductCenter).toBeDefined();
-    expect(ductCenter?.expression).toBe("bay_cavity.x + bay_cavity.width / 2");
+    expect(ductCenter?.expression).toBe("Bay_Cavity_X + Bay_Cavity_Width / 2");
     expect(ductCenter?.confidence).toBeGreaterThanOrEqual(0.95);
   });
 });

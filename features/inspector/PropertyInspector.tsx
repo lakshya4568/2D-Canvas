@@ -31,6 +31,12 @@ import {
   Link2,
   CheckCircle2,
   Edit3,
+  Boxes,
+  Folder,
+  FolderTree,
+  Square,
+  Circle,
+  Minus,
 } from "lucide-react";
 import { VariablesPanel } from "../parametric/VariablesPanel";
 import { FormulaEditor } from "../parametric/FormulaEditor";
@@ -39,6 +45,7 @@ import { TemplateModal } from "../parametric/TemplateModal";
 import { ParametricModel } from "@/lib/parametric/model";
 import { detectClosedLoops } from "@/lib/parametric/closedGeometry";
 import { computePolygonMoments } from "@/lib/geometry/metrics/polygonMoments";
+import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import { isShapeInGADAssembly, detectGADAssemblies } from "@/lib/geometry/gadAssemblyEngine";
 
 const PRESET_COLORS = [
@@ -52,7 +59,19 @@ const PRESET_COLORS = [
   "#ec4899", // Pink
 ];
 
-export function PropertyInspector() {
+export interface PropertyInspectorProps {
+  width?: number;
+  onWidthChange?: (width: number) => void;
+  isCollapsed?: boolean;
+  onCollapseChange?: (collapsed: boolean) => void;
+}
+
+export function PropertyInspector({
+  width: controlledWidth,
+  onWidthChange,
+  isCollapsed: controlledCollapsed,
+  onCollapseChange,
+}: PropertyInspectorProps = {}) {
   const {
     state,
     dispatch,
@@ -67,10 +86,46 @@ export function PropertyInspector() {
     jumpToHistory,
   } = useDrawing();
 
-  const [activeTab, setActiveTab] = useState<"transform" | "parametric" | "style" | "layers" | "history">("transform");
+  const [internalWidth, setInternalWidth] = useState(380);
+  const width = controlledWidth ?? internalWidth;
+  const setWidth = (w: number) => {
+    setInternalWidth(w);
+    onWidthChange?.(w);
+  };
+
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const isCollapsed = controlledCollapsed ?? internalCollapsed;
+  const setIsCollapsed = (c: boolean) => {
+    setInternalCollapsed(c);
+    onCollapseChange?.(c);
+  };
+
+  const [activeTab, setActiveTab] = useState<
+    "transform" | "autoformula" | "parametric" | "style" | "layers" | "history"
+  >("autoformula");
   const [paramSubTab, setParamSubTab] = useState<"variables" | "formulas" | "constraints">("variables");
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const handleResizeStart = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = width;
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const deltaX = startX - ev.clientX; // dragging left increases width
+      const nextW = Math.max(300, Math.min(850, Math.round(startW + deltaX)));
+      setWidth(nextW);
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
 
   const activeLoop = React.useMemo(() => {
     if (!selectedShape) return null;
@@ -116,6 +171,9 @@ export function PropertyInspector() {
 
   const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
   const [editFormulaExpr, setEditFormulaExpr] = useState<string>("");
+
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupNameInput, setGroupNameInput] = useState<string>("");
 
   const activeBoundaryEval = React.useMemo(() => {
     if (!selectedShape) return null;
@@ -184,7 +242,19 @@ export function PropertyInspector() {
   });
 
   return (
-    <aside className="fixed right-0 top-14 bottom-7 w-[280px] bg-[var(--bg-panel)] border-l border-[var(--border-subtle)] z-40 flex flex-col select-none text-xs font-sans">
+    <aside
+      style={{ width: `${width}px` }}
+      className="fixed right-0 top-14 bottom-7 bg-[var(--bg-panel)] border-l border-[var(--border-subtle)] z-40 flex flex-col select-none text-xs font-sans shadow-xl"
+    >
+      {/* Draggable Left Resize Handle */}
+      <div
+        onPointerDown={handleResizeStart}
+        className="absolute -left-1.5 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-blue-500/40 active:bg-blue-500/60 z-50 transition-colors group flex items-center justify-center"
+        title="Drag left/right to resize inspector pane"
+      >
+        <div className="w-[2px] h-10 bg-[var(--border-subtle)] rounded group-hover:bg-blue-400 group-active:bg-blue-400 transition-colors" />
+      </div>
+
       {/* 4 Tabs matching Stitch Specification */}
       <div className="flex border-b border-[var(--border-subtle)] shrink-0 bg-[var(--bg-panel-subtle)]">
         <button
@@ -198,6 +268,26 @@ export function PropertyInspector() {
         >
           <Move className="w-3.5 h-3.5" />
           <span className="text-[10px]">Transform</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("autoformula")}
+          className={`flex-1 py-2 flex flex-col items-center gap-0.5 transition-colors relative ${
+            activeTab === "autoformula"
+              ? "bg-[var(--bg-panel)] text-blue-500 font-semibold border-b-2 border-blue-500"
+              : "text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+          }`}
+          title="AutoFormula Synthesis & Chain Rule"
+        >
+          <div className="relative">
+            <Link2 className="w-3.5 h-3.5" />
+            {state.inferredFormulas && state.inferredFormulas.length > 0 && (
+              <span className="absolute -top-1 -right-2 px-1 py-0.2 bg-blue-500 text-white rounded-full text-[7.5px] font-bold leading-none">
+                {state.inferredFormulas.length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px]">AutoFormula</span>
         </button>
 
         <button
@@ -233,10 +323,10 @@ export function PropertyInspector() {
               ? "bg-[var(--bg-panel)] text-blue-500 font-semibold border-b-2 border-blue-500"
               : "text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
           }`}
-          title="Layers & Groups"
+          title="Hierarchy & Groups"
         >
-          <Layers className="w-3.5 h-3.5" />
-          <span className="text-[10px]">Layers</span>
+          <FolderTree className="w-3.5 h-3.5" />
+          <span className="text-[10px]">Hierarchy</span>
         </button>
 
         <button
@@ -838,92 +928,26 @@ export function PropertyInspector() {
                   </div>
                 )}
 
-                {/* Inferred Parametric Formulas Card */}
+                {/* AutoFormula Quick Slab Banner */}
                 {relevantFormulas && relevantFormulas.length > 0 && (
-                  <div className="mt-2 p-2.5 rounded-lg bg-[var(--bg-panel-subtle)] border border-blue-500/25 flex flex-col gap-2 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1">
-                        <Link2 className="w-3 h-3 text-blue-400" />
-                        Inferred Formulas ({relevantFormulas.length})
-                      </span>
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">
-                        Auto-Derived
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      {relevantFormulas.map((f) => (
-                        <div
-                          key={f.id}
-                          className="p-2 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] flex flex-col gap-1.5 text-[10px]"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-[var(--fg-primary)]">{f.displayTarget}</span>
-                            <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-semibold">
-                              {Math.round(f.confidence * 100)}% Confidence
-                            </span>
-                          </div>
-
-                          {editingFormulaId === f.id ? (
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="text"
-                                value={editFormulaExpr}
-                                onChange={(e) => setEditFormulaExpr(e.target.value)}
-                                className="w-full h-6 bg-[var(--bg-panel-subtle)] border border-blue-500/50 rounded px-1.5 text-[11px] font-mono text-[var(--fg-primary)]"
-                              />
-                              <button
-                                onClick={() => {
-                                  dispatch({
-                                    type: "UPDATE_INFERRED_FORMULA",
-                                    id: f.id,
-                                    expression: editFormulaExpr,
-                                  });
-                                  setEditingFormulaId(null);
-                                }}
-                                className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 cursor-pointer"
-                                title="Save edit"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="font-mono text-[11px] text-blue-300 font-semibold bg-[var(--bg-panel-subtle)] px-2 py-1 rounded flex items-center justify-between">
-                              <span>
-                                {f.targetProperty} = {f.expression}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  setEditingFormulaId(f.id);
-                                  setEditFormulaExpr(f.expression);
-                                }}
-                                className="text-[var(--fg-muted)] hover:text-[var(--fg-primary)] p-0.5 cursor-pointer"
-                                title="Edit formula"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
-
-                          <span className="text-[9px] text-[var(--fg-muted)] italic">{f.reason}</span>
-
-                          <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-[var(--border-subtle)]">
-                            <button
-                              onClick={() => dispatch({ type: "ACCEPT_INFERRED_FORMULA", id: f.id })}
-                              className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-semibold text-[9px] cursor-pointer"
-                            >
-                              Accept
-                            </button>
-                            <button
-                              onClick={() => dispatch({ type: "REJECT_INFERRED_FORMULA", id: f.id })}
-                              className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-[9px] cursor-pointer"
-                            >
-                              Reject
-                            </button>
-                          </div>
+                  <div
+                    onClick={() => setActiveTab("autoformula")}
+                    className="mt-2 p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 flex items-center justify-between cursor-pointer transition-all shadow-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Link2 className="w-3.5 h-3.5 text-blue-400" />
+                      <div>
+                        <div className="text-[11px] font-bold text-blue-300">
+                          {relevantFormulas.length} AutoFormula{relevantFormulas.length > 1 ? "s" : ""} Inferred
                         </div>
-                      ))}
+                        <div className="text-[9px] text-[var(--fg-muted)]">
+                          Atomic chain-rule equations ready
+                        </div>
+                      </div>
                     </div>
+                    <span className="text-[10px] font-semibold text-blue-400 hover:underline flex items-center gap-0.5">
+                      Open Slab →
+                    </span>
                   </div>
                 )}
 
@@ -1034,6 +1058,198 @@ export function PropertyInspector() {
               </div>
             )}
           </>
+        )}
+
+        {/* ================= AUTOFORMULA TAB ================= */}
+        {activeTab === "autoformula" && (
+          <div className="flex flex-col gap-3">
+            {/* Header Slab */}
+            <div className="p-3 rounded-lg bg-[var(--bg-panel-subtle)] border border-blue-500/30 flex flex-col gap-1.5 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-blue-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                  AutoFormula Synthesis
+                </span>
+                <span className="text-[8.5px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">
+                  Chain-Rule Ready
+                </span>
+              </div>
+              <p className="text-[10px] text-[var(--fg-secondary)] leading-relaxed">
+                Atomic formulas inferred from geometric insets, clearances, and alignments. Store formulas as variables to compose higher-order parametric equations.
+              </p>
+            </div>
+
+            {/* List of Inferred Formulas */}
+            {state.inferredFormulas && state.inferredFormulas.length > 0 ? (
+              <div className="flex flex-col gap-2.5">
+                {state.inferredFormulas.map((f) => {
+                  const isAccepted = f.status === "accepted";
+                  return (
+                    <div
+                      key={f.id}
+                      className={`p-3 rounded-lg border flex flex-col gap-2 transition-all ${
+                        isAccepted
+                          ? "bg-emerald-500/5 border-emerald-500/30"
+                          : "bg-[var(--bg-app)] border-blue-500/20 hover:border-blue-500/40"
+                      }`}
+                    >
+                      {/* Target & Confidence */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[11px] text-[var(--fg-primary)]">
+                            {f.displayTarget}
+                          </span>
+                          {isAccepted && (
+                            <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-bold flex items-center gap-0.5">
+                              <Check className="w-2.5 h-2.5" /> Stored
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 font-semibold">
+                          {Math.round(f.confidence * 100)}% Confidence
+                        </span>
+                      </div>
+
+                      {/* Monospace Formula Display / Inline Editor */}
+                      {editingFormulaId === f.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={editFormulaExpr}
+                            onChange={(e) => setEditFormulaExpr(e.target.value)}
+                            className="w-full h-7 bg-[var(--bg-panel-subtle)] border border-blue-500 rounded px-2 text-[11px] font-mono text-sky-200 font-bold focus:outline-none"
+                          />
+                          <button
+                            onClick={() => {
+                              dispatch({
+                                type: "UPDATE_INFERRED_FORMULA",
+                                id: f.id,
+                                expression: editFormulaExpr,
+                              });
+                              setEditingFormulaId(null);
+                            }}
+                            className="p-1.5 rounded bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 cursor-pointer"
+                            title="Save equation"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="font-mono text-xs text-sky-300 font-bold bg-slate-900/70 p-2.5 rounded-md border border-sky-500/25 flex items-start justify-between gap-2 shadow-inner">
+                          <span className="break-words whitespace-pre-wrap leading-relaxed select-text flex-1">
+                            {f.targetProperty} = {f.expression}
+                          </span>
+                          <button
+                            onClick={() => {
+                              setEditingFormulaId(f.id);
+                              setEditFormulaExpr(f.expression);
+                            }}
+                            className="text-[var(--fg-muted)] hover:text-[var(--fg-primary)] p-1 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                            title="Edit formula equation"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Live Evaluation Breakdown */}
+                      <div className="flex flex-wrap items-center gap-1.5 font-mono text-[9px]">
+                        {f.variables.map((v) => {
+                          const valDisplay = typeof v.value === "number"
+                            ? (Number.isInteger(v.value) ? v.value : Number(v.value.toFixed(1)))
+                            : v.value;
+                          return (
+                            <span
+                              key={v.name}
+                              className="px-1.5 py-0.5 rounded bg-[var(--bg-panel-subtle)] border border-[var(--border-subtle)]"
+                            >
+                              <span className="text-blue-400 font-semibold">{v.name}</span>: {valDisplay}
+                            </span>
+                          );
+                        })}
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold">
+                          = {typeof f.evaluatedValue === "number"
+                            ? (Number.isInteger(f.evaluatedValue) ? f.evaluatedValue : Number(f.evaluatedValue.toFixed(1)))
+                            : f.evaluatedValue} mm
+                        </span>
+                      </div>
+
+                      {/* Inference Reason */}
+                      <span className="text-[9px] text-[var(--fg-muted)] italic leading-tight">
+                        {f.reason}
+                      </span>
+
+                      {/* Action Slab Buttons */}
+                      <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)]/60">
+                        <span className="text-[8px] text-[var(--fg-muted)] uppercase tracking-wider font-semibold">
+                          Atomic Chain Rule
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {!isAccepted ? (
+                            <button
+                              onClick={() => dispatch({ type: "ACCEPT_INFERRED_FORMULA", id: f.id })}
+                              className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Store in Variable</span>
+                            </button>
+                          ) : (
+                            <span className="text-[9px] text-emerald-400 font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Active in DAG
+                            </span>
+                          )}
+                          <button
+                            onClick={() => dispatch({ type: "REJECT_INFERRED_FORMULA", id: f.id })}
+                            className="px-2 py-1 rounded text-[var(--fg-muted)] hover:text-rose-400 hover:bg-rose-500/10 text-[9px] cursor-pointer"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] flex flex-col items-center justify-center text-center gap-2 py-8">
+                <Sparkles className="w-7 h-7 text-blue-400/60" />
+                <span className="font-bold text-[11px] text-[var(--fg-primary)]">
+                  AutoFormula Engine Ready
+                </span>
+                <p className="text-[10px] text-[var(--fg-muted)] max-w-[200px] leading-relaxed">
+                  Draw an inner rectangle, circle, or partition on the canvas. The engine will instantly detect insets, clearances, and centers to generate atomic formulas here.
+                </p>
+              </div>
+            )}
+
+            {/* Chained Variables Pool */}
+            <div className="p-3 rounded-lg bg-[var(--bg-panel-subtle)] border border-[var(--border-subtle)] flex flex-col gap-2">
+              <span className="text-[10px] font-bold text-[var(--fg-secondary)] uppercase tracking-wider">
+                Chained Variables Pool
+              </span>
+              <p className="text-[9px] text-[var(--fg-muted)] leading-normal">
+                Accepted atomic formulas are stored in the parameter symbol table. You can chain them into composite equations (e.g. in the Quick Formula Bar below):
+              </p>
+              <div className="flex flex-col gap-1 font-mono text-[9.5px]">
+                {Object.entries(state.variables).slice(0, 6).map(([k, v]) => (
+                  <div
+                    key={k}
+                    className="p-1 px-1.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] flex items-center justify-between"
+                  >
+                    <span className="text-blue-300 font-bold truncate">{k}</span>
+                    <span className="text-[var(--fg-muted)]">
+                      {v.formula ? (
+                        <span className="text-sky-300">{v.formula}</span>
+                      ) : (
+                        <span>{v.value} mm</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ================= PARAMETRIC TAB ================= */}
@@ -1282,49 +1498,208 @@ export function PropertyInspector() {
             </div>
 
             {/* Groups list */}
-            {Array.from(groupMap.entries()).map(([gId, gShapes]) => (
-              <div key={gId} className="p-2 rounded bg-[var(--bg-panel-subtle)] border border-blue-500/30 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between font-mono text-[10px] font-bold text-blue-500">
-                  <span className="flex items-center gap-1">
-                    <Group className="w-3 h-3" />
-                    <span>Group ({gShapes.length} shapes)</span>
-                  </span>
-                  <button
-                    onClick={() => {
-                      dispatch({ type: "SELECT_MULTIPLE", ids: gShapes.map((s) => s.id) });
-                    }}
-                    className="text-[9px] text-[var(--fg-secondary)] hover:text-white"
-                  >
-                    Select All
-                  </button>
-                </div>
-                <div className="flex flex-col gap-1 pl-2 border-l border-blue-500/20">
-                  {gShapes.map((s) => (
-                    <div
-                      key={s.id}
-                      onClick={() => selectShape(s.id)}
-                      className={`flex items-center justify-between p-1 rounded text-[10px] cursor-pointer ${
-                        state.selectedIds.includes(s.id)
-                          ? "bg-blue-600/20 text-blue-400 font-semibold"
-                          : "hover:bg-[var(--bg-app)] text-[var(--fg-secondary)]"
-                      }`}
-                    >
-                      <span className="capitalize">{s.type}</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            dispatch({ type: "TOGGLE_SHAPE_VISIBILITY", id: s.id });
-                          }}
-                        >
-                          {s.isVisible !== false ? <Eye className="w-3 h-3 text-[var(--fg-muted)]" /> : <EyeOff className="w-3 h-3 text-red-400" />}
-                        </button>
+            {Array.from(groupMap.entries()).map(([gId, gShapes]) => {
+              const bounds = computeMultiShapeBounds(gShapes);
+              const groupName = gShapes[0]?.groupName || `Group (${gShapes.length} items)`;
+              const isGroupAllSelected = gShapes.every((s) => state.selectedIds.includes(s.id));
+              const isGroupAnyLocked = gShapes.some((s) => s.isLocked);
+              const isGroupAllVisible = gShapes.every((s) => s.isVisible !== false);
+
+              return (
+                <div
+                  key={gId}
+                  className={`p-2.5 rounded-lg border flex flex-col gap-2 transition-all ${
+                    isGroupAllSelected
+                      ? "bg-blue-500/10 border-blue-500/50 shadow-xs"
+                      : "bg-[var(--bg-panel-subtle)] border-[var(--border-subtle)]"
+                  }`}
+                >
+                  {/* Group Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                      <Boxes className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                      {editingGroupId === gId ? (
+                        <div className="flex items-center gap-1 flex-1">
+                          <input
+                            type="text"
+                            value={groupNameInput}
+                            onChange={(e) => setGroupNameInput(e.target.value)}
+                            className="w-full h-5 px-1 bg-[var(--bg-app)] border border-blue-500 rounded text-[10px] text-[var(--fg-primary)] font-bold font-mono"
+                          />
+                          <button
+                            onClick={() => {
+                              if (groupNameInput.trim()) {
+                                dispatch({
+                                  type: "RENAME_GROUP",
+                                  groupId: gId,
+                                  newName: groupNameInput.trim(),
+                                });
+                              }
+                              setEditingGroupId(null);
+                            }}
+                            className="p-0.5 rounded text-emerald-400 hover:bg-emerald-500/20 cursor-pointer"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span
+                            onClick={() => {
+                              dispatch({ type: "SELECT_GROUP", groupId: gId });
+                            }}
+                            className="text-[11px] font-bold text-blue-300 truncate cursor-pointer hover:underline"
+                            title="Click to select entire group"
+                          >
+                            {groupName}
+                          </span>
+                          <button
+                            onClick={() => {
+                              setEditingGroupId(gId);
+                              setGroupNameInput(groupName);
+                            }}
+                            className="text-[var(--fg-muted)] hover:text-[var(--fg-primary)] p-0.5 cursor-pointer"
+                            title="Rename group"
+                          >
+                            <Edit3 className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => dispatch({ type: "TOGGLE_GROUP_LOCK", groupId: gId })}
+                        className="p-1 rounded hover:bg-[var(--bg-app)] text-[var(--fg-muted)] hover:text-[var(--fg-primary)] cursor-pointer"
+                        title={isGroupAnyLocked ? "Unlock Group" : "Lock Group"}
+                      >
+                        {isGroupAnyLocked ? (
+                          <Lock className="w-3 h-3 text-amber-400" />
+                        ) : (
+                          <Unlock className="w-3 h-3" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => dispatch({ type: "TOGGLE_GROUP_VISIBILITY", groupId: gId })}
+                        className="p-1 rounded hover:bg-[var(--bg-app)] text-[var(--fg-muted)] hover:text-[var(--fg-primary)] cursor-pointer"
+                        title={isGroupAllVisible ? "Hide Group" : "Show Group"}
+                      >
+                        {isGroupAllVisible ? (
+                          <Eye className="w-3 h-3" />
+                        ) : (
+                          <EyeOff className="w-3 h-3 text-rose-400" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          dispatch({ type: "SELECT_GROUP", groupId: gId });
+                          dispatch({ type: "UNGROUP_SELECTED" });
+                        }}
+                        className="text-[9px] px-1 py-0.5 rounded text-[var(--fg-muted)] hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                        title="Ungroup assembly"
+                      >
+                        Ungroup
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Structural Rigidity & Assembly Span Card */}
+                  {bounds && (
+                    <div className="grid grid-cols-2 gap-1 font-mono text-[9px] bg-[var(--bg-app)] p-1.5 rounded border border-[var(--border-subtle)]/50">
+                      <div className="flex flex-col">
+                        <span className="text-[7.5px] text-[var(--fg-muted)] uppercase">Group Origin</span>
+                        <span className="font-bold text-[var(--fg-primary)]">
+                          ({Math.round(bounds.minX)}, {Math.round(bounds.minY)})
+                        </span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[7.5px] text-[var(--fg-muted)] uppercase">Total Span</span>
+                        <span className="font-bold text-blue-400">
+                          {Math.round(bounds.width)} × {Math.round(bounds.height)} px
+                        </span>
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Child Elements in this Group */}
+                  <div className="flex flex-col gap-1 pl-2 border-l-2 border-blue-500/30">
+                    {gShapes.map((s) => {
+                      const isChildSelected = state.selectedIds.includes(s.id);
+                      const hasFormula = state.inferredFormulas?.some(
+                        (f) => f.targetShapeId === s.id && f.status === "accepted"
+                      );
+                      const boundaryEval = state.boundaryEvaluations?.find((b) => b.shapeId === s.id);
+
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => selectShape(s.id)}
+                          className={`flex items-center justify-between p-1.5 rounded text-[10px] cursor-pointer transition-colors ${
+                            isChildSelected
+                              ? "bg-blue-600/20 text-blue-300 font-semibold border border-blue-500/30"
+                              : "hover:bg-[var(--bg-app)] text-[var(--fg-secondary)]"
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 truncate">
+                            {s.type === "rectangle" ? (
+                              <Square className="w-3 h-3 text-sky-400 shrink-0" />
+                            ) : s.type === "circle" ? (
+                              <Circle className="w-3 h-3 text-emerald-400 shrink-0" />
+                            ) : (
+                              <Minus className="w-3 h-3 text-amber-400 shrink-0" />
+                            )}
+                            <span className="truncate font-mono">
+                              {s.name || `${s.type.toUpperCase()}_${s.id.slice(-4)}`}
+                            </span>
+                            {hasFormula && (
+                              <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 font-bold">
+                                🔗 fx
+                              </span>
+                            )}
+                            {boundaryEval && (
+                              <span
+                                className={`text-[7.5px] font-mono px-1 py-0.2 rounded font-bold uppercase ${
+                                  boundaryEval.state === "Exceeded"
+                                    ? "bg-rose-500/20 text-rose-300"
+                                    : "bg-emerald-500/20 text-emerald-300"
+                                }`}
+                              >
+                                {boundaryEval.state === "Exceeded" ? "⚠ Exceeded" : "Safe"}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[9px] font-mono text-[var(--fg-muted)]">
+                              {s.type === "rectangle"
+                                ? `${Math.round(s.width)}×${Math.round(s.height)}`
+                                : s.type === "circle"
+                                ? `R${Math.round(s.r)}`
+                                : s.type === "line" || s.type === "arrow"
+                                ? `L${Math.round(Math.hypot((s as any).x2 - (s as any).x1, (s as any).y2 - (s as any).y1))}`
+                                : ""}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                dispatch({ type: "TOGGLE_SHAPE_VISIBILITY", id: s.id });
+                              }}
+                              className="p-0.5 rounded text-[var(--fg-muted)] hover:text-[var(--fg-primary)]"
+                            >
+                              {s.isVisible !== false ? (
+                                <Eye className="w-2.5 h-2.5" />
+                              ) : (
+                                <EyeOff className="w-2.5 h-2.5 text-rose-400" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Ungrouped shapes */}
             {ungroupedShapes.map((s) => (

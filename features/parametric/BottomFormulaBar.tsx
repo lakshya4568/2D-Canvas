@@ -108,29 +108,30 @@ export const BottomFormulaBar: React.FC = () => {
   return (
     <div className="flex flex-col border-t border-[var(--border-subtle)] bg-[var(--surface-base)] text-xs shadow-lg shrink-0 z-20">
       {/* Top Row: Quick Formula Input & Controls */}
-      <div className="flex items-center gap-2.5 px-4 py-1.5">
+      <div className="flex items-center gap-2 px-3 py-1.5 overflow-x-auto whitespace-nowrap">
         <div className="flex items-center gap-1.5 font-mono text-[var(--accent-draw)] font-bold shrink-0">
           <span>ƒ(x)</span>
           <span className="text-[11px] text-[var(--text-secondary)] font-sans font-medium">Quick Formula:</span>
         </div>
 
         {selectedVar && (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/40 font-mono text-[11px] text-blue-400 shrink-0 shadow-sm animate-fadeIn">
-            <span className="text-[9px] uppercase tracking-wider text-blue-300/80 font-sans font-semibold">Active Line:</span>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/40 font-mono text-[11px] text-blue-400 shrink-0 shadow-sm">
+            <span className="text-[9px] uppercase tracking-wider text-blue-300/80 font-sans font-semibold">Active:</span>
             <span className="font-bold text-[var(--text-primary)]">{selectedVar.name}</span>
             <span className="text-[var(--text-muted)]">=</span>
             <span className="text-amber-400 font-bold">{selectedVar.value.toFixed(0)}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="flex flex-1 items-center gap-2 min-w-0">
+        <form onSubmit={handleSubmit} className="flex items-center gap-2 flex-1 min-w-[240px]">
           <input
             ref={inputRef}
             type="text"
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
-            placeholder="e.g. clear_span = 500, wall_thickness = 30, Span_1 = 400"
-            className="flex-1 rounded border border-[var(--border-default)] bg-[var(--surface-sunken)] px-3 py-1 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-draw)] focus:outline-none transition-colors"
+            onFocus={(e) => e.target.select()}
+            placeholder="e.g. TotalClearSpan = R2.width + WebThickness + R3.width"
+            className="w-full rounded border border-[var(--border-default)] bg-[var(--surface-sunken)] px-3 py-1 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-draw)] focus:outline-none transition-colors"
           />
           <button
             type="submit"
