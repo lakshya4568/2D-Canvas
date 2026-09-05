@@ -26,3 +26,7 @@ next-env.d.ts
 # Agent specifics
 .agents
 AGENTS.md
+
+
+.opencode
+.omo
