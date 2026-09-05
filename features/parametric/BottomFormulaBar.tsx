@@ -3,7 +3,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { ParametricModel } from "@/lib/parametric/model";
-import { detectGADAssemblies } from "@/lib/geometry/gadAssemblyEngine";
 
 export const BottomFormulaBar: React.FC = () => {
   const { state, dispatch } = useDrawing();
@@ -66,31 +65,6 @@ export const BottomFormulaBar: React.FC = () => {
       valueOrFormula: expr,
     });
 
-    const num = Number(expr);
-    if (!isNaN(num) && num > 0) {
-      const assemblies = detectGADAssemblies(state.shapes);
-      if (assemblies.length > 0) {
-        const selectedShape = state.shapes.find((s) => s.id === state.selectedId);
-        if (selectedShape?.type === "circle") {
-          dispatch({
-            type: "ADJUST_GAD_ASSEMBLY",
-            target: {
-              shapeId: state.selectedId ?? undefined,
-              newRadius: num,
-            },
-          });
-        } else {
-          dispatch({
-            type: "ADJUST_GAD_ASSEMBLY",
-            target: {
-              shapeId: state.selectedId ?? undefined,
-              newSpan: num,
-            },
-          });
-        }
-      }
-    }
-
     setFeedback(`✓ ${cleanVarName} = ${expr}`);
     setTimeout(() => setFeedback(null), 3000);
   };
@@ -108,30 +82,29 @@ export const BottomFormulaBar: React.FC = () => {
   return (
     <div className="flex flex-col border-t border-[var(--border-subtle)] bg-[var(--surface-base)] text-xs shadow-lg shrink-0 z-20">
       {/* Top Row: Quick Formula Input & Controls */}
-      <div className="flex items-center gap-2 px-3 py-1.5 overflow-x-auto whitespace-nowrap">
+      <div className="flex items-center gap-2.5 px-4 py-1.5">
         <div className="flex items-center gap-1.5 font-mono text-[var(--accent-draw)] font-bold shrink-0">
           <span>ƒ(x)</span>
           <span className="text-[11px] text-[var(--text-secondary)] font-sans font-medium">Quick Formula:</span>
         </div>
 
         {selectedVar && (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/40 font-mono text-[11px] text-blue-400 shrink-0 shadow-sm">
-            <span className="text-[9px] uppercase tracking-wider text-blue-300/80 font-sans font-semibold">Active:</span>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/40 font-mono text-[11px] text-blue-400 shrink-0 shadow-sm animate-fadeIn">
+            <span className="text-[9px] uppercase tracking-wider text-blue-300/80 font-sans font-semibold">Active Line:</span>
             <span className="font-bold text-[var(--text-primary)]">{selectedVar.name}</span>
             <span className="text-[var(--text-muted)]">=</span>
             <span className="text-amber-400 font-bold">{selectedVar.value.toFixed(0)}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="flex items-center gap-2 flex-1 min-w-[240px]">
+        <form onSubmit={handleSubmit} className="flex flex-1 items-center gap-2 min-w-0">
           <input
             ref={inputRef}
             type="text"
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
-            onFocus={(e) => e.target.select()}
-            placeholder="e.g. TotalClearSpan = R2.width + WebThickness + R3.width"
-            className="w-full rounded border border-[var(--border-default)] bg-[var(--surface-sunken)] px-3 py-1 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-draw)] focus:outline-none transition-colors"
+            placeholder="e.g. clear_span = 500, wall_thickness = 30, Span_1 = 400"
+            className="flex-1 rounded border border-[var(--border-default)] bg-[var(--surface-sunken)] px-3 py-1 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-draw)] focus:outline-none transition-colors"
           />
           <button
             type="submit"
@@ -157,14 +130,6 @@ export const BottomFormulaBar: React.FC = () => {
             title="Load Two-Span Box Culvert Benchmark"
           >
             Culvert (2-Span)
-          </button>
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "INSTANTIATE_TEMPLATE", templateId: "rcc_bridge" })}
-            className="rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-1 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
-            title="Load Parametric RCC Box Girder Bridge Benchmark"
-          >
-            RCC Bridge
           </button>
         </div>
 

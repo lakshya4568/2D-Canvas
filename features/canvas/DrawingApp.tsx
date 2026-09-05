@@ -23,9 +23,6 @@ export function DrawingApp() {
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
-  const [inspectorWidth, setInspectorWidth] = useState(380);
-  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(48);
 
   const addNotification = (notif: { text: string; type: "success" | "error" }) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -62,29 +59,19 @@ export function DrawingApp() {
 
       {/* Main Workspace Body */}
       <div className="flex-1 w-full flex relative overflow-hidden pb-[28px]">
-        {/* Collapsible & Resizable Left Sidebar CAD Tools */}
-        <SidebarTools width={sidebarWidth} onWidthChange={setSidebarWidth} />
+        {/* Collapsible Left Sidebar CAD Tools (Expandable with Tool Names & Shortcuts) */}
+        <SidebarTools />
 
         {/* Primary Interactive SVG Canvas with Quick Parametric Formula Bar */}
-        <main
-          className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)] flex flex-col"
-          style={{
-            marginRight: isInspectorCollapsed ? 0 : `${inspectorWidth}px`,
-          }}
-        >
+        <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)] flex flex-col mr-[280px]">
           <div className="flex-1 min-h-0 w-full relative overflow-hidden">
             <DrawingCanvas onCursorChange={setCursorPos} />
           </div>
           <BottomFormulaBar />
         </main>
 
-        {/* Right Docked Resizable Property Inspector */}
-        <PropertyInspector
-          width={inspectorWidth}
-          onWidthChange={setInspectorWidth}
-          isCollapsed={isInspectorCollapsed}
-          onCollapseChange={setIsInspectorCollapsed}
-        />
+        {/* Right Docked Property Inspector (Width 280px) */}
+        <PropertyInspector />
       </div>
 
       {/* Fixed Footer Status Bar (Height 28px) */}

@@ -49,12 +49,7 @@ const TOOLS: ToolItem[] = [
   { id: "pan", label: "Pan Canvas", shortcut: "H", icon: Hand },
 ];
 
-export interface SidebarToolsProps {
-  width?: number;
-  onWidthChange?: (width: number) => void;
-}
-
-export function SidebarTools({ width: controlledWidth, onWidthChange }: SidebarToolsProps = {}) {
+export function SidebarTools() {
   const {
     state,
     setTool,
@@ -66,55 +61,19 @@ export function SidebarTools({ width: controlledWidth, onWidthChange }: SidebarT
     selectedShapes,
   } = useDrawing();
 
-  const [internalWidth, setInternalWidth] = useState(48);
-  const width = controlledWidth ?? internalWidth;
-  const setWidth = (w: number) => {
-    setInternalWidth(w);
-    onWidthChange?.(w);
-  };
-
-  const isExpanded = width > 80;
-
-  const handleResizeStart = (e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startW = width;
-
-    const onPointerMove = (ev: PointerEvent) => {
-      const deltaX = ev.clientX - startX;
-      const nextW = Math.max(44, Math.min(300, Math.round(startW + deltaX)));
-      setWidth(nextW);
-    };
-
-    const onPointerUp = () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-  };
+  const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <aside
-      style={{ width: `${width}px` }}
-      className="bg-[var(--bg-panel)] border-r border-[var(--border-subtle)] py-2 px-1.5 flex flex-col justify-between shrink-0 z-20 select-none relative transition-all"
+    <motion.aside
+      animate={{ width: isExpanded ? 172 : 44 }}
+      transition={{ type: "spring", stiffness: 350, damping: 28 }}
+      className="bg-[var(--bg-panel)] border-r border-[var(--border-subtle)] py-2 px-1.5 flex flex-col justify-between shrink-0 z-20 select-none overflow-hidden"
     >
-      {/* Draggable Right Resize Handle */}
-      <div
-        onPointerDown={handleResizeStart}
-        className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-blue-500/40 active:bg-blue-500/60 z-30 transition-colors group flex items-center justify-center"
-        title="Drag left/right to resize left CAD tools panel"
-      >
-        <div className="w-[2px] h-10 bg-[var(--border-subtle)] rounded group-hover:bg-blue-400 group-active:bg-blue-400 transition-colors" />
-      </div>
-
       {/* Top Tools List */}
       <div className="flex flex-col gap-1 w-full overflow-y-auto overflow-x-hidden custom-scrollbar">
         {/* Expand / Collapse toggle button */}
         <button
-          onClick={() => setWidth(isExpanded ? 44 : 180)}
+          onClick={() => setIsExpanded(!isExpanded)}
           className="w-full h-8 px-2 rounded flex items-center justify-between text-[var(--fg-secondary)] hover:text-[var(--fg-primary)] hover:bg-[var(--bg-panel-subtle)] transition-colors cursor-pointer"
           title={isExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
           aria-label="Toggle Sidebar Expansion"
@@ -238,6 +197,6 @@ export function SidebarTools({ width: controlledWidth, onWidthChange }: SidebarT
           </button>
         </div>
       )}
-    </aside>
+    </motion.aside>
   );
 }

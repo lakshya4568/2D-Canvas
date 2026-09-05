@@ -8,8 +8,6 @@ export interface Point {
 export interface BaseShape {
   id: ID;
   groupId?: string;
-  groupName?: string;
-  groupPath?: string[];
   name?: string;
   isLocked?: boolean;
   isVisible?: boolean;

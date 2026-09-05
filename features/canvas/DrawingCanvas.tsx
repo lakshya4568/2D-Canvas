@@ -21,7 +21,6 @@ import { SelectionOverlay, HandleType } from "./SelectionOverlay";
 import { SnapIndicator } from "./SnapIndicator";
 import { ConstraintOverlays } from "./ConstraintOverlays";
 import { ParametricDimensionOverlay } from "./ParametricDimensionOverlay";
-import { BoundaryLimitsOverlay } from "./BoundaryLimitsOverlay";
 
 interface DrawingCanvasProps {
   onCursorChange?: (pos: Point | null) => void;
@@ -1214,9 +1213,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
           {/* Interactive On-Canvas Parametric Dimension Badges & Inline Editor */}
           <ParametricDimensionOverlay scale={scale} />
-
-          {/* Design Boundary & Available Span Limit Indicators */}
-          <BoundaryLimitsOverlay scale={scale} />
 
           {/* Smart Magnetic Connection & Snap Target Indicator */}
           <SnapIndicator snap={state.activeSnap} scale={scale} />

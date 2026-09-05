@@ -1,24 +1,8 @@
 import { ID, Shape, ToolId, Viewport, SnapResult } from "../geometry/types";
-import { computeMultiShapeBounds, computeShapeBounds, rotatePoint } from "../geometry/metrics";
+import { computeMultiShapeBounds, rotatePoint } from "../geometry/metrics";
 import { ParametricModel, ParametricVariable } from "../parametric/model";
 import { GeometricConstraint } from "../parametric/constraints";
 import { BUILTIN_TEMPLATES } from "../parametric/templates";
-import {
-  detectGADAssemblies,
-  isShapeInGADAssembly,
-  solveGADAssemblyAdjustment,
-} from "../geometry/gadAssemblyEngine";
-import {
-  BoundaryLimitMode,
-  BoundaryLimitEvaluation,
-  evaluateBoundaryLimits,
-  getShapeCorners,
-  getShapeBoundaryPolygon,
-} from "../parametric/boundaryLimits";
-import {
-  InferredFormula,
-  synthesizeFormulasFromGeometry,
-} from "../inference/formulaSynthesizer";
 
 const MAX_HISTORY_STEPS = 100;
 
@@ -61,10 +45,6 @@ export interface DrawingState {
   variables: Record<string, ParametricVariable>;
   constraints: GeometricConstraint[];
   parametricErrors: string[];
-  // Intelligent CAD Kernel Slice
-  boundaryMode: BoundaryLimitMode;
-  inferredFormulas: InferredFormula[];
-  boundaryEvaluations: BoundaryLimitEvaluation[];
 }
 
 export type DrawingAction =
@@ -77,10 +57,6 @@ export type DrawingAction =
   | { type: "SELECT_MULTIPLE"; ids: ID[] }
   | { type: "GROUP_SELECTED" }
   | { type: "UNGROUP_SELECTED" }
-  | { type: "RENAME_GROUP"; groupId: string; newName: string }
-  | { type: "SELECT_GROUP"; groupId: string }
-  | { type: "TOGGLE_GROUP_LOCK"; groupId: string }
-  | { type: "TOGGLE_GROUP_VISIBILITY"; groupId: string }
   | { type: "MOVE_SELECTED"; dx: number; dy: number }
   | { type: "RESIZE_SHAPES"; updatedShapes: Shape[] }
   | { type: "ROTATE_SHAPES"; updatedShapes: Shape[] }
@@ -117,89 +93,7 @@ export type DrawingAction =
   | { type: "DELETE_CONSTRAINT"; id: string }
   | { type: "TOGGLE_CONSTRAINT"; id: string }
   | { type: "INSTANTIATE_TEMPLATE"; templateId: string; params?: Record<string, number> }
-  | { type: "SYNC_PARAMETRIC_MODEL" }
-  | {
-      type: "ADJUST_GAD_ASSEMBLY";
-      target: {
-        shapeId?: string;
-        assemblyId?: string;
-        featureIndex?: number;
-        newSpan?: number;
-        newHeight?: number;
-        newRadius?: number;
-        deltaSpan?: number;
-        deltaHeight?: number;
-        deltaRadius?: number;
-      };
-    }
-  // Intelligent CAD Kernel Actions
-  | { type: "SET_BOUNDARY_MODE"; mode: BoundaryLimitMode }
-  | { type: "ACCEPT_INFERRED_FORMULA"; id: string }
-  | { type: "REJECT_INFERRED_FORMULA"; id: string }
-  | { type: "UPDATE_INFERRED_FORMULA"; id: string; expression: string }
-  | { type: "REFRESH_INTELLIGENCE" };
-
-export function computeIntelligenceSlice(shapes: Shape[], boundaryMode: BoundaryLimitMode = "warning") {
-  const inferredFormulas = synthesizeFormulasFromGeometry(shapes);
-  const boundaryEvaluations: BoundaryLimitEvaluation[] = [];
-
-  const assemblies = detectGADAssemblies(shapes);
-  for (const asm of assemblies) {
-    const outer = shapes.find((s) => s.id === asm.outer.id);
-    if (!outer) continue;
-    for (const feat of asm.features) {
-      const inner = shapes.find((s) => s.id === feat.id);
-      if (!inner) continue;
-      const bInner = computeShapeBounds(inner);
-      const bOuter = computeShapeBounds(outer);
-      if (bOuter.width * bOuter.height > bInner.width * bInner.height) {
-        boundaryEvaluations.push(evaluateBoundaryLimits(inner, outer, boundaryMode, shapes));
-      }
-    }
-  }
-
-  // Also check for shapes inside any polygon/rectangle whose center is within outer boundary
-  for (const inner of shapes) {
-    if (boundaryEvaluations.some((b) => b.shapeId === inner.id)) continue;
-    const bInner = computeShapeBounds(inner);
-    const innerArea = bInner.width * bInner.height;
-
-    for (const outer of shapes) {
-      if (outer.id === inner.id) continue;
-      const bOuter = computeShapeBounds(outer);
-      const outerArea = bOuter.width * bOuter.height;
-      if (outerArea <= innerArea) continue; // outer container must be strictly larger!
-
-      if (outer.type === "rectangle" || outer.type === "polygon") {
-        const outerPoly = getShapeBoundaryPolygon(outer, shapes);
-        if (!outerPoly) continue;
-        const outerMinX = Math.min(...outerPoly.map((p) => p.x));
-        const outerMaxX = Math.max(...outerPoly.map((p) => p.x));
-        const outerMinY = Math.min(...outerPoly.map((p) => p.y));
-        const outerMaxY = Math.max(...outerPoly.map((p) => p.y));
-
-        const innerCorners = getShapeCorners(inner);
-        if (innerCorners.length === 0) continue;
-        const innerCenterX = innerCorners.reduce((acc, c) => acc + c.x, 0) / innerCorners.length;
-        const innerCenterY = innerCorners.reduce((acc, c) => acc + c.y, 0) / innerCorners.length;
-
-        // Check if inner center is geometrically inside the outer shape's bounding box
-        if (
-          innerCenterX >= outerMinX &&
-          innerCenterX <= outerMaxX &&
-          innerCenterY >= outerMinY &&
-          innerCenterY <= outerMaxY
-        ) {
-          const evalRes = evaluateBoundaryLimits(inner, outer, boundaryMode, shapes);
-          boundaryEvaluations.push(evalRes);
-          break;
-        }
-      }
-    }
-  }
-
-  return { inferredFormulas, boundaryEvaluations };
-}
+  | { type: "SYNC_PARAMETRIC_MODEL" };
 
 export const initialDrawingState: DrawingState = {
   shapes: [],
@@ -227,9 +121,6 @@ export const initialDrawingState: DrawingState = {
   variables: {},
   constraints: [],
   parametricErrors: [],
-  boundaryMode: "warning",
-  inferredFormulas: [],
-  boundaryEvaluations: [],
 };
 
 /**
@@ -292,21 +183,15 @@ function expandGroupIds(shapes: Shape[], ids: ID[]): ID[] {
   const groupIds = new Set<string>();
 
   for (const s of shapes) {
-    if (selectedSet.has(s.id)) {
-      if (s.groupId) groupIds.add(s.groupId);
-      if (s.groupPath) {
-        for (const g of s.groupPath) groupIds.add(g);
-      }
+    if (selectedSet.has(s.id) && s.groupId) {
+      groupIds.add(s.groupId);
     }
   }
 
   if (groupIds.size === 0) return ids;
 
   for (const s of shapes) {
-    if (
-      (s.groupId && groupIds.has(s.groupId)) ||
-      (s.groupPath && s.groupPath.some((g) => groupIds.has(g)))
-    ) {
+    if (s.groupId && groupIds.has(s.groupId)) {
       selectedSet.add(s.id);
     }
   }
@@ -399,19 +284,14 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         nextVars[rVar] = { name: rVar, value: Math.round(committedShape.r), unit: "mm" };
       }
 
-      const nextShapes = [...state.shapes, committedShape];
-      const slice = computeIntelligenceSlice(nextShapes, state.boundaryMode);
-
       return {
         ...state,
-        shapes: nextShapes,
+        shapes: [...state.shapes, committedShape],
         variables: nextVars,
         draft: null,
         selectedId: committedShape.id,
         selectedIds: [committedShape.id],
         activeSnap: null,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
         history: pushHistory(state, desc),
       };
     }
@@ -439,37 +319,28 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           ? state.selectedIds.filter((i) => i !== action.id)
           : [...state.selectedIds, action.id];
         const expanded = expandGroupIds(state.shapes, nextIds);
-        const slice = computeIntelligenceSlice(state.shapes, state.boundaryMode);
         return {
           ...state,
           selectedId: expanded[expanded.length - 1] || null,
           selectedIds: expanded,
-          inferredFormulas: slice.inferredFormulas,
-          boundaryEvaluations: slice.boundaryEvaluations,
         };
       }
 
       // Single select: auto-expand to entire group if shape is in a group
       const expanded = expandGroupIds(state.shapes, [action.id]);
-      const slice = computeIntelligenceSlice(state.shapes, state.boundaryMode);
       return {
         ...state,
         selectedId: action.id,
         selectedIds: expanded,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
       };
     }
 
     case "SELECT_MULTIPLE": {
       const expanded = expandGroupIds(state.shapes, action.ids);
-      const slice = computeIntelligenceSlice(state.shapes, state.boundaryMode);
       return {
         ...state,
         selectedId: expanded[0] || null,
         selectedIds: expanded,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
       };
     }
 
@@ -477,23 +348,14 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       if (state.selectedIds.length < 2) return state;
 
       const newGroupId = "group_" + Math.random().toString(36).substring(2, 9);
-      const existingGroupNames = new Set(
-        state.shapes.map((s) => s.groupName).filter(Boolean)
-      );
-      let groupIndex = 1;
-      while (existingGroupNames.has(`Group ${groupIndex}`)) {
-        groupIndex++;
-      }
-      const defaultGroupName = `Group ${groupIndex}`;
+      const groupName = `Group (${state.selectedIds.length} items)`;
 
       const nextShapes = state.shapes.map((s) => {
         if (state.selectedIds.includes(s.id)) {
-          const prevPath = s.groupPath || (s.groupId ? [s.groupId] : []);
           return {
             ...s,
             groupId: newGroupId,
-            groupName: s.groupName || defaultGroupName,
-            groupPath: [newGroupId, ...prevPath],
+            name: s.name || groupName,
           };
         }
         return s;
@@ -502,7 +364,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return {
         ...state,
         shapes: nextShapes,
-        history: pushHistory(state, `Group ${state.selectedIds.length} Shapes (${defaultGroupName})`),
+        history: pushHistory(state, `Group ${state.selectedIds.length} Shapes`),
       };
     }
 
@@ -511,17 +373,8 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
 
       const nextShapes = state.shapes.map((s) => {
         if (state.selectedIds.includes(s.id)) {
-          if (s.groupPath && s.groupPath.length > 1) {
-            const nextPath = s.groupPath.slice(1);
-            return {
-              ...s,
-              groupId: nextPath[0],
-              groupPath: nextPath,
-            };
-          } else {
-            const { groupId, groupName, groupPath, ...rest } = s;
-            return rest as Shape;
-          }
+          const { groupId, ...rest } = s;
+          return rest as Shape;
         }
         return s;
       });
@@ -530,72 +383,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         ...state,
         shapes: nextShapes,
         history: pushHistory(state, "Ungroup Shapes"),
-      };
-    }
-
-    case "RENAME_GROUP": {
-      const nextShapes = state.shapes.map((s) => {
-        if (s.groupId === action.groupId || s.groupPath?.includes(action.groupId)) {
-          return {
-            ...s,
-            groupName: action.newName,
-          };
-        }
-        return s;
-      });
-      return {
-        ...state,
-        shapes: nextShapes,
-        history: pushHistory(state, `Rename Group to ${action.newName}`),
-      };
-    }
-
-    case "SELECT_GROUP": {
-      const groupShapes = state.shapes.filter(
-        (s) => s.groupId === action.groupId || s.groupPath?.includes(action.groupId)
-      );
-      if (groupShapes.length === 0) return state;
-      const ids = groupShapes.map((s) => s.id);
-      return {
-        ...state,
-        selectedId: ids[0],
-        selectedIds: ids,
-      };
-    }
-
-    case "TOGGLE_GROUP_LOCK": {
-      const groupShapes = state.shapes.filter(
-        (s) => s.groupId === action.groupId || s.groupPath?.includes(action.groupId)
-      );
-      if (groupShapes.length === 0) return state;
-      const shouldLock = !groupShapes.every((s) => s.isLocked);
-      const nextShapes = state.shapes.map((s) => {
-        if (s.groupId === action.groupId || s.groupPath?.includes(action.groupId)) {
-          return { ...s, isLocked: shouldLock };
-        }
-        return s;
-      });
-      return {
-        ...state,
-        shapes: nextShapes,
-      };
-    }
-
-    case "TOGGLE_GROUP_VISIBILITY": {
-      const groupShapes = state.shapes.filter(
-        (s) => s.groupId === action.groupId || s.groupPath?.includes(action.groupId)
-      );
-      if (groupShapes.length === 0) return state;
-      const shouldShow = !groupShapes.every((s) => s.isVisible !== false);
-      const nextShapes = state.shapes.map((s) => {
-        if (s.groupId === action.groupId || s.groupPath?.includes(action.groupId)) {
-          return { ...s, isVisible: shouldShow };
-        }
-        return s;
-      });
-      return {
-        ...state,
-        shapes: nextShapes,
       };
     }
 
@@ -737,12 +524,9 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     }
 
     case "COMMIT_MOVE": {
-      const slice = computeIntelligenceSlice(state.shapes, state.boundaryMode);
       return {
         ...state,
         activeSnap: null,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
       };
     }
 
@@ -753,118 +537,14 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const currentShape = state.shapes[targetIndex];
       const updatedShape = { ...currentShape, ...action.updates } as Shape;
 
-      // 1. Check if shape belongs to an autonomous GAD assembly
-      const roleInfo = isShapeInGADAssembly(state.shapes, action.id);
-      if (roleInfo.inAssembly && roleInfo.role === "inner") {
-        const rawUpdates = action.updates as any;
-        if (
-          currentShape.type === "rectangle" &&
-          rawUpdates.width !== undefined &&
-          rawUpdates.width !== currentShape.width
-        ) {
-          const res = solveGADAssemblyAdjustment(state.shapes, {
-            shapeId: action.id,
-            newSpan: rawUpdates.width,
-            newHeight:
-              rawUpdates.height !== undefined
-                ? rawUpdates.height
-                : (currentShape as any).height,
-          });
-          if (res.solved) {
-            return {
-              ...state,
-              shapes: res.updatedShapes,
-              history: pushHistory(state, res.description),
-            };
-          }
-        } else if (
-          currentShape.type === "circle" &&
-          rawUpdates.r !== undefined &&
-          rawUpdates.r !== currentShape.r
-        ) {
-          const res = solveGADAssemblyAdjustment(state.shapes, {
-            shapeId: action.id,
-            newRadius: rawUpdates.r,
-          });
-          if (res.solved) {
-            return {
-              ...state,
-              shapes: res.updatedShapes,
-              history: pushHistory(state, res.description),
-            };
-          }
-        } else if (
-          currentShape.type === "ellipse" &&
-          ((rawUpdates.rx !== undefined && rawUpdates.rx !== currentShape.rx) ||
-            (rawUpdates.ry !== undefined && rawUpdates.ry !== currentShape.ry))
-        ) {
-          const res = solveGADAssemblyAdjustment(state.shapes, {
-            shapeId: action.id,
-            newSpan: (rawUpdates.rx ?? currentShape.rx) * 2,
-            newHeight: (rawUpdates.ry ?? currentShape.ry) * 2,
-          });
-          if (res.solved) {
-            return {
-              ...state,
-              shapes: res.updatedShapes,
-              history: pushHistory(state, res.description),
-            };
-          }
-        } else if (
-          (currentShape.type === "line" || currentShape.type === "arrow") &&
-          (roleInfo.edgeType === "top" || roleInfo.edgeType === "bottom")
-        ) {
-          const x1 = rawUpdates.x1 ?? (currentShape as any).x1;
-          const x2 = rawUpdates.x2 ?? (currentShape as any).x2;
-          const y1 = rawUpdates.y1 ?? (currentShape as any).y1;
-          const y2 = rawUpdates.y2 ?? (currentShape as any).y2;
-          const curLen = Math.hypot(
-            (currentShape as any).x2 - (currentShape as any).x1,
-            (currentShape as any).y2 - (currentShape as any).y1
-          );
-          const nextLen = Math.hypot(x2 - x1, y2 - y1);
-          if (Math.abs(nextLen - curLen) > 0.5) {
-            const res = solveGADAssemblyAdjustment(state.shapes, {
-              shapeId: action.id,
-              deltaSpan: nextLen - curLen,
-            });
-            if (res.solved) {
-              return {
-                ...state,
-                shapes: res.updatedShapes,
-                history: pushHistory(state, res.description),
-              };
-            }
-          }
-        }
-      }
-
       const nextShapes = [...state.shapes];
       nextShapes[targetIndex] = updatedShape;
-      const slice = computeIntelligenceSlice(nextShapes, state.boundaryMode);
 
       return {
         ...state,
         shapes: nextShapes,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
         history: pushHistory(state, `Update ${currentShape.type}`),
       };
-    }
-
-    case "ADJUST_GAD_ASSEMBLY": {
-      const res = solveGADAssemblyAdjustment(state.shapes, action.target);
-      if (res.solved) {
-        const slice = computeIntelligenceSlice(res.updatedShapes, state.boundaryMode);
-        return {
-          ...state,
-          shapes: res.updatedShapes,
-          inferredFormulas: slice.inferredFormulas,
-          boundaryEvaluations: slice.boundaryEvaluations,
-          history: pushHistory(state, res.description),
-        };
-      }
-      return state;
     }
 
     case "TOGGLE_SHAPE_LOCK": {
@@ -1173,7 +853,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           }
         }
       }
-      const slice = computeIntelligenceSlice(action.shapes, state.boundaryMode);
       return {
         ...state,
         shapes: action.shapes,
@@ -1181,8 +860,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         selectedId: null,
         selectedIds: [],
         draft: null,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
         history: pushHistory(state, `Import ${action.shapes.length} Shapes`),
       };
     }
@@ -1371,8 +1048,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         nextConstraints
       );
 
-      const slice = computeIntelligenceSlice(updatedShapes, state.boundaryMode);
-
       return {
         ...state,
         shapes: updatedShapes,
@@ -1381,8 +1056,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         parametricErrors: errors,
         selectedIds: [],
         selectedId: null,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
         history: pushHistory(state, `Instantiate Template: ${template.name}`),
       };
     }
@@ -1393,98 +1066,11 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         state.variables,
         state.constraints
       );
-      const slice = computeIntelligenceSlice(updatedShapes, state.boundaryMode);
       return {
         ...state,
         shapes: updatedShapes,
         variables: updatedVariables,
         parametricErrors: errors,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
-      };
-    }
-
-    case "SET_BOUNDARY_MODE": {
-      const slice = computeIntelligenceSlice(state.shapes, action.mode);
-      return {
-        ...state,
-        boundaryMode: action.mode,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
-      };
-    }
-
-    case "ACCEPT_INFERRED_FORMULA": {
-      const formula = state.inferredFormulas.find((f) => f.id === action.id);
-      if (!formula) return state;
-
-      const nextFormulas = state.inferredFormulas.map((f) =>
-        f.id === action.id ? { ...f, status: "accepted" as const } : f
-      );
-
-      const nextVars = { ...state.variables };
-      for (const v of formula.variables) {
-        if (!nextVars[v.name]) {
-          nextVars[v.name] = {
-            name: v.name,
-            value: v.value,
-            description: v.role,
-          };
-        }
-      }
-
-      nextVars[formula.targetProperty] = {
-        name: formula.targetProperty,
-        value: formula.evaluatedValue,
-        formula: formula.expression,
-        description: `Automatically derived: ${formula.reason}`,
-      };
-
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        nextVars,
-        state.constraints
-      );
-
-      return {
-        ...state,
-        shapes: updatedShapes,
-        inferredFormulas: nextFormulas,
-        variables: updatedVariables,
-        parametricErrors: errors,
-        history: pushHistory(state, `Accept Derived Formula: ${formula.displayTarget}`),
-      };
-    }
-
-    case "REJECT_INFERRED_FORMULA": {
-      const nextFormulas = state.inferredFormulas.map((f) =>
-        f.id === action.id ? { ...f, status: "rejected" as const } : f
-      );
-      return {
-        ...state,
-        inferredFormulas: nextFormulas,
-      };
-    }
-
-    case "UPDATE_INFERRED_FORMULA": {
-      const nextFormulas = state.inferredFormulas.map((f) =>
-        f.id === action.id
-          ? { ...f, expression: action.expression, provenance: "user" as const, status: "accepted" as const }
-          : f
-      );
-      return {
-        ...state,
-        inferredFormulas: nextFormulas,
-        history: pushHistory(state, `Edit Derived Formula`),
-      };
-    }
-
-    case "REFRESH_INTELLIGENCE": {
-      const slice = computeIntelligenceSlice(state.shapes, state.boundaryMode);
-      return {
-        ...state,
-        inferredFormulas: slice.inferredFormulas,
-        boundaryEvaluations: slice.boundaryEvaluations,
       };
     }
 
