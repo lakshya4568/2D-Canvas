@@ -2,9 +2,10 @@
 
 import React, { useState } from "react";
 import { Point } from "@/lib/geometry/types";
+import { useDrawing } from "@/lib/state/drawingContext";
 import { DrawingCanvas } from "./DrawingCanvas";
-import { SidebarTools } from "../toolbar/SidebarTools";
 import { MainToolbar } from "../toolbar/MainToolbar";
+import { CanvasRibbon } from "../toolbar/CanvasRibbon";
 import { ExportMenu } from "../toolbar/ExportMenu";
 import { PropertyInspector } from "../inspector/PropertyInspector";
 import { StatusBar } from "../statusbar/StatusBar";
@@ -20,9 +21,12 @@ interface ToastNotification {
 }
 
 export function DrawingApp() {
+  const { state } = useDrawing();
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
+  const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const addNotification = (notif: { text: string; type: "success" | "error" }) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -39,15 +43,15 @@ export function DrawingApp() {
         {/* Left: Brand / Logo */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="font-mono font-bold text-sm tracking-tight text-blue-500">
-              VectorPrecision
+            <span className="font-mono font-bold text-sm tracking-tight text-zinc-100">
+              Aagento<span className="text-amber-500">CAD</span>
             </span>
-            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-500/15 text-blue-400">
-              CAD
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              PRECISION
             </span>
           </div>
           <span className="text-[11px] font-mono text-[var(--fg-muted)] hidden sm:inline">
-            / 2D Drawing Surface
+            / Parametric Structural Engine
           </span>
         </div>
 
@@ -59,19 +63,27 @@ export function DrawingApp() {
 
       {/* Main Workspace Body */}
       <div className="flex-1 w-full flex relative overflow-hidden pb-[28px]">
-        {/* Collapsible Left Sidebar CAD Tools (Expandable with Tool Names & Shortcuts) */}
-        <SidebarTools />
+        {/* Primary Interactive SVG Canvas with Ribbon on Top */}
+        <main
+          className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)] flex flex-col transition-all duration-150"
+          style={{ marginRight: isSidebarCollapsed ? 0 : `${sidebarWidth}px` }}
+        >
+          {/* AutoCAD Ribbon on top of canvas */}
+          <CanvasRibbon />
 
-        {/* Primary Interactive SVG Canvas with Quick Parametric Formula Bar */}
-        <main className="flex-1 h-full relative overflow-hidden bg-[var(--bg-canvas)] flex flex-col mr-[280px]">
           <div className="flex-1 min-h-0 w-full relative overflow-hidden">
             <DrawingCanvas onCursorChange={setCursorPos} />
           </div>
-          <BottomFormulaBar />
+          {state.userMode === "author" && <BottomFormulaBar />}
         </main>
 
-        {/* Right Docked Property Inspector (Width 280px) */}
-        <PropertyInspector />
+        {/* Right Docked Property Inspector (Resizable & Collapsible) */}
+        <PropertyInspector
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+        />
       </div>
 
       {/* Fixed Footer Status Bar (Height 28px) */}

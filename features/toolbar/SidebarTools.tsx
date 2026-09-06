@@ -23,6 +23,7 @@ import {
   CornerUpRight,
   Crosshair,
   Ruler,
+  Move,
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -34,7 +35,8 @@ interface ToolItem {
 }
 
 const TOOLS: ToolItem[] = [
-  { id: "select", label: "Select & Move", shortcut: "V", icon: MousePointer },
+  { id: "select", label: "Select", shortcut: "V", icon: MousePointer },
+  { id: "move", label: "Move", shortcut: "M", icon: Move },
   { id: "line", label: "Line", shortcut: "L", icon: Minus },
   { id: "polyline", label: "Polyline", shortcut: "P", icon: Spline },
   { id: "rectangle", label: "Rectangle", shortcut: "R", icon: Square },
@@ -80,7 +82,7 @@ export function SidebarTools() {
         >
           <div className="flex items-center gap-2">
             {isExpanded ? (
-              <PanelLeftClose className="w-4 h-4 text-blue-500 shrink-0" />
+              <PanelLeftClose className="w-4 h-4 text-amber-500 shrink-0" />
             ) : (
               <PanelLeftOpen className="w-4 h-4 text-[var(--fg-muted)] shrink-0" />
             )}
@@ -108,7 +110,7 @@ export function SidebarTools() {
               onClick={() => setTool(tool.id)}
               className={`w-full h-8 px-2 rounded flex items-center justify-between transition-all duration-150 cursor-pointer ${
                 isActive
-                  ? "bg-blue-600 text-white font-semibold shadow-sm"
+                  ? "bg-amber-500 text-zinc-950 font-bold shadow-sm"
                   : "text-[var(--fg-secondary)] hover:text-[var(--fg-primary)] hover:bg-[var(--bg-panel-subtle)]"
               }`}
               title={`${tool.label} (${tool.shortcut})`}
@@ -126,7 +128,7 @@ export function SidebarTools() {
               {isExpanded && (
                 <span
                   className={`text-[9px] font-mono px-1 py-0.2 rounded shrink-0 ${
-                    isActive ? "bg-blue-700 text-blue-100" : "bg-[var(--border-subtle)] text-[var(--fg-muted)]"
+                    isActive ? "bg-amber-600 text-amber-950 font-bold" : "bg-[var(--border-subtle)] text-[var(--fg-muted)]"
                   }`}
                 >
                   {tool.shortcut}
@@ -144,7 +146,7 @@ export function SidebarTools() {
           disabled={selectedShapes.length < 2 && !isGroupSelected}
           className={`w-full h-8 px-2 rounded flex items-center justify-between transition-all duration-150 ${
             selectedShapes.length >= 2 || isGroupSelected
-              ? "text-blue-400 hover:bg-blue-500/10 cursor-pointer"
+              ? "text-amber-400 hover:bg-amber-500/10 cursor-pointer"
               : "text-[var(--fg-muted)] opacity-30 cursor-not-allowed"
           }`}
           title={isGroupSelected ? "Ungroup (Ctrl+Shift+G)" : "Group Selected (Ctrl+G)"}
@@ -174,7 +176,7 @@ export function SidebarTools() {
         <div className="flex flex-col gap-1 w-full pt-2 border-t border-[var(--border-subtle)] shrink-0">
           <button
             onClick={duplicateSelected}
-            className="w-full h-7 px-2 rounded text-blue-400 hover:bg-blue-500/10 flex items-center justify-between transition-colors text-[10px] cursor-pointer"
+            className="w-full h-7 px-2 rounded text-amber-400 hover:bg-amber-500/10 flex items-center justify-between transition-colors text-[10px] cursor-pointer"
             title="Duplicate Selected (Ctrl+D)"
           >
             <div className="flex items-center gap-2">

@@ -34,28 +34,42 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
     if (!editingShapeId) return;
     const trimmed = editValue.trim();
     if (trimmed) {
-      const eqIdx = trimmed.indexOf("=");
-      let varName = shape.name || ParametricModel.getShapeName(shape, state.shapes.indexOf(shape));
-      let expr = trimmed;
+      const parsedNum = Number(trimmed);
+      if (!isNaN(parsedNum) && parsedNum > 0) {
+        if (shape.type === "rectangle") {
+          dispatch({
+            type: "UPDATE_SHAPE",
+            id: shape.id,
+            updates: { width: parsedNum },
+          });
+        } else if (shape.type === "line" || shape.type === "arrow") {
+          const metrics = lineMetrics({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
+          const rad = (metrics.angleDeg * Math.PI) / 180;
+          dispatch({
+            type: "UPDATE_SHAPE",
+            id: shape.id,
+            updates: {
+              x2: shape.x1 + parsedNum * Math.cos(rad),
+              y2: shape.y1 + parsedNum * Math.sin(rad),
+            },
+          });
+        }
+      } else {
+        const eqIdx = trimmed.indexOf("=");
+        let varName = shape.name || ParametricModel.getShapeName(shape, state.shapes.indexOf(shape));
+        let expr = trimmed;
 
-      if (eqIdx !== -1) {
-        varName = trimmed.substring(0, eqIdx).trim();
-        expr = trimmed.substring(eqIdx + 1).trim();
-      }
+        if (eqIdx !== -1) {
+          varName = trimmed.substring(0, eqIdx).trim();
+          expr = trimmed.substring(eqIdx + 1).trim();
+        }
 
-      if (varName && varName !== shape.name) {
         dispatch({
-          type: "UPDATE_SHAPE",
-          id: shape.id,
-          updates: { name: varName },
+          type: "SET_VARIABLE",
+          name: varName,
+          valueOrFormula: expr,
         });
       }
-
-      dispatch({
-        type: "SET_VARIABLE",
-        name: varName,
-        valueOrFormula: expr,
-      });
     }
 
     setEditingShapeId(null);
@@ -143,7 +157,10 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
             state.variables[`L${shapeIdx + 1}`] ||
             state.variables[`Line_${shapeIdx + 1}`];
 
-          if (boundVar) {
+          if (state.userMode === "draftsman") {
+            displayLabel = `${Math.round(len)} mm`;
+            rawExpr = String(Math.round(len));
+          } else if (boundVar) {
             isFormulaDriven = Boolean(boundVar.formula);
             rawExpr = boundVar.formula ? boundVar.formula : String(Math.round(len));
             displayLabel = `${boundVar.name}: ${Math.round(len)}`;
@@ -155,7 +172,10 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
           badgeX = shape.x + shape.width / 2;
           badgeY = shape.y - 10 / scale;
           const boundVarW = (shape.name && state.variables[`${shape.name}.width`]) || state.variables.W || state.variables.Width;
-          if (boundVarW) {
+          if (state.userMode === "draftsman") {
+            displayLabel = `${Math.round(shape.width)} × ${Math.round(shape.height)} mm`;
+            rawExpr = String(Math.round(shape.width));
+          } else if (boundVarW) {
             isFormulaDriven = Boolean(boundVarW.formula);
             rawExpr = boundVarW.formula ? boundVarW.formula : String(Math.round(shape.width));
             displayLabel = `${boundVarW.name}: ${Math.round(shape.width)} × ${Math.round(shape.height)}`;
@@ -193,7 +213,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                 className="overflow-visible"
               >
                 <div
-                  className="flex items-center gap-1 rounded bg-slate-900 border border-blue-500/80 px-1 py-0.5 shadow-sm"
+                  className="flex items-center gap-1 rounded bg-zinc-900 border border-amber-500/90 px-1 py-0.5 shadow-md"
                   style={{
                     transformOrigin: "center center",
                     transform: `scale(${1 / scale})`,
@@ -207,7 +227,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                     onChange={(e) => setEditValue(e.target.value)}
                     onKeyDown={(e) => handleKeyDown(e, shape)}
                     onBlur={() => handleCommitEdit(shape)}
-                    className="w-full bg-transparent px-0.5 font-mono text-[10px] text-white focus:outline-none"
+                    className="w-full bg-transparent px-0.5 font-mono text-[10px] text-zinc-100 focus:outline-none"
                   />
                   <button
                     type="button"
@@ -215,7 +235,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                       e.stopPropagation();
                       handleCommitEdit(shape);
                     }}
-                    className="text-[10px] text-blue-400 hover:text-blue-300 px-0.5 cursor-pointer font-bold"
+                    className="text-[10px] text-amber-400 hover:text-amber-300 px-0.5 cursor-pointer font-bold"
                   >
                     ↵
                   </button>
@@ -226,48 +246,45 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
                 className="cursor-pointer group"
                 onPointerDown={(e) => handleStartEdit(shape, rawExpr, e)}
               >
-                {/* Minimalist Solid Backdrop (100% opaque to prevent any bleed-through) */}
                 <rect
                   x={-badgeWidth / 2}
                   y={-badgeHeight / 2}
                   width={badgeWidth}
                   height={badgeHeight}
-                  rx={4 / scale}
-                  fill={isDark ? "#090d16" : "#ffffff"}
+                  rx={3 / scale}
+                  fill={isDark ? "#14161b" : "#ffffff"}
                   stroke={
                     isSelected
-                      ? "#0066ff"
+                      ? "#f59e0b"
                       : isFormulaDriven
-                      ? "rgba(34, 197, 94, 0.6)"
+                      ? "rgba(16, 185, 129, 0.7)"
                       : isDark
-                      ? "rgba(255, 255, 255, 0.2)"
-                      : "rgba(0, 0, 0, 0.2)"
+                      ? "rgba(255, 255, 255, 0.25)"
+                      : "rgba(0, 0, 0, 0.25)"
                   }
-                  strokeWidth={1 / scale}
-                  className="transition-colors group-hover:stroke-blue-400 shadow-sm"
+                  strokeWidth={1.2 / scale}
+                  className="transition-colors group-hover:stroke-amber-400 shadow-sm"
                 />
 
-                {/* Formula indicator dot */}
                 {isFormulaDriven && (
                   <circle
                     cx={-badgeWidth / 2 + 7 / scale}
                     cy={0}
                     r={2 / scale}
-                    fill="#22c55e"
+                    fill="#10b981"
                   />
                 )}
 
-                {/* Crisp Minimalist Monospace Text */}
                 <text
                   x={isFormulaDriven ? 4 / scale : 0}
                   y={0}
                   textAnchor="middle"
                   dominantBaseline="central"
-                  fill={isDark ? "#e2e8f0" : "#0f172a"}
+                  fill={isDark ? "#f1f5f9" : "#0f172a"}
                   fontSize={fontSize}
-                  fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+                  fontFamily="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
                   fontWeight="600"
-                  className="group-hover:fill-blue-400"
+                  className="group-hover:fill-amber-400"
                 >
                   {displayLabel}
                 </text>

@@ -1,4 +1,5 @@
 import { Shape, RectangleShape, CircleShape, PolygonShape, LineShape } from "../geometry/types";
+import { detectGADAssemblies } from "../geometry/gadAssemblyEngine";
 
 export type BoundaryLimitState = "Safe" | "Approaching Limit" | "At Limit" | "Exceeded" | "Invalid";
 
@@ -265,4 +266,24 @@ export function evaluateBoundaryLimits(
       isInsidePolygon: isInsidePoly,
     },
   };
+}
+
+export function evaluateAllBoundaryLimits(shapes: Shape[]): BoundaryLimitEvaluation[] {
+  const assemblies = detectGADAssemblies(shapes);
+  const evals: BoundaryLimitEvaluation[] = [];
+
+  for (const asm of assemblies) {
+    const outerShape = shapes.find((s) => s.id === asm.outer.id);
+    if (!outerShape) continue;
+
+    for (const feat of asm.features) {
+      const innerShape = shapes.find((s) => s.id === feat.id);
+      if (!innerShape) continue;
+      if (innerShape.id === outerShape.id) continue;
+
+      evals.push(evaluateBoundaryLimits(innerShape, outerShape, "warning", shapes));
+    }
+  }
+
+  return evals;
 }

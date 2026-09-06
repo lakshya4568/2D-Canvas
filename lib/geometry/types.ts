@@ -8,6 +8,8 @@ export interface Point {
 export interface BaseShape {
   id: ID;
   groupId?: string;
+  groupName?: string;
+  groupPath?: string[];
   name?: string;
   isLocked?: boolean;
   isVisible?: boolean;
@@ -92,6 +94,7 @@ export type ShapeType = Shape["type"];
 
 export type ToolId =
   | "select"
+  | "move"
   | "line"
   | "polyline"
   | "arrow"
@@ -178,4 +181,38 @@ export interface ShapeGroup {
   id: string;
   name: string;
   shapeIds: string[];
+}
+
+export type GripType = "vertex" | "midpoint" | "center" | "quadrant";
+export type GripState = "warm" | "hover" | "hot";
+
+export interface CadGrip {
+  id: string;
+  shapeId: string;
+  type: GripType;
+  x: number;
+  y: number;
+  vertexIndex?: number;
+  segmentIndex?: number;
+  state: GripState;
+  cursor: string;
+  tooltip?: string;
+}
+
+export type PortKind = "point" | "edge" | "surface";
+
+export interface ComponentPort {
+  id: string;
+  label: string;
+  kind: PortKind;
+  localOrigin: { x: string; y: string };
+  localAngleDeg: string;
+  compatiblePortKinds: string[];
+}
+
+export interface ComponentInstanceAttachment {
+  parentInstanceId: string;
+  parentPortId: string;
+  ownPortId: string;
+  offsetExpr?: { dx: string; dy: string; dAngle?: string };
 }

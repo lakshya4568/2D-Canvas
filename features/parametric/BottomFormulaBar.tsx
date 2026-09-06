@@ -89,8 +89,8 @@ export const BottomFormulaBar: React.FC = () => {
         </div>
 
         {selectedVar && (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/40 font-mono text-[11px] text-blue-400 shrink-0 shadow-sm animate-fadeIn">
-            <span className="text-[9px] uppercase tracking-wider text-blue-300/80 font-sans font-semibold">Active Line:</span>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 font-mono text-[11px] text-amber-400 shrink-0 shadow-sm animate-fadeIn">
+            <span className="text-[9px] uppercase tracking-wider text-amber-300/80 font-sans font-semibold">Active Line:</span>
             <span className="font-bold text-[var(--text-primary)]">{selectedVar.name}</span>
             <span className="text-[var(--text-muted)]">=</span>
             <span className="text-amber-400 font-bold">{selectedVar.value.toFixed(0)}</span>
@@ -113,25 +113,6 @@ export const BottomFormulaBar: React.FC = () => {
             Execute ↵
           </button>
         </form>
-
-        <div className="flex items-center gap-1.5 shrink-0 border-l border-[var(--border-subtle)] pl-2">
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "INSTANTIATE_TEMPLATE", templateId: "single_cell_box_culvert" })}
-            className="rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 px-2 py-1 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
-            title="Load Single-Cell Box Culvert Benchmark"
-          >
-            Culvert (1-Cell)
-          </button>
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "INSTANTIATE_TEMPLATE", templateId: "two_span_box_culvert" })}
-            className="rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-1 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
-            title="Load Two-Span Box Culvert Benchmark"
-          >
-            Culvert (2-Span)
-          </button>
-        </div>
 
         {feedback && (
           <span className="font-mono text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded animate-pulse shrink-0">
@@ -158,12 +139,12 @@ export const BottomFormulaBar: React.FC = () => {
                     onClick={() => handlePillClick(v.name, v.value)}
                     className={`flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] border cursor-pointer transition-all ${
                       isActive
-                        ? "bg-blue-500/25 border-blue-400 text-white font-bold ring-1 ring-blue-400"
-                        : "bg-[var(--surface-base)] hover:bg-blue-500/15 hover:border-blue-500/40 text-[var(--text-secondary)] border-[var(--border-subtle)]"
+                        ? "bg-amber-500/25 border-amber-400 text-white font-bold ring-1 ring-amber-400"
+                        : "bg-[var(--surface-base)] hover:bg-amber-500/15 hover:border-amber-500/40 text-[var(--text-secondary)] border-[var(--border-subtle)]"
                     }`}
                     title={`Click to edit constant ${v.name}`}
                   >
-                    <span className={isActive ? "text-blue-300 font-bold" : "font-bold text-[var(--text-primary)]"}>
+                    <span className={isActive ? "text-amber-300 font-bold" : "font-bold text-[var(--text-primary)]"}>
                       {v.name}:
                     </span>
                     <span className="text-amber-400 font-semibold">{v.value.toFixed(0)}</span>

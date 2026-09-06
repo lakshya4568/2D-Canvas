@@ -1,3 +1,5 @@
+import { DulmageMendelsohnSolver, DMResult } from "./dulmageMendelsohn";
+
 export interface EntityNode {
   id: string;
   degreesOfFreedom: number;
@@ -51,5 +53,9 @@ export class BipartiteConstraintGraph {
 
     const planarRigidMotions = 3;
     return Math.max(0, totalDof - totalEquations - planarRigidMotions);
+  }
+
+  public decomposeDM(): DMResult {
+    return DulmageMendelsohnSolver.decompose(this);
   }
 }

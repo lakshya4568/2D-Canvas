@@ -12,10 +12,13 @@ const SHORTCUT_GROUPS = [
   {
     category: "Drawing & Tools",
     items: [
-      { key: "V", desc: "Select & Move tool" },
-      { key: "L", desc: "Line tool (click & drag)" },
-      { key: "R", desc: "Rectangle tool (click & drag)" },
-      { key: "C", desc: "Circle tool (click & drag)" },
+      { key: "V", desc: "Select tool (selects objects only)" },
+      { key: "M", desc: "Move tool (AutoCAD displacement)" },
+      { key: "L", desc: "Line tool" },
+      { key: "P", desc: "Polyline tool" },
+      { key: "R", desc: "Rectangle tool" },
+      { key: "C", desc: "Circle tool" },
+      { key: "D", desc: "Dimension tool" },
       { key: "H", desc: "Pan canvas tool" },
     ],
   },
@@ -47,7 +50,7 @@ export function ShortcutsModal({ isOpen, onClose }: ShortcutsModalProps) {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
           <div className="flex items-center gap-2.5">
-            <Keyboard className="w-5 h-5 text-blue-500" />
+            <Keyboard className="w-5 h-5 text-amber-500" />
             <h2 className="font-bold text-base tracking-tight">Keyboard Shortcuts & Gestures</h2>
           </div>
           <button
@@ -86,7 +89,7 @@ export function ShortcutsModal({ isOpen, onClose }: ShortcutsModalProps) {
         <div className="flex justify-end pt-2 border-t border-[var(--border-subtle)]">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-semibold shadow transition-all cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 text-xs font-bold shadow transition-all cursor-pointer"
           >
             Got it
           </button>

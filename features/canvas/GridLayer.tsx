@@ -61,15 +61,15 @@ export const GridLayer: React.FC<GridLayerProps> = React.memo(
           fill="url(#cad-major-grid)"
         />
 
-        {/* Origin Axes (0,0) */}
-        <g id="origin-axes" opacity={0.35}>
+        {/* Origin Axes (0,0): Standard CAD convention X=Red, Y=Green */}
+        <g id="origin-axes" opacity={0.45}>
           <line
             x1={-500}
             y1={0}
             x2={500}
             y2={0}
-            stroke="#0066ff"
-            strokeWidth={1 / scale}
+            stroke="#ef4444"
+            strokeWidth={1.2 / scale}
             strokeDasharray={`${4 / scale}, ${4 / scale}`}
           />
           <line
@@ -77,8 +77,8 @@ export const GridLayer: React.FC<GridLayerProps> = React.memo(
             y1={-500}
             x2={0}
             y2={500}
-            stroke="#0066ff"
-            strokeWidth={1 / scale}
+            stroke="#10b981"
+            strokeWidth={1.2 / scale}
             strokeDasharray={`${4 / scale}, ${4 / scale}`}
           />
         </g>

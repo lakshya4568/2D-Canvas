@@ -13,12 +13,15 @@ import {
   Sun,
   Moon,
   Compass,
+  PenTool,
+  Settings2,
 } from "lucide-react";
 
 export function MainToolbar() {
   const { theme, setTheme } = useTheme();
   const {
     state,
+    dispatch,
     undo,
     redo,
     canUndo,
@@ -82,13 +85,43 @@ export function MainToolbar() {
 
       <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-1" />
 
+      <div className="flex items-center rounded bg-[var(--bg-panel-subtle)] p-0.5 border border-[var(--border-subtle)] text-[10px] font-mono">
+        <button
+          onClick={() => dispatch({ type: "SET_USER_MODE", mode: "draftsman" })}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer ${
+            state.userMode === "draftsman"
+              ? "bg-amber-500 text-zinc-950 font-bold shadow-xs"
+              : "text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+          }`}
+          title="Draftsman Mode: Pure CAD drafting without formulas"
+        >
+          <PenTool className="w-3 h-3" />
+          <span>Draftsman</span>
+        </button>
+
+        <button
+          onClick={() => dispatch({ type: "SET_USER_MODE", mode: "author" })}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer ${
+            state.userMode === "author"
+              ? "bg-amber-500 text-zinc-950 font-bold shadow-xs"
+              : "text-[var(--fg-secondary)] hover:text-[var(--fg-primary)]"
+          }`}
+          title="Author Mode: Define templates, ports, and review AutoFormula invariants"
+        >
+          <Settings2 className="w-3 h-3" />
+          <span>Author Mode</span>
+        </button>
+      </div>
+
+      <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-1" />
+
       {/* Grid, Snap, & Dimension Toggles */}
       <div className="flex items-center gap-0.5">
         <button
           onClick={toggleGrid}
           className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
             state.showGrid
-              ? "text-blue-500 bg-blue-500/10 font-bold"
+              ? "text-amber-400 bg-amber-500/15 font-bold border border-amber-500/30"
               : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
           }`}
           title={`Grid: ${state.showGrid ? "ON" : "OFF"}`}
@@ -100,7 +133,7 @@ export function MainToolbar() {
           onClick={toggleGridSnap}
           className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
             state.gridSnapEnabled
-              ? "text-blue-500 bg-blue-500/10 font-bold"
+              ? "text-amber-400 bg-amber-500/15 font-bold border border-amber-500/30"
               : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
           }`}
           title={`Grid Snap: ${state.gridSnapEnabled ? "ON" : "OFF"}`}

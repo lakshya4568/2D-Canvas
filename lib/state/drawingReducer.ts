@@ -3,6 +3,9 @@ import { computeMultiShapeBounds, rotatePoint } from "../geometry/metrics";
 import { ParametricModel, ParametricVariable } from "../parametric/model";
 import { GeometricConstraint } from "../parametric/constraints";
 import { BUILTIN_TEMPLATES } from "../parametric/templates";
+import { synthesizeFormulasFromGeometry, InferredFormula } from "../inference/formulaSynthesizer";
+import { solveGADAssemblyAdjustment } from "../geometry/gadAssemblyEngine";
+import { evaluateAllBoundaryLimits, BoundaryLimitEvaluation } from "../parametric/boundaryLimits";
 
 const MAX_HISTORY_STEPS = 100;
 
@@ -45,10 +48,14 @@ export interface DrawingState {
   variables: Record<string, ParametricVariable>;
   constraints: GeometricConstraint[];
   parametricErrors: string[];
+  inferredFormulas: InferredFormula[];
+  boundaryEvaluations: BoundaryLimitEvaluation[];
+  userMode: "draftsman" | "author";
 }
 
 export type DrawingAction =
   | { type: "SET_TOOL"; tool: ToolId }
+  | { type: "SET_USER_MODE"; mode: "draftsman" | "author" }
   | { type: "START_DRAFT"; shape: Shape }
   | { type: "UPDATE_DRAFT"; shape: Shape }
   | { type: "COMMIT_DRAFT" }
@@ -57,6 +64,9 @@ export type DrawingAction =
   | { type: "SELECT_MULTIPLE"; ids: ID[] }
   | { type: "GROUP_SELECTED" }
   | { type: "UNGROUP_SELECTED" }
+  | { type: "RENAME_GROUP"; groupId: string; newName: string }
+  | { type: "TOGGLE_GROUP_LOCK"; groupId: string }
+  | { type: "TOGGLE_GROUP_VISIBILITY"; groupId: string }
   | { type: "MOVE_SELECTED"; dx: number; dy: number }
   | { type: "RESIZE_SHAPES"; updatedShapes: Shape[] }
   | { type: "ROTATE_SHAPES"; updatedShapes: Shape[] }
@@ -93,7 +103,8 @@ export type DrawingAction =
   | { type: "DELETE_CONSTRAINT"; id: string }
   | { type: "TOGGLE_CONSTRAINT"; id: string }
   | { type: "INSTANTIATE_TEMPLATE"; templateId: string; params?: Record<string, number> }
-  | { type: "SYNC_PARAMETRIC_MODEL" };
+  | { type: "SYNC_PARAMETRIC_MODEL" }
+  | { type: "ACCEPT_INFERRED_FORMULA"; id: string };
 
 export const initialDrawingState: DrawingState = {
   shapes: [],
@@ -121,6 +132,9 @@ export const initialDrawingState: DrawingState = {
   variables: {},
   constraints: [],
   parametricErrors: [],
+  inferredFormulas: [],
+  boundaryEvaluations: [],
+  userMode: "draftsman",
 };
 
 /**
@@ -212,6 +226,13 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       };
     }
 
+    case "SET_USER_MODE": {
+      return {
+        ...state,
+        userMode: action.mode,
+      };
+    }
+
     case "START_DRAFT": {
       return {
         ...state,
@@ -284,10 +305,16 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         nextVars[rVar] = { name: rVar, value: Math.round(committedShape.r), unit: "mm" };
       }
 
+      const nextShapes = [...state.shapes, committedShape];
+      const inferred = synthesizeFormulasFromGeometry(nextShapes);
+      const boundaryEvals = evaluateAllBoundaryLimits(nextShapes);
+
       return {
         ...state,
-        shapes: [...state.shapes, committedShape],
+        shapes: nextShapes,
         variables: nextVars,
+        inferredFormulas: inferred,
+        boundaryEvaluations: boundaryEvals,
         draft: null,
         selectedId: committedShape.id,
         selectedIds: [committedShape.id],
@@ -352,9 +379,12 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
 
       const nextShapes = state.shapes.map((s) => {
         if (state.selectedIds.includes(s.id)) {
+          const prevPath = s.groupPath || (s.groupId ? [s.groupId] : []);
           return {
             ...s,
             groupId: newGroupId,
+            groupName: s.groupName || groupName,
+            groupPath: [newGroupId, ...prevPath],
             name: s.name || groupName,
           };
         }
@@ -368,12 +398,37 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       };
     }
 
+    case "RENAME_GROUP": {
+      const nextShapes = state.shapes.map((s) => {
+        if (s.groupId === action.groupId || s.groupPath?.includes(action.groupId)) {
+          return {
+            ...s,
+            groupName: action.newName,
+          };
+        }
+        return s;
+      });
+
+      return {
+        ...state,
+        shapes: nextShapes,
+      };
+    }
+
     case "UNGROUP_SELECTED": {
       if (state.selectedIds.length === 0) return state;
 
       const nextShapes = state.shapes.map((s) => {
         if (state.selectedIds.includes(s.id)) {
-          const { groupId, ...rest } = s;
+          if (s.groupPath && s.groupPath.length > 1) {
+            const nextPath = s.groupPath.slice(1);
+            return {
+              ...s,
+              groupId: nextPath[0],
+              groupPath: nextPath,
+            };
+          }
+          const { groupId, groupPath, groupName, ...rest } = s;
           return rest as Shape;
         }
         return s;
@@ -383,6 +438,28 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         ...state,
         shapes: nextShapes,
         history: pushHistory(state, "Ungroup Shapes"),
+      };
+    }
+
+    case "TOGGLE_GROUP_LOCK": {
+      const isTarget = (s: Shape) => s.groupId === action.groupId || (s.groupPath && s.groupPath.includes(action.groupId));
+      const targetShapes = state.shapes.filter(isTarget);
+      const willLock = !targetShapes.every((s) => s.isLocked);
+      const nextShapes = state.shapes.map((s) => (isTarget(s) ? { ...s, isLocked: willLock } : s));
+      return {
+        ...state,
+        shapes: nextShapes,
+      };
+    }
+
+    case "TOGGLE_GROUP_VISIBILITY": {
+      const isTarget = (s: Shape) => s.groupId === action.groupId || (s.groupPath && s.groupPath.includes(action.groupId));
+      const targetShapes = state.shapes.filter(isTarget);
+      const willVisible = !targetShapes.every((s) => s.isVisible !== false);
+      const nextShapes = state.shapes.map((s) => (isTarget(s) ? { ...s, isVisible: willVisible } : s));
+      return {
+        ...state,
+        shapes: nextShapes,
       };
     }
 
@@ -435,6 +512,8 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return {
         ...state,
         shapes: nextShapes,
+        inferredFormulas: synthesizeFormulasFromGeometry(nextShapes),
+        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
       };
     }
 
@@ -535,14 +614,41 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       if (targetIndex === -1) return state;
 
       const currentShape = state.shapes[targetIndex];
-      const updatedShape = { ...currentShape, ...action.updates } as Shape;
+      const updates = action.updates as Record<string, any>;
 
+      if (
+        updates.width !== undefined ||
+        updates.height !== undefined
+      ) {
+        const gadAdjustment = solveGADAssemblyAdjustment(state.shapes, {
+          shapeId: action.id,
+          newSpan: updates.width,
+          newHeight: updates.height,
+        });
+
+        if (gadAdjustment.solved) {
+          const finalShapes = gadAdjustment.updatedShapes.map((s) =>
+            s.id === action.id ? ({ ...s, ...action.updates } as Shape) : s
+          );
+          return {
+            ...state,
+            shapes: finalShapes,
+            inferredFormulas: synthesizeFormulasFromGeometry(finalShapes),
+            boundaryEvaluations: evaluateAllBoundaryLimits(finalShapes),
+            history: pushHistory(state, `Update ${currentShape.type}`),
+          };
+        }
+      }
+
+      const updatedShape = { ...currentShape, ...action.updates } as Shape;
       const nextShapes = [...state.shapes];
       nextShapes[targetIndex] = updatedShape;
 
       return {
         ...state,
         shapes: nextShapes,
+        inferredFormulas: synthesizeFormulasFromGeometry(nextShapes),
+        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
         history: pushHistory(state, `Update ${currentShape.type}`),
       };
     }
@@ -853,10 +959,14 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           }
         }
       }
+      const inferred = synthesizeFormulasFromGeometry(action.shapes);
+      const boundaryEvals = evaluateAllBoundaryLimits(action.shapes);
       return {
         ...state,
         shapes: action.shapes,
         variables: nextVars,
+        inferredFormulas: inferred,
+        boundaryEvaluations: boundaryEvals,
         selectedId: null,
         selectedIds: [],
         draft: null,
@@ -1071,6 +1181,42 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         shapes: updatedShapes,
         variables: updatedVariables,
         parametricErrors: errors,
+      };
+    }
+
+    case "ACCEPT_INFERRED_FORMULA": {
+      const formula = state.inferredFormulas?.find((f) => f.id === action.id);
+      if (!formula) return state;
+
+      const nextVars = { ...state.variables };
+      for (const v of formula.variables) {
+        nextVars[v.name] = { name: v.name, value: v.value, unit: "mm" };
+      }
+
+      nextVars[formula.targetProperty] = {
+        name: formula.targetProperty,
+        value: formula.evaluatedValue,
+        formula: formula.expression,
+        unit: "mm",
+      };
+
+      const updatedFormulas = state.inferredFormulas.map((f) =>
+        f.id === action.id ? { ...f, status: "accepted" as const } : f
+      );
+
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        nextVars,
+        state.constraints
+      );
+
+      return {
+        ...state,
+        variables: updatedVariables,
+        shapes: updatedShapes,
+        parametricErrors: errors,
+        inferredFormulas: updatedFormulas,
+        history: pushHistory(state, `Accept formula ${formula.expression}`),
       };
     }
 

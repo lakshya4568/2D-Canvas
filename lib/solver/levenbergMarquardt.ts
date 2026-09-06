@@ -97,6 +97,17 @@ export function solveLevenbergMarquardt(
 
     const stepNorm = Math.sqrt(stepNormSq);
 
+    if (stepNorm < tolStep) {
+      return {
+        converged: maxRes < tolRes,
+        solution: X,
+        iterations: iter + 1,
+        residualNorm: Math.sqrt(resNormSq),
+        maxResidual: maxRes,
+        status: maxRes < tolRes ? "converged" : "stagnated",
+      };
+    }
+
     // Gradient: g = J^T * F
     const g = new Float64Array(n);
     for (let i = 0; i < n; i++) {
@@ -112,11 +123,11 @@ export function solveLevenbergMarquardt(
     const fTrial = model.evaluateResiduals(xTrial);
     const trialResNormSq = norm2Squared(fTrial);
 
-    // Predicted reduction: deltaL = delta_X^T * (lambda * delta_X - g)
     let predictedReduction = 0.0;
     for (let i = 0; i < n; i++) {
       predictedReduction += deltaX[i] * (lambda * deltaX[i] - g[i]);
     }
+    predictedReduction *= 0.5;
 
     const actualReduction = resNormSq - trialResNormSq;
     const rho = predictedReduction > 1e-15 ? actualReduction / predictedReduction : -1.0;
@@ -134,7 +145,7 @@ export function solveLevenbergMarquardt(
         lambda = lambda * 2.0;
       }
 
-      if (maxRes < tolRes || stepNorm < tolStep) {
+      if (maxRes < tolRes) {
         return {
           converged: true,
           solution: X,
@@ -142,6 +153,16 @@ export function solveLevenbergMarquardt(
           residualNorm: Math.sqrt(resNormSq),
           maxResidual: maxRes,
           status: "converged",
+        };
+      }
+      if (stepNorm < tolStep) {
+        return {
+          converged: false,
+          solution: X,
+          iterations: iter + 1,
+          residualNorm: Math.sqrt(resNormSq),
+          maxResidual: maxRes,
+          status: "stagnated",
         };
       }
     } else {

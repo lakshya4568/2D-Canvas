@@ -1,7 +1,7 @@
 import { ParameterManager } from "./parameterManager";
 import { BipartiteConstraintGraph } from "./graph/bipartiteGraph";
 import { extractConnectedSubgraphsBFS, ConnectedSubgraph } from "./graph/bfsPartition";
-import { evaluateFormula } from "./expression";
+import { evaluateFormula, parseFormula } from "./expression";
 import { topologicalSortDAG, detectCyclesTarjan } from "./dag/tarjan";
 
 export interface DualGraphExecutionReport {
@@ -39,9 +39,10 @@ export class DualGraphOrchestrator {
 
     for (const dep of dependent) {
       if (!dep.formula) continue;
-      for (const other of this.parameterManager.getAll()) {
-        if (other.name !== dep.name && dep.formula.includes(other.name)) {
-          dependencyEdges.get(other.name)!.push(dep.name);
+      const parsed = parseFormula(dep.formula);
+      for (const referencedName of parsed.dependencies) {
+        if (referencedName !== dep.name && dependencyEdges.has(referencedName)) {
+          dependencyEdges.get(referencedName)!.push(dep.name);
         }
       }
     }

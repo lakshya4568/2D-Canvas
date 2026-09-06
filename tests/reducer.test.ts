@@ -237,4 +237,36 @@ describe("Drawing Reducer & History Stack", () => {
     expect(state.shapes).toHaveLength(0);
     expect(Object.keys(state.variables)).toHaveLength(0);
   });
+
+  it("handles AutoCAD Move tool selection and displacement offset", () => {
+    let state = drawingReducer(initialDrawingState, { type: "SET_TOOL", tool: "move" });
+    expect(state.tool).toBe("move");
+
+    const rect: RectangleShape = {
+      id: "rect_move_1",
+      type: "rectangle",
+      x: 100,
+      y: 100,
+      width: 50,
+      height: 30,
+    };
+    state = {
+      ...state,
+      shapes: [rect],
+      selectedId: "rect_move_1",
+      selectedIds: ["rect_move_1"],
+    };
+
+    // Displace by offset (dx: 45, dy: -25)
+    state = drawingReducer(state, { type: "MOVE_SELECTED", dx: 45, dy: -25 });
+    const moved = state.shapes[0] as RectangleShape;
+    expect(moved.x).toBe(145);
+    expect(moved.y).toBe(75);
+    expect(moved.width).toBe(50);
+    expect(moved.height).toBe(30);
+
+    // Switch back to select tool
+    state = drawingReducer(state, { type: "SET_TOOL", tool: "select" });
+    expect(state.tool).toBe("select");
+  });
 });

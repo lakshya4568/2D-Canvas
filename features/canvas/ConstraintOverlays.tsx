@@ -29,7 +29,7 @@ export const ConstraintOverlays: React.FC = () => {
                 height={18 / scale}
                 rx={3 / scale}
                 fill="rgba(15, 23, 42, 0.85)"
-                stroke="#0066ff"
+                stroke="#10b981"
                 strokeWidth={1 / scale}
               />
               <text
@@ -37,7 +37,7 @@ export const ConstraintOverlays: React.FC = () => {
                 y={1 / scale}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fill="#38bdf8"
+                fill="#34d399"
                 fontSize={10 / scale}
                 fontFamily="JetBrains Mono, monospace"
                 fontWeight="bold"
@@ -62,7 +62,7 @@ export const ConstraintOverlays: React.FC = () => {
                 height={18 / scale}
                 rx={3 / scale}
                 fill="rgba(15, 23, 42, 0.85)"
-                stroke="#0066ff"
+                stroke="#10b981"
                 strokeWidth={1 / scale}
               />
               <text
@@ -70,7 +70,7 @@ export const ConstraintOverlays: React.FC = () => {
                 y={1 / scale}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fill="#38bdf8"
+                fill="#34d399"
                 fontSize={10 / scale}
                 fontFamily="JetBrains Mono, monospace"
                 fontWeight="bold"

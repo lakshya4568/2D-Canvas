@@ -17,10 +17,10 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
   const strokeColor = isChamferRef
     ? "#f59e0b"
     : snap.category === "perpendicular"
-    ? "#38bdf8"
+    ? "#10b981"
     : isVertex
-    ? "#ff9500"
-    : "#0066ff";
+    ? "#f97316"
+    : "#10b981";
   const ringRadius = (isChamferRef ? 8 : isVertex ? 7 : 5) / scale;
   const dotRadius = (isChamferRef ? 3 : isVertex ? 2.5 : 2) / scale;
 
@@ -42,7 +42,7 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
           y1={line.y1}
           x2={line.x2}
           y2={line.y2}
-          stroke={isChamferRef ? "#f59e0b" : "#38bdf8"}
+          stroke={isChamferRef ? "#f59e0b" : "#10b981"}
           strokeWidth={(isChamferRef ? 1.5 : 1) / scale}
           strokeDasharray={`${4 / scale}, ${4 / scale}`}
           opacity={0.9}

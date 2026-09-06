@@ -6,6 +6,8 @@
 import { Shape } from "../geometry/types";
 import { ParametricVariable } from "./model";
 import { GeometricConstraint } from "./constraints";
+import { generateRCCBridgeAssembly } from "./templates/rccBridgeTemplate";
+import { generateRDSOBridgeAssembly } from "./templates/rdsoBridgeTemplate";
 
 export interface TemplateParameterConfig {
   name: string;
@@ -76,7 +78,7 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
           y: 100,
           width: W,
           height: H,
-          strokeColor: "#0066ff",
+          strokeColor: "#e2e8f0",
           strokeWidth: 2,
           fillColor: "transparent",
         },
@@ -198,7 +200,7 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
           cx,
           cy,
           r: R,
-          strokeColor: "#0066ff",
+          strokeColor: "#e2e8f0",
           strokeWidth: 2,
         },
         {
@@ -263,10 +265,10 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
 
       const shapes: Shape[] = [
         // 4 Outer Frame Lines
-        { id: "line_top_outer_" + Date.now(), name: "top_outer_rect", type: "line", x1: ox, y1: oy, x2: ox + W, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
-        { id: "line_right_outer_" + Date.now(), name: "right_outer_rect", type: "line", x1: ox + W, y1: oy, x2: ox + W, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
-        { id: "line_bot_outer_" + Date.now(), name: "bottom_outer_rect", type: "line", x1: ox + W, y1: oy + H, x2: ox, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
-        { id: "line_left_outer_" + Date.now(), name: "left_outer_rect", type: "line", x1: ox, y1: oy + H, x2: ox, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_top_outer_" + Date.now(), name: "top_outer_rect", type: "line", x1: ox, y1: oy, x2: ox + W, y2: oy, strokeColor: "#e2e8f0", strokeWidth: 2 },
+        { id: "line_right_outer_" + Date.now(), name: "right_outer_rect", type: "line", x1: ox + W, y1: oy, x2: ox + W, y2: oy + H, strokeColor: "#e2e8f0", strokeWidth: 2 },
+        { id: "line_bot_outer_" + Date.now(), name: "bottom_outer_rect", type: "line", x1: ox + W, y1: oy + H, x2: ox, y2: oy + H, strokeColor: "#e2e8f0", strokeWidth: 2 },
+        { id: "line_left_outer_" + Date.now(), name: "left_outer_rect", type: "line", x1: ox, y1: oy + H, x2: ox, y2: oy, strokeColor: "#e2e8f0", strokeWidth: 2 },
         // 4 Inner Cutout Lines
         { id: "line_top_inner_" + Date.now(), name: "top_inner_rect", type: "line", x1: ix, y1: iy, x2: ix + inW, y2: iy, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
         { id: "line_right_inner_" + Date.now(), name: "right_inner_rect", type: "line", x1: ix + inW, y1: iy, x2: ix + inW, y2: iy + inH, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
@@ -323,10 +325,10 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
 
       const shapes: Shape[] = [
         // 4 Outer Frame Lines
-        { id: "line_top_outer_" + Date.now(), name: "top_outer_rect", type: "line", x1: ox, y1: oy, x2: ox + W, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
-        { id: "line_right_outer_" + Date.now(), name: "right_outer_rect", type: "line", x1: ox + W, y1: oy, x2: ox + W, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
-        { id: "line_bot_outer_" + Date.now(), name: "bottom_outer_rect", type: "line", x1: ox + W, y1: oy + H, x2: ox, y2: oy + H, strokeColor: "#0066ff", strokeWidth: 2 },
-        { id: "line_left_outer_" + Date.now(), name: "left_outer_rect", type: "line", x1: ox, y1: oy + H, x2: ox, y2: oy, strokeColor: "#0066ff", strokeWidth: 2 },
+        { id: "line_top_outer_" + Date.now(), name: "top_outer_rect", type: "line", x1: ox, y1: oy, x2: ox + W, y2: oy, strokeColor: "#e2e8f0", strokeWidth: 2 },
+        { id: "line_right_outer_" + Date.now(), name: "right_outer_rect", type: "line", x1: ox + W, y1: oy, x2: ox + W, y2: oy + H, strokeColor: "#e2e8f0", strokeWidth: 2 },
+        { id: "line_bot_outer_" + Date.now(), name: "bottom_outer_rect", type: "line", x1: ox + W, y1: oy + H, x2: ox, y2: oy + H, strokeColor: "#e2e8f0", strokeWidth: 2 },
+        { id: "line_left_outer_" + Date.now(), name: "left_outer_rect", type: "line", x1: ox, y1: oy + H, x2: ox, y2: oy, strokeColor: "#e2e8f0", strokeWidth: 2 },
         // 4 Inner Cutout Lines
         { id: "line_top_inner_" + Date.now(), name: "top_inner_rect", type: "line", x1: ix, y1: iy, x2: ix + inW, y2: iy, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
         { id: "line_right_inner_" + Date.now(), name: "right_inner_rect", type: "line", x1: ix + inW, y1: iy, x2: ix + inW, y2: iy + inH, strokeColor: "#22c55e", strokeWidth: 1.5, strokeDasharray: "4 3" },
@@ -473,9 +475,9 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
           y: oy,
           width: outerW,
           height: outerH,
-          strokeColor: "#38bdf8",
-          strokeWidth: 2.5,
-          fillColor: "rgba(56, 189, 248, 0.05)",
+          strokeColor: "#e2e8f0",
+          strokeWidth: 2,
+          fillColor: "rgba(226, 232, 240, 0.03)",
         },
         { id: "culvert_inner_top", name: "roof", type: "line", x1: ox + t + h, y1: oy + t, x2: ox + t + s - h, y2: oy + t, strokeColor: "#f8fafc", strokeWidth: 2 },
         { id: "culvert_haunch_tr", name: "haunch_tr", type: "line", x1: ox + t + s - h, y1: oy + t, x2: ox + t + s, y2: oy + t + h, strokeColor: "#a855f7", strokeWidth: 2 },
@@ -537,9 +539,9 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
           y: oy,
           width: totalW,
           height: totalH,
-          strokeColor: "#38bdf8",
-          strokeWidth: 2.5,
-          fillColor: "rgba(56, 189, 248, 0.05)",
+          strokeColor: "#e2e8f0",
+          strokeWidth: 2,
+          fillColor: "rgba(226, 232, 240, 0.03)",
         },
         { id: "b1_top", name: "b1_top", type: "line", x1: ox + tExt + h, y1: oy + tExt, x2: ox + tExt + s1 - h, y2: oy + tExt, strokeColor: "#f8fafc", strokeWidth: 2 },
         { id: "b1_haunch_tr", name: "b1_htr", type: "line", x1: ox + tExt + s1 - h, y1: oy + tExt, x2: ox + tExt + s1, y2: oy + tExt + h, strokeColor: "#a855f7", strokeWidth: 2 },
@@ -568,6 +570,101 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
         mid_wall: { name: "mid_wall", value: tMid, unit: "mm" },
         haunch_leg: { name: "haunch_leg", value: h, unit: "mm" },
         total_width: { name: "total_width", value: totalW, formula: "ext_wall + bay1_span + mid_wall + bay2_span + ext_wall", unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
+  {
+    id: "rcc_bridge",
+    name: "Standard RCC Bridge",
+    category: "Structural",
+    description: "Parametric RCC Bridge cross-section with deck, piers, and parapets.",
+    version: "1.0.0",
+    parameters: [
+      { name: "span", label: "Span", defaultValue: 600, unit: "mm" },
+      { name: "deck_width", label: "Deck Width", defaultValue: 700, unit: "mm" },
+      { name: "deck_thickness", label: "Deck Thickness", defaultValue: 60, unit: "mm" },
+      { name: "pier_spacing", label: "Pier Spacing", defaultValue: 340, unit: "mm" },
+      { name: "pier_width", label: "Pier Width", defaultValue: 60, unit: "mm" },
+      { name: "wall_thickness", label: "Wall Thickness", defaultValue: 30, unit: "mm" },
+    ],
+    formulas: [],
+    constraints: [],
+    generator: (params) => {
+      const span = params.span ?? 600;
+      const deckWidth = params.deck_width ?? params.deckWidth ?? 700;
+      const deckThickness = params.deck_thickness ?? params.deckThickness ?? 60;
+      const pierWidth = params.pier_width ?? params.pierWidth ?? 60;
+      const pierHeight = params.pier_height ?? params.pierHeight ?? 180;
+      const pierSpacing = params.pier_spacing ?? params.pierSpacing ?? 340;
+      const parapetHeight = params.parapet_height ?? params.parapetHeight ?? 35;
+      const wallThickness = params.wall_thickness ?? params.wallThickness ?? 30;
+
+      const shapes = generateRCCBridgeAssembly({
+        span,
+        deckWidth,
+        deckThickness,
+        pierWidth,
+        pierHeight,
+        pierSpacing,
+        parapetHeight,
+        wallThickness,
+      });
+
+      const variables: Record<string, ParametricVariable> = {
+        span: { name: "span", value: span, unit: "mm" },
+        deck_width: { name: "deck_width", value: deckWidth, unit: "mm" },
+        deck_thickness: { name: "deck_thickness", value: deckThickness, unit: "mm" },
+        pier_spacing: { name: "pier_spacing", value: pierSpacing, unit: "mm" },
+        pier_width: { name: "pier_width", value: pierWidth, unit: "mm" },
+        wall_thickness: { name: "wall_thickness", value: wallThickness, unit: "mm" },
+      };
+
+      return { shapes, variables, constraints: [] };
+    },
+  },
+  {
+    id: "rdso_box_bridge",
+    name: "RDSO Standard Multi-Cell Box Bridge",
+    category: "Structural",
+    description: "Production RDSO standard bridge General Arrangement Drawing (GAD) with precast box units, curtain wall, return walls, and drop wall.",
+    version: "2.0.0",
+    parameters: [
+      { name: "cellCount", label: "Number of Box Units", defaultValue: 3, unit: "units", min: 1, max: 6 },
+      { name: "clearSpan", label: "Clear Span per Unit", defaultValue: 2000, unit: "mm", min: 1000, max: 6000 },
+      { name: "wallThickness", label: "Wall Thickness", defaultValue: 350, unit: "mm", min: 200, max: 600 },
+      { name: "barrelLength", label: "Barrel Length", defaultValue: 6850, unit: "mm", min: 3000, max: 15000 },
+      { name: "curtainWallSpan", label: "Curtain Wall Span", defaultValue: 9150, unit: "mm" },
+      { name: "dropWallThickness", label: "Drop Wall Thickness", defaultValue: 250, unit: "mm" },
+      { name: "trackSpacing", label: "Track Center Spacing", defaultValue: 6260, unit: "mm" },
+    ],
+    formulas: [],
+    constraints: [],
+    generator: (params) => {
+      const cellCount = params.cellCount ?? 3;
+      const clearSpan = params.clearSpan ?? 2000;
+      const wallThickness = params.wallThickness ?? 350;
+      const barrelLength = params.barrelLength ?? 6850;
+      const curtainWallSpan = params.curtainWallSpan ?? 9150;
+      const dropWallThickness = params.dropWallThickness ?? 250;
+      const trackSpacing = params.trackSpacing ?? 6260;
+
+      const { shapes } = generateRDSOBridgeAssembly({
+        cellCount,
+        clearSpan,
+        wallThickness,
+        barrelLength,
+        curtainWallSpan,
+        dropWallThickness,
+        trackSpacing,
+      });
+
+      const variables: Record<string, ParametricVariable> = {
+        cellCount: { name: "cellCount", value: cellCount, unit: "units" },
+        clearSpan: { name: "clearSpan", value: clearSpan, unit: "mm" },
+        wallThickness: { name: "wallThickness", value: wallThickness, unit: "mm" },
+        barrelLength: { name: "barrelLength", value: barrelLength, unit: "mm" },
       };
 
       return { shapes, variables, constraints: [] };

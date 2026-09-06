@@ -126,7 +126,7 @@ export function ExportMenu({ direction = "up", onNotification }: ExportMenuProps
       <div className="flex items-center">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="h-[22px] px-2.5 flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded text-[11px] font-semibold font-sans shadow-sm transition-all cursor-pointer border border-blue-400/30"
+          className="h-[22px] px-2.5 flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 rounded text-[11px] font-bold font-mono shadow-sm transition-all cursor-pointer border border-amber-400/50"
           aria-expanded={isOpen}
           title="Export / Import Drawing"
         >
@@ -180,7 +180,7 @@ export function ExportMenu({ direction = "up", onNotification }: ExportMenuProps
             onClick={handleExportJson}
             className="flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[var(--bg-panel-subtle)] text-[var(--fg-primary)] transition-colors text-left cursor-pointer group"
           >
-            <div className="p-1.5 rounded bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20">
+            <div className="p-1.5 rounded bg-amber-500/10 text-amber-500 group-hover:bg-amber-500/20">
               <FileJson className="w-4 h-4" />
             </div>
             <div className="flex flex-col">

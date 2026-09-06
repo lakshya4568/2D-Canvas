@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
-import { Shape, Point, BoundingBox, SnapResult } from "@/lib/geometry/types";
+import { Shape, Point, BoundingBox, SnapResult, CadGrip } from "@/lib/geometry/types";
 import {
   rectFromDrag,
   circleFromDrag,
@@ -14,6 +14,7 @@ import {
 import { hitTestShapes } from "@/lib/geometry/hitTest";
 import { zoomAtPoint, screenToWorldPoint } from "@/lib/geometry/transform";
 import { applySnapping, getShapeKeySnapPoints, snapToGrid } from "@/lib/geometry/snapping";
+import { solveGADAssemblyAdjustment } from "@/lib/geometry/gadAssemblyEngine";
 import { GridLayer } from "./GridLayer";
 import { ShapeRenderer } from "./ShapeRenderer";
 import { DraftPreview } from "./DraftPreview";
@@ -54,6 +55,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   const startWorldPointRef = useRef<Point>({ x: 0, y: 0 });
   const lastScreenPosRef = useRef<Point>({ x: 0, y: 0 });
   const activeResizeHandleRef = useRef<HandleType | null>(null);
+  const activeGripRef = useRef<CadGrip | null>(null);
   const activeResizeCursorRef = useRef<string | null>(null);
   const initialBoundsRef = useRef<BoundingBox | null>(null);
   const initialShapesRef = useRef<Shape[]>([]);
@@ -68,6 +70,30 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   const [activeCursor, setActiveCursor] = useState<string | null>(null);
   const [marqueeBox, setMarqueeBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
+  // AutoCAD Move Tool States
+  const [moveBasePoint, setMoveBasePoint] = useState<Point | null>(null);
+  const [moveDisplacement, setMoveDisplacement] = useState<{ dx: number; dy: number; targetPt: Point } | null>(null);
+  const isMoveDraggingRef = useRef(false);
+  const hasMovedDuringDragRef = useRef(false);
+
+  const cancelMove = useCallback(() => {
+    if (moveBasePoint && initialShapesRef.current.length > 0) {
+      dispatch({ type: "RESIZE_SHAPES", updatedShapes: initialShapesRef.current });
+    }
+    setMoveBasePoint(null);
+    setMoveDisplacement(null);
+    isMovingRef.current = false;
+    isMoveDraggingRef.current = false;
+    hasMovedDuringDragRef.current = false;
+  }, [moveBasePoint, dispatch]);
+
+  // Cancel move if tool switches away from move
+  useEffect(() => {
+    if (state.tool !== "move" && moveBasePoint) {
+      cancelMove();
+    }
+  }, [state.tool, moveBasePoint, cancelMove]);
+
   const getWorldPoint = useCallback(
     (clientX: number, clientY: number): Point => {
       if (!svgRef.current) return { x: 0, y: 0 };
@@ -81,39 +107,157 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
     [state.viewport]
   );
 
+  const handleMoveStart = useCallback(
+    (pt: Point, e?: React.PointerEvent) => {
+      const targetShapes = state.shapes.filter(
+        (s) => state.selectedIds.includes(s.id) || (s.groupId && s.groupId === state.shapes.find(x => state.selectedIds.includes(x.id))?.groupId)
+      );
+      if (targetShapes.length === 0) return;
+
+      const snapResult = applySnapping(pt, {
+        gridSnapEnabled: state.gridSnapEnabled,
+        objectSnapEnabled: state.objectSnapEnabled,
+        shapes: state.shapes,
+        zoomScale: state.viewport.scale,
+        vertexThresholdPx: 20,
+      });
+
+      const basePt = snapResult.point;
+      setMoveBasePoint(basePt);
+      setMoveDisplacement({ dx: 0, dy: 0, targetPt: basePt });
+      startWorldPointRef.current = basePt;
+      initialShapesRef.current = JSON.parse(JSON.stringify(targetShapes));
+      initialBoundsRef.current = computeMultiShapeBounds(targetShapes);
+
+      isMovingRef.current = true;
+      isMoveDraggingRef.current = true;
+      hasMovedDuringDragRef.current = false;
+
+      dispatch({
+        type: "RECORD_PRE_MOVE_SNAPSHOT",
+        shapes: state.shapes,
+        description: "Move Shapes",
+      });
+
+      if (e && svgRef.current) {
+        svgRef.current.setPointerCapture(e.pointerId);
+      }
+    },
+    [state.shapes, state.selectedIds, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, dispatch]
+  );
+
+  const handleMoveCommit = useCallback(
+    (destPt: Point) => {
+      if (!moveBasePoint || initialShapesRef.current.length === 0) return;
+
+      const unselectedShapes = state.shapes.filter((s) => !state.selectedIds.includes(s.id));
+      const snapResult = applySnapping(destPt, {
+        gridSnapEnabled: state.gridSnapEnabled,
+        objectSnapEnabled: state.objectSnapEnabled,
+        shapes: unselectedShapes,
+        zoomScale: state.viewport.scale,
+        startPoint: moveBasePoint,
+        vertexThresholdPx: 20,
+      });
+
+      const finalPt = snapResult.point;
+      const dx = finalPt.x - moveBasePoint.x;
+      const dy = finalPt.y - moveBasePoint.y;
+
+      const movedShapes = initialShapesRef.current.map((orig) => {
+        switch (orig.type) {
+          case "line":
+          case "arrow":
+            return { ...orig, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy };
+          case "rectangle":
+            return { ...orig, x: orig.x + dx, y: orig.y + dy };
+          case "circle":
+          case "ellipse":
+          case "polygon":
+          case "star":
+            return { ...orig, cx: orig.cx + dx, cy: orig.cy + dy };
+        }
+      });
+
+      dispatch({ type: "RESIZE_SHAPES", updatedShapes: movedShapes });
+      dispatch({ type: "COMMIT_MOVE" });
+
+      setMoveBasePoint(null);
+      setMoveDisplacement(null);
+      isMovingRef.current = false;
+      isMoveDraggingRef.current = false;
+      hasMovedDuringDragRef.current = false;
+    },
+    [moveBasePoint, state.shapes, state.selectedIds, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, dispatch]
+  );
+
   /**
-   * Handle Direct Shape Click in Select Mode
+   * Handle Direct Shape Click in Select Mode or Move Mode
    */
   const handleShapeSelect = useCallback(
     (id: string, e: React.PointerEvent) => {
       if (state.tool === "select") {
+        // Select tool ONLY selects object
         const isShiftOrCtrl = e.shiftKey || e.ctrlKey || e.metaKey;
         selectShape(id, isShiftOrCtrl);
-
-        isMovingRef.current = true;
+        isMovingRef.current = false;
         isMarqueeRef.current = false;
-        setActiveCursor("grabbing");
-        lastScreenPosRef.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
 
-        const targetShapes = state.shapes.filter(
-          (s) => s.id === id || state.selectedIds.includes(s.id) || (s.groupId && s.groupId === state.shapes.find(x => x.id === id)?.groupId)
-        );
-        initialShapesRef.current = JSON.parse(JSON.stringify(targetShapes.length > 0 ? targetShapes : state.shapes.filter(x => x.id === id)));
-        initialBoundsRef.current = computeMultiShapeBounds(initialShapesRef.current);
-        startWorldPointRef.current = getWorldPoint(e.clientX, e.clientY);
+      if (state.tool === "move") {
+        const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
+        if (state.selectedIds.length === 0 || !state.selectedIds.includes(id)) {
+          // If unselected shape is clicked, select it as the target to move
+          selectShape(id, false);
+          return;
+        }
 
-        dispatch({
-          type: "RECORD_PRE_MOVE_SNAPSHOT",
-          shapes: state.shapes,
-          description: "Move Shapes",
-        });
-
-        if (svgRef.current) {
-          svgRef.current.setPointerCapture(e.pointerId);
+        // Target shape is already selected:
+        if (!moveBasePoint) {
+          handleMoveStart(rawWorldPt, e);
+        } else {
+          handleMoveCommit(rawWorldPt);
         }
       }
     },
-    [state.tool, state.shapes, state.selectedIds, selectShape, getWorldPoint, dispatch]
+    [state.tool, state.selectedIds, selectShape, moveBasePoint, getWorldPoint, handleMoveStart, handleMoveCommit]
+  );
+
+  const handleGripPointerDown = useCallback(
+    (grip: CadGrip, e: React.PointerEvent) => {
+      if (state.tool === "move") {
+        const gripPt = { x: grip.x, y: grip.y };
+        if (!moveBasePoint) {
+          handleMoveStart(gripPt, e);
+        } else {
+          handleMoveCommit(gripPt);
+        }
+        return;
+      }
+
+      const targetShape = state.shapes.find((s) => s.id === grip.shapeId);
+      if (!targetShape) return;
+
+      isResizingRef.current = true;
+      isMovingRef.current = false;
+      isMarqueeRef.current = false;
+      activeGripRef.current = grip;
+      setActiveCursor(grip.cursor);
+      initialShapesRef.current = JSON.parse(JSON.stringify(state.shapes));
+      startWorldPointRef.current = getWorldPoint(e.clientX, e.clientY);
+
+      dispatch({
+        type: "RECORD_PRE_MOVE_SNAPSHOT",
+        shapes: state.shapes,
+        description: `Stretch ${grip.type} grip on ${targetShape.name || targetShape.type}`,
+      });
+
+      if (svgRef.current) {
+        svgRef.current.setPointerCapture(e.pointerId);
+      }
+    },
+    [state.tool, state.shapes, moveBasePoint, getWorldPoint, handleMoveStart, handleMoveCommit, dispatch]
   );
 
   /**
@@ -208,24 +352,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         if (hitShape) {
           const isShiftOrCtrl = e.shiftKey || e.ctrlKey || e.metaKey;
           selectShape(hitShape.id, isShiftOrCtrl);
-          isMovingRef.current = true;
+          isMovingRef.current = false;
           isMarqueeRef.current = false;
-          setActiveCursor("grabbing");
-
-          const targetShapes = state.shapes.filter(
-            (s) => s.id === hitShape.id || (hitShape.groupId && s.groupId === hitShape.groupId)
-          );
-          initialShapesRef.current = JSON.parse(JSON.stringify(targetShapes));
-          initialBoundsRef.current = computeMultiShapeBounds(targetShapes);
-          startWorldPointRef.current = rawWorldPt;
-
-          dispatch({
-            type: "RECORD_PRE_MOVE_SNAPSHOT",
-            shapes: state.shapes,
-            description: "Move Shapes",
-          });
-          lastScreenPosRef.current = { x: e.clientX, y: e.clientY };
-          (e.currentTarget as Element).setPointerCapture(e.pointerId);
         } else {
           isMarqueeRef.current = true;
           isMovingRef.current = false;
@@ -234,6 +362,23 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           startWorldPointRef.current = rawWorldPt;
           setMarqueeBox({ x: rawWorldPt.x, y: rawWorldPt.y, width: 0, height: 0 });
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        }
+        return;
+      }
+
+      if (state.tool === "move") {
+        if (state.selectedIds.length === 0) {
+          const hitShape = hitTestShapes(state.shapes, rawWorldPt, 8 / state.viewport.scale);
+          if (hitShape) {
+            selectShape(hitShape.id, false);
+          }
+          return;
+        }
+
+        if (!moveBasePoint) {
+          handleMoveStart(rawWorldPt, e);
+        } else {
+          handleMoveCommit(rawWorldPt);
         }
         return;
       }
@@ -412,7 +557,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
     },
-    [state.tool, state.shapes, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.currentStyle, getWorldPoint, selectShape, dispatch]
+    [state.tool, state.shapes, state.selectedIds, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.currentStyle, moveBasePoint, getWorldPoint, selectShape, handleMoveStart, handleMoveCommit, dispatch]
   );
 
   /**
@@ -520,128 +665,122 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 3. Corner & Edge Handle Resizing
-      if (isResizingRef.current && initialBoundsRef.current && activeResizeHandleRef.current) {
-        const handle = activeResizeHandleRef.current;
-        const initB = initialBoundsRef.current;
+      if (isResizingRef.current && activeGripRef.current) {
+        const grip = activeGripRef.current;
         const startPt = startWorldPointRef.current;
         const dx = rawWorldPt.x - startPt.x;
         const dy = rawWorldPt.y - startPt.y;
 
-        let newMinX = initB.minX;
-        let newMinY = initB.minY;
-        let newMaxX = initB.maxX;
-        let newMaxY = initB.maxY;
+        const updatedShapes = initialShapesRef.current.map((orig) => {
+          if (orig.id !== grip.shapeId) return orig;
 
-        if (handle.includes("e")) newMaxX = Math.max(initB.minX + 5, initB.maxX + dx);
-        if (handle.includes("w")) newMinX = Math.min(initB.maxX - 5, initB.minX + dx);
-        if (handle.includes("s")) newMaxY = Math.max(initB.minY + 5, initB.maxY + dy);
-        if (handle.includes("n")) newMinY = Math.min(initB.maxY - 5, initB.minY + dy);
-
-        if (e.shiftKey) {
-          const initRatio = initB.width / Math.max(1, initB.height);
-          const currentW = newMaxX - newMinX;
-          const currentH = newMaxY - newMinY;
-          if (handle === "se" || handle === "nw" || handle === "ne" || handle === "sw") {
-            const targetH = currentW / initRatio;
-            if (handle.includes("s")) newMaxY = newMinY + targetH;
-            else newMinY = newMaxY - targetH;
-          }
-        }
-
-        const newW = Math.max(5, newMaxX - newMinX);
-        const newH = Math.max(5, newMaxY - newMinY);
-        const scaleX = newW / Math.max(1, initB.width);
-        const scaleY = newH / Math.max(1, initB.height);
-
-        const scaledShapes: Shape[] = initialShapesRef.current.map((orig) => {
           switch (orig.type) {
-            case "rectangle": {
-              if (initialShapesRef.current.length === 1) {
-                return {
-                  ...orig,
-                  x: newMinX,
-                  y: newMinY,
-                  width: newW,
-                  height: newH,
-                };
-              }
-              const relX = (orig.x - initB.minX) * scaleX;
-              const relY = (orig.y - initB.minY) * scaleY;
-              return {
-                ...orig,
-                x: newMinX + relX,
-                y: newMinY + relY,
-                width: orig.width * scaleX,
-                height: orig.height * scaleY,
-              };
-            }
-            case "circle": {
-              if (initialShapesRef.current.length === 1) {
-                const newRadius = Math.min(newW, newH) / 2;
-                return {
-                  ...orig,
-                  cx: newMinX + newW / 2,
-                  cy: newMinY + newH / 2,
-                  r: newRadius,
-                };
-              }
-              const relCX = (orig.cx - initB.minX) * scaleX;
-              const relCY = (orig.cy - initB.minY) * scaleY;
-              return {
-                ...orig,
-                cx: newMinX + relCX,
-                cy: newMinY + relCY,
-                r: orig.r * ((scaleX + scaleY) / 2),
-              };
-            }
-            case "ellipse": {
-              return {
-                ...orig,
-                cx: newMinX + newW / 2,
-                cy: newMinY + newH / 2,
-                rx: newW / 2,
-                ry: newH / 2,
-              };
-            }
-            case "polygon": {
-              return {
-                ...orig,
-                cx: newMinX + newW / 2,
-                cy: newMinY + newH / 2,
-                r: Math.min(newW, newH) / 2,
-              };
-            }
-            case "star": {
-              const baseR = Math.min(newW, newH) / 2;
-              return {
-                ...orig,
-                cx: newMinX + newW / 2,
-                cy: newMinY + newH / 2,
-                innerR: baseR * 0.45,
-                outerR: baseR,
-              };
-            }
             case "line":
             case "arrow": {
-              const relX1 = (orig.x1 - initB.minX) * scaleX;
-              const relY1 = (orig.y1 - initB.minY) * scaleY;
-              const relX2 = (orig.x2 - initB.minX) * scaleX;
-              const relY2 = (orig.y2 - initB.minY) * scaleY;
-              return {
-                ...orig,
-                x1: newMinX + relX1,
-                y1: newMinY + relY1,
-                x2: newMinX + relX2,
-                y2: newMinY + relY2,
-              };
+              if (grip.type === "midpoint") {
+                return { ...orig, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy };
+              }
+              if (grip.vertexIndex === 0) {
+                return { ...orig, x1: orig.x1 + dx, y1: orig.y1 + dy };
+              }
+              if (grip.vertexIndex === 1) {
+                return { ...orig, x2: orig.x2 + dx, y2: orig.y2 + dy };
+              }
+              return orig;
             }
+
+            case "rectangle": {
+              if (grip.type === "center") {
+                return { ...orig, x: orig.x + dx, y: orig.y + dy };
+              }
+
+              if (grip.type === "vertex") {
+                let newX = orig.x;
+                let newY = orig.y;
+                let newW = orig.width;
+                let newH = orig.height;
+
+                if (grip.vertexIndex === 0) {
+                  const pinnedX = orig.x + orig.width;
+                  const pinnedY = orig.y + orig.height;
+                  newX = Math.min(pinnedX - 10, orig.x + dx);
+                  newY = Math.min(pinnedY - 10, orig.y + dy);
+                  newW = pinnedX - newX;
+                  newH = pinnedY - newY;
+                } else if (grip.vertexIndex === 1) {
+                  const pinnedX = orig.x;
+                  const pinnedY = orig.y + orig.height;
+                  newY = Math.min(pinnedY - 10, orig.y + dy);
+                  newW = Math.max(10, orig.width + dx);
+                  newH = pinnedY - newY;
+                } else if (grip.vertexIndex === 2) {
+                  newW = Math.max(10, orig.width + dx);
+                  newH = Math.max(10, orig.height + dy);
+                } else if (grip.vertexIndex === 3) {
+                  const pinnedX = orig.x + orig.width;
+                  newX = Math.min(pinnedX - 10, orig.x + dx);
+                  newW = pinnedX - newX;
+                  newH = Math.max(10, orig.height + dy);
+                }
+
+                return { ...orig, x: newX, y: newY, width: newW, height: newH };
+              }
+
+              if (grip.type === "midpoint") {
+                if (grip.segmentIndex === 0) {
+                  const pinnedY = orig.y + orig.height;
+                  const newY = Math.min(pinnedY - 10, orig.y + dy);
+                  return { ...orig, y: newY, height: pinnedY - newY };
+                }
+                if (grip.segmentIndex === 1) {
+                  return { ...orig, width: Math.max(10, orig.width + dx) };
+                }
+                if (grip.segmentIndex === 2) {
+                  return { ...orig, height: Math.max(10, orig.height + dy) };
+                }
+                if (grip.segmentIndex === 3) {
+                  const pinnedX = orig.x + orig.width;
+                  const newX = Math.min(pinnedX - 10, orig.x + dx);
+                  return { ...orig, x: newX, width: pinnedX - newX };
+                }
+              }
+
+              return orig;
+            }
+
+            case "circle": {
+              if (grip.type === "center") {
+                return { ...orig, cx: orig.cx + dx, cy: orig.cy + dy };
+              }
+              const newR = Math.max(5, Math.hypot(rawWorldPt.x - orig.cx, rawWorldPt.y - orig.cy));
+              return { ...orig, r: newR };
+            }
+
+            case "ellipse": {
+              if (grip.type === "center") {
+                return { ...orig, cx: orig.cx + dx, cy: orig.cy + dy };
+              }
+              if (grip.vertexIndex === 0 || grip.vertexIndex === 2) {
+                return { ...orig, rx: Math.max(5, Math.abs(rawWorldPt.x - orig.cx)) };
+              }
+              return { ...orig, ry: Math.max(5, Math.abs(rawWorldPt.y - orig.cy)) };
+            }
+
+            default:
+              return orig;
           }
         });
 
-        dispatch({ type: "RESIZE_SHAPES", updatedShapes: scaledShapes });
+        const gadAdjustment = solveGADAssemblyAdjustment(updatedShapes, {
+          shapeId: grip.shapeId,
+        });
+
+        const finalShapes = gadAdjustment.solved ? gadAdjustment.updatedShapes : updatedShapes;
+
+        dispatch({ type: "RESIZE_SHAPES", updatedShapes: finalShapes });
         return;
       }
+
 
       // 4. Marquee Box Selection
       if (isMarqueeRef.current) {
@@ -654,9 +793,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       // 5. Moving Selected Shapes / Group with Magnetic Snapping Connection
       if (isMovingRef.current && initialShapesRef.current.length > 0) {
         const currentWorldPt = getWorldPoint(e.clientX, e.clientY);
-        const startWorldPt = startWorldPointRef.current;
-        let rawDx = currentWorldPt.x - startWorldPt.x;
-        let rawDy = currentWorldPt.y - startWorldPt.y;
+        const originPt = moveBasePoint || startWorldPointRef.current;
+        let rawDx = currentWorldPt.x - originPt.x;
+        let rawDy = currentWorldPt.y - originPt.y;
 
         const selIds = new Set(initialShapesRef.current.map((s) => s.id));
         const unselectedShapes = state.shapes.filter((s) => !selIds.has(s.id));
@@ -695,6 +834,18 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             rawDx = snappedCorner.x - initBounds.minX;
             rawDy = snappedCorner.y - initBounds.minY;
           }
+        }
+
+        if (Math.hypot(rawDx, rawDy) > 3) {
+          hasMovedDuringDragRef.current = true;
+        }
+
+        if (state.tool === "move" && moveBasePoint) {
+          setMoveDisplacement({
+            dx: rawDx,
+            dy: rawDy,
+            targetPt: { x: originPt.x + rawDx, y: originPt.y + rawDy },
+          });
         }
 
         const movedShapes = initialShapesRef.current.map((orig) => {
@@ -809,7 +960,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         }
       }
     },
-    [state.draft, state.selectedIds, state.shapes, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.tool, state.activeSnap, selectedShapes, getWorldPoint, onCursorChange, dispatch]
+    [state.draft, state.selectedIds, state.shapes, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.tool, state.activeSnap, selectedShapes, moveBasePoint, getWorldPoint, onCursorChange, dispatch]
   );
 
   /**
@@ -839,9 +990,11 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
       if (isResizingRef.current) {
         isResizingRef.current = false;
+        activeGripRef.current = null;
         activeResizeHandleRef.current = null;
         activeResizeCursorRef.current = null;
         initialBoundsRef.current = null;
+        dispatch({ type: "COMMIT_MOVE" });
         try {
           (e.currentTarget as Element).releasePointerCapture(e.pointerId);
         } catch {}
@@ -849,8 +1002,23 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }
 
       if (isMovingRef.current) {
-        isMovingRef.current = false;
-        dispatch({ type: "COMMIT_MOVE" });
+        if (state.tool === "move") {
+          if (hasMovedDuringDragRef.current) {
+            // Drag-and-drop displacement finished on release
+            isMovingRef.current = false;
+            isMoveDraggingRef.current = false;
+            hasMovedDuringDragRef.current = false;
+            setMoveBasePoint(null);
+            setMoveDisplacement(null);
+            dispatch({ type: "COMMIT_MOVE" });
+          } else {
+            // Flow 1: Clicked base point without dragging, keeping base point for 2nd click
+            isMoveDraggingRef.current = false;
+          }
+        } else {
+          isMovingRef.current = false;
+          dispatch({ type: "COMMIT_MOVE" });
+        }
         try {
           (e.currentTarget as Element).releasePointerCapture(e.pointerId);
         } catch {}
@@ -1112,6 +1280,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
       // Escape
       if (e.key === "Escape") {
+        if (state.tool === "move" && moveBasePoint) {
+          cancelMove();
+          return;
+        }
         if (state.draft) {
           dispatch({ type: "CANCEL_DRAFT" });
         } else if (state.selectedIds.length > 0) {
@@ -1122,13 +1294,17 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       // Tool shortcuts
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.key.toLowerCase() === "v") setTool("select");
+        if (e.key.toLowerCase() === "m") setTool("move");
         if (e.key.toLowerCase() === "l") setTool("line");
-        if (e.key.toLowerCase() === "a") setTool("arrow");
+        if (e.key.toLowerCase() === "p") setTool("polyline");
         if (e.key.toLowerCase() === "r") setTool("rectangle");
         if (e.key.toLowerCase() === "c") setTool("circle");
         if (e.key.toLowerCase() === "e") setTool("ellipse");
-        if (e.key.toLowerCase() === "t") setTool("polygon");
+        if (e.key.toLowerCase() === "g" || e.key.toLowerCase() === "t") setTool("polygon");
         if (e.key.toLowerCase() === "s") setTool("star");
+        if (e.key.toLowerCase() === "a") setTool("arrow");
+        if (e.key.toLowerCase() === "d") setTool("dimension");
+        if (e.key.toLowerCase() === "x") setTool("construction");
         if (e.key.toLowerCase() === "h") setTool("pan");
       }
     };
@@ -1146,13 +1322,15 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [state.selectedIds, state.draft, state.viewport, dispatch, deleteSelected, duplicateSelected, groupSelected, ungroupSelected, selectShape, setTool]);
+  }, [state.selectedIds, state.draft, state.tool, state.viewport, moveBasePoint, cancelMove, dispatch, deleteSelected, duplicateSelected, groupSelected, ungroupSelected, selectShape, setTool]);
 
   let cursorStyle = "crosshair";
   if (activeCursor) {
     cursorStyle = activeCursor;
   } else if (state.tool === "select") {
-    cursorStyle = isMovingRef.current ? "grabbing" : isRotatingRef.current ? "grabbing" : "default";
+    cursorStyle = "default";
+  } else if (state.tool === "move") {
+    cursorStyle = moveBasePoint ? "crosshair" : "move";
   } else if (state.tool === "pan" || isSpaceHeld) {
     cursorStyle = isPanActive ? "grabbing" : "grab";
   }
@@ -1190,7 +1368,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             selectedIds={state.selectedIds}
             showDimensions={state.showDimensions}
             scale={scale}
-            isSelectTool={state.tool === "select"}
+            isSelectTool={state.tool === "select" || state.tool === "move"}
             themeMode={state.themeMode}
             onSelectShape={handleShapeSelect}
           />
@@ -1198,14 +1376,115 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           {/* In-Progress Live Draft */}
           <DraftPreview draft={state.draft} scale={scale} />
 
-          {/* Figma-Style Selection Overlay */}
-          {state.tool === "select" && (
+          {/* AutoCAD 3-State Geometric Grips Selection Overlay */}
+          {(state.tool === "select" || state.tool === "move") && (
             <SelectionOverlay
               shapes={selectedShapes}
               scale={scale}
+              activeGripId={activeGripRef.current?.id}
+              onGripPointerDown={handleGripPointerDown}
               onHandlePointerDown={handleResizeStart}
               onRotatePointerDown={handleRotateStart}
             />
+          )}
+
+          {/* AutoCAD Move Tool Overlay: Base Point Marker, Rubber-Band Tracking Line, & Dynamic HUD */}
+          {state.tool === "move" && moveBasePoint && (
+            <g id="autocad-move-overlay" className="pointer-events-none">
+              {/* Base Point Marker: Crosshair & Target Ring */}
+              <circle
+                cx={moveBasePoint.x}
+                cy={moveBasePoint.y}
+                r={6 / scale}
+                fill="none"
+                stroke="#f59e0b"
+                strokeWidth={1.5 / scale}
+              />
+              <circle
+                cx={moveBasePoint.x}
+                cy={moveBasePoint.y}
+                r={1.5 / scale}
+                fill="#f59e0b"
+              />
+              <line
+                x1={moveBasePoint.x - 10 / scale}
+                y1={moveBasePoint.y}
+                x2={moveBasePoint.x + 10 / scale}
+                y2={moveBasePoint.y}
+                stroke="#f59e0b"
+                strokeWidth={1.2 / scale}
+              />
+              <line
+                x1={moveBasePoint.x}
+                y1={moveBasePoint.y - 10 / scale}
+                x2={moveBasePoint.x}
+                y2={moveBasePoint.y + 10 / scale}
+                stroke="#f59e0b"
+                strokeWidth={1.2 / scale}
+              />
+
+              {/* Rubber-band tracking line from base point to current target */}
+              {moveDisplacement && (
+                <>
+                  <line
+                    x1={moveBasePoint.x}
+                    y1={moveBasePoint.y}
+                    x2={moveDisplacement.targetPt.x}
+                    y2={moveDisplacement.targetPt.y}
+                    stroke="#f59e0b"
+                    strokeWidth={1.5 / scale}
+                    strokeDasharray={`${5 / scale}, ${3 / scale}`}
+                  />
+
+                  {/* Second Point Target Marker */}
+                  <circle
+                    cx={moveDisplacement.targetPt.x}
+                    cy={moveDisplacement.targetPt.y}
+                    r={4 / scale}
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth={1.5 / scale}
+                  />
+
+                  {/* AutoCAD Dynamic Dimension HUD Badge near cursor */}
+                  <g
+                    transform={`translate(${moveDisplacement.targetPt.x + 16 / scale}, ${moveDisplacement.targetPt.y - 16 / scale})`}
+                  >
+                    <rect
+                      x={0}
+                      y={-28 / scale}
+                      width={132 / scale}
+                      height={28 / scale}
+                      rx={4 / scale}
+                      fill="rgba(15, 23, 42, 0.92)"
+                      stroke="#f59e0b"
+                      strokeWidth={1 / scale}
+                    />
+                    <text
+                      x={6 / scale}
+                      y={-16 / scale}
+                      fill="#f59e0b"
+                      fontSize={9 / scale}
+                      fontFamily="monospace"
+                      fontWeight="bold"
+                    >
+                      {`ΔX: ${moveDisplacement.dx >= 0 ? "+" : ""}${moveDisplacement.dx.toFixed(1)} ΔY: ${moveDisplacement.dy >= 0 ? "+" : ""}${moveDisplacement.dy.toFixed(1)}`}
+                    </text>
+                    <text
+                      x={6 / scale}
+                      y={-6 / scale}
+                      fill="#38bdf8"
+                      fontSize={8.5 / scale}
+                      fontFamily="monospace"
+                    >
+                      {`L: ${Math.hypot(moveDisplacement.dx, moveDisplacement.dy).toFixed(1)} ∠${(
+                        (Math.atan2(-moveDisplacement.dy, moveDisplacement.dx) * (180 / Math.PI) + 360) % 360
+                      ).toFixed(1)}°`}
+                    </text>
+                  </g>
+                </>
+              )}
+            </g>
           )}
 
           {/* Geometric Constraint Visual Glyphs */}
@@ -1224,9 +1503,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
               y={marqueeBox.y}
               width={marqueeBox.width}
               height={marqueeBox.height}
-              fill="rgba(0, 102, 255, 0.08)"
-              stroke="#0066ff"
-              strokeWidth={1 / scale}
+              fill="rgba(245, 158, 11, 0.12)"
+              stroke="#f59e0b"
+              strokeWidth={1.2 / scale}
               strokeDasharray={`${4 / scale}, ${3 / scale}`}
               className="pointer-events-none"
             />

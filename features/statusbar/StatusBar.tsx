@@ -31,7 +31,7 @@ export function StatusBar({ cursorPos, onOpenShortcuts, onNotification }: Status
 
         <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />
 
-        <span className="capitalize font-semibold text-blue-500">
+        <span className="capitalize font-semibold text-amber-500">
           Tool: {state.tool}
         </span>
 
@@ -46,7 +46,7 @@ export function StatusBar({ cursorPos, onOpenShortcuts, onNotification }: Status
       <div className="flex items-center gap-2.5">
         <span>
           <b className="text-[var(--fg-primary)]">{state.shapes.length}</b> shapes
-          {groupCount > 0 && <span className="text-blue-400 font-bold ml-1">({groupCount} groups)</span>}
+          {groupCount > 0 && <span className="text-amber-400 font-bold ml-1">({groupCount} groups)</span>}
         </span>
 
         <div className="w-[1px] h-3 bg-[var(--border-subtle)]" />

@@ -72,7 +72,7 @@ export function ViewportControls() {
         onClick={toggleGrid}
         className={`p-1.5 rounded-lg transition-all ${
           state.showGrid
-            ? "bg-blue-500/15 text-blue-500 font-semibold"
+            ? "bg-amber-500/15 text-amber-500 font-semibold"
             : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
         }`}
         title={`Grid: ${state.showGrid ? "Visible" : "Hidden"}`}
@@ -86,7 +86,7 @@ export function ViewportControls() {
         onClick={toggleGridSnap}
         className={`p-1.5 rounded-lg transition-all ${
           state.gridSnapEnabled
-            ? "bg-blue-500/15 text-blue-500 font-semibold"
+            ? "bg-amber-500/15 text-amber-500 font-semibold"
             : "text-[var(--fg-secondary)] hover:bg-[var(--bg-panel-subtle)]"
         }`}
         title={`Snap to Grid: ${state.gridSnapEnabled ? "ON" : "OFF"}`}
