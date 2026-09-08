@@ -35,8 +35,24 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
     const trimmed = editValue.trim();
     if (trimmed) {
       const parsedNum = Number(trimmed);
+      const shapeIdx = state.shapes.indexOf(shape);
+      const defName = ParametricModel.getShapeName(shape, shapeIdx);
+      const boundVarW =
+        (shape.name && (state.variables[`${shape.name}_Width`] || state.variables[`${shape.name}.width`] || state.variables[`${shape.name}_width`])) ||
+        state.variables[`${defName}_Width`] ||
+        state.variables[`${defName}.width`] ||
+        state.variables[`${defName}_width`] ||
+        state.variables.W ||
+        state.variables.Width;
+
       if (!isNaN(parsedNum) && parsedNum > 0) {
-        if (shape.type === "rectangle") {
+        if (state.userMode === "author" && boundVarW) {
+          dispatch({
+            type: "SET_VARIABLE",
+            name: boundVarW.name,
+            valueOrFormula: parsedNum,
+          });
+        } else if (shape.type === "rectangle") {
           dispatch({
             type: "UPDATE_SHAPE",
             id: shape.id,
@@ -56,7 +72,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         }
       } else {
         const eqIdx = trimmed.indexOf("=");
-        let varName = shape.name || ParametricModel.getShapeName(shape, state.shapes.indexOf(shape));
+        let varName = boundVarW ? boundVarW.name : (shape.name || defName);
         let expr = trimmed;
 
         if (eqIdx !== -1) {
@@ -171,7 +187,16 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         } else if (shape.type === "rectangle") {
           badgeX = shape.x + shape.width / 2;
           badgeY = shape.y - 10 / scale;
-          const boundVarW = (shape.name && state.variables[`${shape.name}.width`]) || state.variables.W || state.variables.Width;
+          const shapeIdx = state.shapes.indexOf(shape);
+          const defName = ParametricModel.getShapeName(shape, shapeIdx);
+          const boundVarW =
+            (shape.name && (state.variables[`${shape.name}_Width`] || state.variables[`${shape.name}.width`] || state.variables[`${shape.name}_width`])) ||
+            state.variables[`${defName}_Width`] ||
+            state.variables[`${defName}.width`] ||
+            state.variables[`${defName}_width`] ||
+            state.variables.W ||
+            state.variables.Width;
+
           if (state.userMode === "draftsman") {
             displayLabel = `${Math.round(shape.width)} × ${Math.round(shape.height)} mm`;
             rawExpr = String(Math.round(shape.width));

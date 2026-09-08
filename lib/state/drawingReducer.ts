@@ -104,7 +104,9 @@ export type DrawingAction =
   | { type: "TOGGLE_CONSTRAINT"; id: string }
   | { type: "INSTANTIATE_TEMPLATE"; templateId: string; params?: Record<string, number> }
   | { type: "SYNC_PARAMETRIC_MODEL" }
-  | { type: "ACCEPT_INFERRED_FORMULA"; id: string };
+  | { type: "ACCEPT_INFERRED_FORMULA"; id: string }
+  | { type: "UNBIND_INFERRED_FORMULA"; id: string }
+  | { type: "UPDATE_INFERRED_FORMULA"; id: string; expression?: string; targetProperty?: string };
 
 export const initialDrawingState: DrawingState = {
   shapes: [],
@@ -163,6 +165,37 @@ function runParametricSync(
   }
 
   return { updatedShapes, updatedVariables: updatedVars, errors };
+}
+
+/**
+ * Reconciles freshly inferred formulas against existing ones and active variables,
+ * preserving accepted/bound status and expressions.
+ */
+export function mergeInferredFormulas(
+  existingFormulas: InferredFormula[] = [],
+  newFormulas: InferredFormula[] = [],
+  variables: Record<string, ParametricVariable> = {}
+): InferredFormula[] {
+  const acceptedMap = new Map<string, InferredFormula>();
+  for (const f of existingFormulas) {
+    if (f.status === "accepted") {
+      acceptedMap.set(f.id, f);
+      acceptedMap.set(`${f.targetShapeId}:${f.targetProperty}`, f);
+    }
+  }
+
+  return newFormulas.map((f) => {
+    const existing = acceptedMap.get(f.id) || acceptedMap.get(`${f.targetShapeId}:${f.targetProperty}`);
+    const isVarBound = Boolean(variables[f.targetProperty]?.formula);
+    if (existing?.status === "accepted" || isVarBound) {
+      return {
+        ...f,
+        status: "accepted" as const,
+        expression: existing?.expression || variables[f.targetProperty]?.formula || f.expression,
+      };
+    }
+    return f;
+  });
 }
 
 /**
@@ -313,7 +346,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         ...state,
         shapes: nextShapes,
         variables: nextVars,
-        inferredFormulas: inferred,
+        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, inferred, nextVars),
         boundaryEvaluations: boundaryEvals,
         draft: null,
         selectedId: committedShape.id,
@@ -512,7 +545,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return {
         ...state,
         shapes: nextShapes,
-        inferredFormulas: synthesizeFormulasFromGeometry(nextShapes),
+        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, synthesizeFormulasFromGeometry(nextShapes), state.variables),
         boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
       };
     }
@@ -633,7 +666,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           return {
             ...state,
             shapes: finalShapes,
-            inferredFormulas: synthesizeFormulasFromGeometry(finalShapes),
+            inferredFormulas: mergeInferredFormulas(state.inferredFormulas, synthesizeFormulasFromGeometry(finalShapes), state.variables),
             boundaryEvaluations: evaluateAllBoundaryLimits(finalShapes),
             history: pushHistory(state, `Update ${currentShape.type}`),
           };
@@ -647,7 +680,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return {
         ...state,
         shapes: nextShapes,
-        inferredFormulas: synthesizeFormulasFromGeometry(nextShapes),
+        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, synthesizeFormulasFromGeometry(nextShapes), state.variables),
         boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
         history: pushHistory(state, `Update ${currentShape.type}`),
       };
@@ -965,7 +998,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         ...state,
         shapes: action.shapes,
         variables: nextVars,
-        inferredFormulas: inferred,
+        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, inferred, nextVars),
         boundaryEvaluations: boundaryEvals,
         selectedId: null,
         selectedIds: [],
@@ -1217,6 +1250,79 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         parametricErrors: errors,
         inferredFormulas: updatedFormulas,
         history: pushHistory(state, `Accept formula ${formula.expression}`),
+      };
+    }
+
+    case "UNBIND_INFERRED_FORMULA": {
+      const formula = state.inferredFormulas?.find((f) => f.id === action.id);
+      if (!formula) return state;
+
+      const nextVars = { ...state.variables };
+      delete nextVars[formula.targetProperty];
+
+      const updatedFormulas = state.inferredFormulas.map((f) =>
+        f.id === action.id ? { ...f, status: "pending" as const } : f
+      );
+
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        nextVars,
+        state.constraints
+      );
+
+      return {
+        ...state,
+        variables: updatedVariables,
+        shapes: updatedShapes,
+        parametricErrors: errors,
+        inferredFormulas: updatedFormulas,
+        history: pushHistory(state, `Unbind formula ${formula.displayTarget}`),
+      };
+    }
+
+    case "UPDATE_INFERRED_FORMULA": {
+      const formula = state.inferredFormulas?.find((f) => f.id === action.id);
+      if (!formula) return state;
+
+      const newExpression = action.expression !== undefined ? action.expression.trim() : formula.expression;
+      const newTargetProperty = action.targetProperty !== undefined ? action.targetProperty.trim() : formula.targetProperty;
+
+      const nextVars = { ...state.variables };
+      if (formula.status === "accepted") {
+        if (newTargetProperty !== formula.targetProperty) {
+          delete nextVars[formula.targetProperty];
+        }
+        nextVars[newTargetProperty] = {
+          name: newTargetProperty,
+          value: formula.evaluatedValue,
+          formula: newExpression,
+          unit: "mm",
+        };
+      }
+
+      const updatedFormulas = state.inferredFormulas.map((f) =>
+        f.id === action.id
+          ? {
+              ...f,
+              expression: newExpression,
+              targetProperty: newTargetProperty,
+            }
+          : f
+      );
+
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        state.shapes,
+        nextVars,
+        state.constraints
+      );
+
+      return {
+        ...state,
+        variables: updatedVariables,
+        shapes: updatedShapes,
+        parametricErrors: errors,
+        inferredFormulas: updatedFormulas,
+        history: pushHistory(state, `Update formula ${formula.displayTarget}`),
       };
     }
 

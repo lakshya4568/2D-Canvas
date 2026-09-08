@@ -100,7 +100,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
           provenance: "inferred",
           confidence,
           reason: `Uniform ${wallT}px clearance discovered across all 4 boundaries (σ = ${stdDev.toFixed(1)}px)`,
-          status: "accepted",
+          status: "pending",
           variables: [
             { name: outerWidthVar, value: (outerShape as any).width || 0, role: "Outer Boundary Width" },
             { name: "WallThickness", value: wallT, role: "Wall Thickness" },
@@ -120,7 +120,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence,
             reason: `Uniform ${wallT}px clearance discovered across top and bottom slabs`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerHeightVar, value: (outerShape as any).height, role: "Outer Boundary Height" },
               { name: "WallThickness", value: wallT, role: "Wall Thickness" },
@@ -140,7 +140,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
           provenance: "inferred",
           confidence: 0.94,
           reason: `Inner feature is horizontally centered (Left: ${tL}px, Right: ${tR}px)`,
-          status: "accepted",
+          status: "pending",
           variables: [
             { name: outerXVar, value: (outerShape as any).x || 0, role: "Outer X Position" },
             { name: outerWidthVar, value: (outerShape as any).width || 0, role: "Outer Width" },
@@ -172,7 +172,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
           provenance: "inferred",
           confidence: 0.95,
           reason: `Internal dividing web of ${midPartition}px discovered between adjacent bays`,
-          status: "accepted",
+          status: "pending",
           variables: [
             { name: b1XVar, value: (s1 as any)?.x || 0, role: "Bay 1 X Position" },
             { name: b1WVar, value: (s1 as any)?.width || f1.span, role: "Bay 1 Span" },
@@ -231,7 +231,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence,
             reason: `Uniform ${wallT}px clearance discovered across all 4 boundaries (σ = ${stdDev.toFixed(1)}px)`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerWidthVar, value: Math.round(bOuter.width), role: "Outer Boundary Width" },
               { name: "WallThickness", value: wallT, role: "Wall Thickness" },
@@ -249,7 +249,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence,
             reason: `Uniform ${wallT}px clearance discovered across top and bottom boundaries`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerHeightVar, value: Math.round(bOuter.height), role: "Outer Boundary Height" },
               { name: "WallThickness", value: wallT, role: "Wall Thickness" },
@@ -271,7 +271,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.96,
             reason: `Uniform ${slabT}px top and bottom slab clearance`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerHeightVar, value: Math.round(bOuter.height), role: "Outer Boundary Height" },
               { name: "SlabThickness", value: slabT, role: "Top & Bottom Slab Thickness" },
@@ -288,7 +288,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.95,
             reason: `Vertical placement offset ${slabT}px from top boundary`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerYVar, value: Math.round(bOuter.minY), role: "Outer Y Position" },
               { name: "SlabThickness", value: slabT, role: "Top Slab Thickness" },
@@ -305,7 +305,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.94,
             reason: `Horizontal offset ${leftOffset}px from left edge`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerXVar, value: Math.round(bOuter.minX), role: "Outer X Position" },
               { name: "LeftOffset", value: leftOffset, role: "Left Margin Offset" },
@@ -322,7 +322,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.92,
             reason: `Contained width between left offset (${leftOffset}px) and right margin (${rightClearance}px)`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerWidthVar, value: Math.round(bOuter.width), role: "Outer Boundary Width" },
               { name: "LeftOffset", value: leftOffset, role: "Left Margin Offset" },
@@ -345,7 +345,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.96,
             reason: `Uniform ${wallT}px left and right wall clearance`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerWidthVar, value: Math.round(bOuter.width), role: "Outer Boundary Width" },
               { name: "WallThickness", value: wallT, role: "Wall Thickness" },
@@ -362,7 +362,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.95,
             reason: `Horizontal placement offset ${wallT}px from left edge`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerXVar, value: Math.round(bOuter.minX), role: "Outer X Position" },
               { name: "WallThickness", value: wallT, role: "Wall Thickness" },
@@ -379,7 +379,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.92,
             reason: `Contained height between top offset (${topOffset}px) and bottom margin (${bottomClearance}px)`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerHeightVar, value: Math.round(bOuter.height), role: "Outer Boundary Height" },
               { name: "TopOffset", value: topOffset, role: "Top Margin Offset" },
@@ -403,7 +403,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.91,
             reason: `Offset ${leftOffset}px from left boundary`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerXVar, value: Math.round(bOuter.minX), role: "Outer X Position" },
               { name: "LeftOffset", value: leftOffset, role: "Left Margin Offset" },
@@ -420,7 +420,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.91,
             reason: `Offset ${topOffset}px from top boundary`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerYVar, value: Math.round(bOuter.minY), role: "Outer Y Position" },
               { name: "TopOffset", value: topOffset, role: "Top Margin Offset" },
@@ -437,7 +437,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.90,
             reason: `Contained width within ${outer.name || outerClean}`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerWidthVar, value: Math.round(bOuter.width), role: "Outer Boundary Width" },
               { name: "LeftOffset", value: leftOffset, role: "Left Margin Offset" },
@@ -455,7 +455,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.90,
             reason: `Contained height within ${outer.name || outerClean}`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerHeightVar, value: Math.round(bOuter.height), role: "Outer Boundary Height" },
               { name: "TopOffset", value: topOffset, role: "Top Margin Offset" },
@@ -493,7 +493,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
             provenance: "inferred",
             confidence: 0.97,
             reason: `Concentric circular void with uniform radial thickness ${radialT}px`,
-            status: "accepted",
+            status: "pending",
             variables: [
               { name: outerRVar, value: c1.r, role: "Outer Circle Radius" },
               { name: "WallThickness", value: radialT, role: "Radial Wall Thickness" },
@@ -536,7 +536,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
                 provenance: "inferred",
                 confidence: 0.96,
                 reason: `Circular duct is concentric / centered inside parent ${rect.name || pClean}`,
-                status: "accepted",
+                status: "pending",
                 variables: [
                   { name: pXVar, value: rect.x, role: "Bay Cavity X Position" },
                   { name: pWVar, value: rect.width, role: "Bay Cavity Width" },
@@ -583,7 +583,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
               provenance: "inferred",
               confidence: 0.98,
               reason: `Uniform ${wallT}px perimeter wall around ${loop.shapes.length}-segment opening (σ = ${stdDev.toFixed(1)}px)`,
-              status: "accepted",
+              status: "pending",
               variables: [
                 { name: outerWidthVar, value: Math.round(outerBounds.width), role: "Outer Boundary Width" },
                 { name: "WallThickness", value: wallT, role: "Wall Thickness" },
@@ -601,7 +601,7 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
               provenance: "inferred",
               confidence: 0.98,
               reason: `Uniform ${wallT}px top & bottom slab thickness around opening`,
-              status: "accepted",
+              status: "pending",
               variables: [
                 { name: outerHeightVar, value: Math.round(outerBounds.height), role: "Outer Boundary Height" },
                 { name: "WallThickness", value: wallT, role: "Wall Thickness" },

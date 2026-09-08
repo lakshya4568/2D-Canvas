@@ -22,10 +22,21 @@ export const BottomFormulaBar: React.FC = () => {
     : null;
 
   const selectedVar = selectedVarName
-    ? (selectedShape?.name && state.variables[selectedShape.name]) || state.variables[selectedVarName]
+    ? (selectedShape?.name && (
+        state.variables[selectedShape.name] ||
+        state.variables[`${selectedShape.name}_Width`] ||
+        state.variables[`${selectedShape.name}.width`] ||
+        state.variables[`${selectedShape.name}_Height`] ||
+        state.variables[`${selectedShape.name}.height`]
+      )) ||
+      state.variables[selectedVarName] ||
+      state.variables[`${selectedVarName}_Width`] ||
+      state.variables[`${selectedVarName}.width`] ||
+      state.variables[`${selectedVarName}_Height`] ||
+      state.variables[`${selectedVarName}.height`]
     : null;
 
-  // Whenever user clicks on a line/shape, automatically show its constant in the formula bar!
+  // Whenever user clicks on a line/shape, automatically show its constant or formula in the formula bar!
   useEffect(() => {
     if (!selectedShape) return;
 

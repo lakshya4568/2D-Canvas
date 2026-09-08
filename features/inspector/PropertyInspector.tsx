@@ -23,6 +23,8 @@ import {
   ChevronRight,
   ChevronLeft,
   Check,
+  Edit2,
+  X,
   RotateCcw,
   RotateCw,
   Sparkles,
@@ -79,6 +81,11 @@ export function PropertyInspector({
   const [activeTab, setActiveTab] = useState<"transform" | "autoformula" | "parametric" | "style" | "layers" | "history">("autoformula");
   const [paramSubTab, setParamSubTab] = useState<"variables" | "formulas" | "constraints">("variables");
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [selectedFormulaId, setSelectedFormulaId] = useState<string | null>(null);
+  const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
+  const [editingFormulaExpr, setEditingFormulaExpr] = useState<string>("");
+  const [editingVarName, setEditingVarName] = useState<string | null>(null);
+  const [editingVarVal, setEditingVarVal] = useState<string>("");
 
   const activeGADAssembly = React.useMemo(() => {
     const assemblies = detectGADAssemblies(state.shapes);
@@ -399,23 +406,42 @@ export function PropertyInspector({
 
             {state.inferredFormulas && state.inferredFormulas.length > 0 && (
               <div className="flex flex-col gap-2">
-                <span className="text-[10px] font-bold text-[var(--fg-secondary)] uppercase tracking-wider">
-                  Inferred Mathematical Invariants ({state.inferredFormulas.length})
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-[var(--fg-secondary)] uppercase tracking-wider">
+                    Inferred Mathematical Invariants ({state.inferredFormulas.length})
+                  </span>
+                  {state.userMode === "author" && (
+                    <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                      Author Mode Active
+                    </span>
+                  )}
+                </div>
 
                 {state.inferredFormulas.map((f) => {
                   const isAccepted = f.status === "accepted";
+                  const isSelected = selectedFormulaId === f.id || (selectedShape && selectedShape.id === f.targetShapeId);
+                  const isEditingThisFormula = editingFormulaId === f.id;
+
                   return (
                     <div
                       key={f.id}
-                      className={`p-2.5 rounded border flex flex-col gap-1.5 transition-all ${
-                        isAccepted
-                          ? "bg-emerald-500/10 border-emerald-500/40"
+                      onClick={() => {
+                        setSelectedFormulaId(f.id);
+                        if (f.targetShapeId) {
+                          selectShape(f.targetShapeId);
+                        }
+                      }}
+                      className={`p-2.5 rounded border flex flex-col gap-2 transition-all cursor-pointer ${
+                        isSelected
+                          ? "ring-2 ring-amber-500/80 border-amber-500 shadow-md " + (isAccepted ? "bg-emerald-500/15" : "bg-amber-500/10")
+                          : isAccepted
+                          ? "bg-emerald-500/10 border-emerald-500/40 hover:border-emerald-500/60"
                           : "bg-[var(--bg-panel-subtle)] border-[var(--border-subtle)] hover:border-amber-500/50"
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-xs text-[var(--fg-primary)]">
+                        <span className="font-mono font-bold text-xs text-[var(--fg-primary)] flex items-center gap-1.5">
+                          {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
                           {f.displayTarget}
                         </span>
                         <span className="font-mono text-emerald-400 font-bold text-xs">
@@ -423,17 +449,163 @@ export function PropertyInspector({
                         </span>
                       </div>
 
-                      <div className="font-mono text-[10px] text-[var(--fg-secondary)] bg-[var(--bg-app)] px-2 py-1 rounded truncate border border-[var(--border-subtle)]">
-                        {f.targetProperty} = {f.expression}
-                      </div>
+                      {/* Formula Expression (Editable in Author Mode) */}
+                      {isEditingThisFormula ? (
+                        <div
+                          className="flex items-center gap-1 bg-[var(--bg-app)] p-1 rounded border border-amber-500"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="font-mono text-[10px] text-amber-400 font-semibold pl-1">
+                            {f.targetProperty} =
+                          </span>
+                          <input
+                            type="text"
+                            value={editingFormulaExpr}
+                            onChange={(e) => setEditingFormulaExpr(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                dispatch({
+                                  type: "UPDATE_INFERRED_FORMULA",
+                                  id: f.id,
+                                  expression: editingFormulaExpr,
+                                });
+                                setEditingFormulaId(null);
+                              } else if (e.key === "Escape") {
+                                setEditingFormulaId(null);
+                              }
+                            }}
+                            className="flex-1 bg-transparent font-mono text-[10px] text-[var(--fg-primary)] focus:outline-none px-1"
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              dispatch({
+                                type: "UPDATE_INFERRED_FORMULA",
+                                id: f.id,
+                                expression: editingFormulaExpr,
+                              });
+                              setEditingFormulaId(null);
+                            }}
+                            className="p-1 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-[9px] cursor-pointer"
+                            title="Save formula"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingFormulaId(null)}
+                            className="p-1 rounded bg-[var(--bg-panel)] hover:bg-[var(--border-subtle)] text-[var(--fg-muted)] text-[9px] cursor-pointer"
+                            title="Cancel"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between font-mono text-[10px] text-[var(--fg-secondary)] bg-[var(--bg-app)] px-2 py-1 rounded border border-[var(--border-subtle)]">
+                          <span className="truncate">
+                            {f.targetProperty} = {f.expression}
+                          </span>
+                          {state.userMode === "author" && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingFormulaId(f.id);
+                                setEditingFormulaExpr(f.expression);
+                              }}
+                              className="ml-1 text-[var(--fg-muted)] hover:text-amber-400 p-0.5 rounded cursor-pointer transition-colors"
+                              title="Edit formula in Author Mode"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
 
+                      {/* Variables list & In-place parameter tweaking */}
                       {f.variables && f.variables.length > 0 && (
                         <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-[var(--fg-muted)]">
-                          {f.variables.map((v) => (
-                            <span key={v.name} className="bg-[var(--bg-app)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">
-                              {v.name}: <b className="text-[var(--fg-primary)]">{Math.round(v.value)} mm</b>
-                            </span>
-                          ))}
+                          {f.variables.map((v) => {
+                            const currentVal = state.variables[v.name]?.value ?? v.value;
+                            const isEditingThisVar = editingVarName === `${f.id}_${v.name}`;
+
+                            if (isEditingThisVar) {
+                              return (
+                                <div
+                                  key={v.name}
+                                  className="flex items-center gap-1 bg-[var(--bg-app)] px-1.5 py-0.5 rounded border border-amber-500"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <span>{v.name}:</span>
+                                  <input
+                                    type="number"
+                                    value={editingVarVal}
+                                    onChange={(e) => setEditingVarVal(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        const num = Number(editingVarVal);
+                                        if (!isNaN(num)) {
+                                          dispatch({ type: "SET_VARIABLE", name: v.name, valueOrFormula: num });
+                                        }
+                                        setEditingVarName(null);
+                                      } else if (e.key === "Escape") {
+                                        setEditingVarName(null);
+                                      }
+                                    }}
+                                    className="w-12 bg-transparent text-[9px] font-bold text-amber-400 focus:outline-none"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const num = Number(editingVarVal);
+                                      if (!isNaN(num)) {
+                                        dispatch({ type: "SET_VARIABLE", name: v.name, valueOrFormula: num });
+                                      }
+                                      setEditingVarName(null);
+                                    }}
+                                    className="text-amber-400 hover:text-amber-300 font-bold"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingVarName(null)}
+                                    className="text-[var(--fg-muted)] hover:text-[var(--fg-primary)]"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <button
+                                key={v.name}
+                                type="button"
+                                onClick={(e) => {
+                                  if (state.userMode === "author") {
+                                    e.stopPropagation();
+                                    setEditingVarName(`${f.id}_${v.name}`);
+                                    setEditingVarVal(String(Math.round(currentVal)));
+                                  }
+                                }}
+                                className={`bg-[var(--bg-app)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] flex items-center gap-1 transition-colors ${
+                                  state.userMode === "author"
+                                    ? "hover:border-amber-500/60 hover:text-amber-300 cursor-pointer"
+                                    : ""
+                                }`}
+                                title={state.userMode === "author" ? `Click to adjust ${v.name}` : undefined}
+                              >
+                                <span>{v.name}:</span>
+                                <b className="text-[var(--fg-primary)]">{Math.round(currentVal)} mm</b>
+                                {state.userMode === "author" && (
+                                  <span className="text-[8px] text-[var(--fg-muted)]">✎</span>
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
 
@@ -444,15 +616,31 @@ export function PropertyInspector({
                         {!isAccepted ? (
                           <button
                             type="button"
-                            onClick={() => dispatch({ type: "ACCEPT_INFERRED_FORMULA", id: f.id })}
-                            className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-[10px] transition-colors cursor-pointer shadow-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              dispatch({ type: "ACCEPT_INFERRED_FORMULA", id: f.id });
+                            }}
+                            className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-[10px] transition-colors cursor-pointer shadow-xs flex items-center gap-1"
                           >
-                            + Bind Parameter
+                            <span>+ Bind to Model</span>
                           </button>
                         ) : (
-                          <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
-                            ✓ Bound to Model
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                              ✓ Bound to Model
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                dispatch({ type: "UNBIND_INFERRED_FORMULA", id: f.id });
+                              }}
+                              className="px-1.5 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-[9px] font-mono font-semibold transition-colors cursor-pointer"
+                              title="Unbind parameter from model"
+                            >
+                              ✕ Unbind
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1022,32 +1210,54 @@ export function PropertyInspector({
 
                 {/* Expose Shape Parameters */}
                 <div className="space-y-1 font-mono text-[11px]">
-                  {ParametricModel.getShapeParameters(selectedShape).map((p) => (
-                    <div key={p.key} className="flex items-center justify-between text-[11px] py-0.5 border-b border-[var(--border-subtle)]/40 last:border-0">
-                      <span className="text-[var(--fg-muted)]">{p.label}:</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-[var(--fg-primary)]">{p.value}</span>
-                        {!p.readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const shapeName = selectedShape.name || ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
-                              const varName = `${shapeName}_${p.key}`;
-                              dispatch({
-                                type: "SET_VARIABLE",
-                                name: varName,
-                                valueOrFormula: p.value,
-                              });
-                            }}
-                            className="rounded px-1 text-[9px] bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 font-bold"
-                            title="Bind parameter to new variable"
-                          >
-                            +Var
-                          </button>
+                  {ParametricModel.getShapeParameters(selectedShape).map((p) => {
+                    const shapeName = selectedShape.name || ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
+                    const varName = `${shapeName}_${p.key}`;
+                    const dotVarName = `${shapeName}.${p.key}`;
+                    const boundVar = state.variables[varName] || state.variables[dotVarName] || (selectedShape.name ? (state.variables[`${selectedShape.name}_${p.key}`] || state.variables[`${selectedShape.name}.${p.key}`]) : undefined);
+
+                    return (
+                      <div key={p.key} className="flex flex-col py-1 border-b border-[var(--border-subtle)]/40 last:border-0 gap-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-[var(--fg-muted)]">{p.label}:</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-[var(--fg-primary)]">{p.value}</span>
+                            {!p.readOnly && !boundVar && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  dispatch({
+                                    type: "SET_VARIABLE",
+                                    name: varName,
+                                    valueOrFormula: p.value,
+                                  });
+                                }}
+                                className="rounded px-1.5 py-0.5 text-[9px] bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 font-bold cursor-pointer"
+                                title="Bind parameter to new variable"
+                              >
+                                +Var
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {boundVar && (
+                          <div className="flex items-center justify-between bg-[var(--bg-panel-subtle)] px-1.5 py-0.5 rounded text-[9px] font-mono text-emerald-400 border border-emerald-500/20">
+                            <span className="truncate">
+                              {boundVar.name} = {boundVar.formula ? boundVar.formula : boundVar.value}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => dispatch({ type: "DELETE_VARIABLE", name: boundVar.name })}
+                              className="text-red-400 hover:text-red-300 ml-1 cursor-pointer"
+                              title="Delete / unbind variable"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

@@ -189,11 +189,36 @@ export class ParametricModel {
       const legacyPrefix = s.type.charAt(0).toUpperCase() + s.type.slice(1) + `_${idx + 1}`;
       const params = ParametricModel.getShapeParameters(s);
 
+      const cleanName = s.name ? s.name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") : "";
       for (const p of params) {
+        const capitalizedKey = p.key.charAt(0).toUpperCase() + p.key.slice(1);
         symbols[`${shapeName}.${p.key}`] = p.value;
+        symbols[`${shapeName}.${capitalizedKey}`] = p.value;
+        symbols[`${shapeName}_${p.key}`] = p.value;
+        symbols[`${shapeName}_${capitalizedKey}`] = p.value;
+
         symbols[`${legacyPrefix}.${p.key}`] = p.value;
+        symbols[`${legacyPrefix}.${capitalizedKey}`] = p.value;
+        symbols[`${legacyPrefix}_${p.key}`] = p.value;
+        symbols[`${legacyPrefix}_${capitalizedKey}`] = p.value;
+
+        if (s.name) {
+          symbols[`${s.name}.${p.key}`] = p.value;
+          symbols[`${s.name}.${capitalizedKey}`] = p.value;
+          symbols[`${s.name}_${p.key}`] = p.value;
+          symbols[`${s.name}_${capitalizedKey}`] = p.value;
+        }
+        if (cleanName) {
+          symbols[`${cleanName}.${p.key}`] = p.value;
+          symbols[`${cleanName}.${capitalizedKey}`] = p.value;
+          symbols[`${cleanName}_${p.key}`] = p.value;
+          symbols[`${cleanName}_${capitalizedKey}`] = p.value;
+        }
         if (s.id) {
           symbols[`${s.id}.${p.key}`] = p.value;
+          symbols[`${s.id}.${capitalizedKey}`] = p.value;
+          symbols[`${s.id}_${p.key}`] = p.value;
+          symbols[`${s.id}_${capitalizedKey}`] = p.value;
         }
       }
 
@@ -346,20 +371,77 @@ export class ParametricModel {
 
       switch (s.type) {
         case "rectangle": {
-          const boundW = getVarValue(`${shapeName}.width`, `${s.id}.width`, "W", "Width", "width");
-          const boundH = getVarValue(`${shapeName}.height`, `${s.id}.height`, "H", "Height", "height");
+          const cleanName = s.name ? s.name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") : "";
+          const boundW = getVarValue(
+            `${shapeName}.width`, `${shapeName}_width`, `${shapeName}_Width`,
+            s.name ? `${s.name}.width` : "", s.name ? `${s.name}_width` : "", s.name ? `${s.name}_Width` : "",
+            cleanName ? `${cleanName}.width` : "", cleanName ? `${cleanName}_width` : "", cleanName ? `${cleanName}_Width` : "",
+            `${s.id}.width`, `${s.id}_width`, `${s.id}_Width`,
+            "W", "Width", "width"
+          );
+          const boundH = getVarValue(
+            `${shapeName}.height`, `${shapeName}_height`, `${shapeName}_Height`,
+            s.name ? `${s.name}.height` : "", s.name ? `${s.name}_height` : "", s.name ? `${s.name}_Height` : "",
+            cleanName ? `${cleanName}.height` : "", cleanName ? `${cleanName}_height` : "", cleanName ? `${cleanName}_Height` : "",
+            `${s.id}.height`, `${s.id}_height`, `${s.id}_Height`,
+            "H", "Height", "height"
+          );
+          const boundX = getVarValue(
+            `${shapeName}.x`, `${shapeName}_x`, `${shapeName}_X`,
+            s.name ? `${s.name}.x` : "", s.name ? `${s.name}_x` : "", s.name ? `${s.name}_X` : "",
+            cleanName ? `${cleanName}.x` : "", cleanName ? `${cleanName}_x` : "", cleanName ? `${cleanName}_X` : "",
+            `${s.id}.x`, `${s.id}_x`, `${s.id}_X`
+          );
+          const boundY = getVarValue(
+            `${shapeName}.y`, `${shapeName}_y`, `${shapeName}_Y`,
+            s.name ? `${s.name}.y` : "", s.name ? `${s.name}_y` : "", s.name ? `${s.name}_Y` : "",
+            cleanName ? `${cleanName}.y` : "", cleanName ? `${cleanName}_y` : "", cleanName ? `${cleanName}_Y` : "",
+            `${s.id}.y`, `${s.id}_y`, `${s.id}_Y`
+          );
+
           if (typeof boundW === "number" && boundW > 0 && Math.abs(boundW - s.width) > 1e-4) {
             s.width = boundW;
           }
           if (typeof boundH === "number" && boundH > 0 && Math.abs(boundH - s.height) > 1e-4) {
             s.height = boundH;
           }
+          if (typeof boundX === "number" && Math.abs(boundX - s.x) > 1e-4) {
+            s.x = boundX;
+          }
+          if (typeof boundY === "number" && Math.abs(boundY - s.y) > 1e-4) {
+            s.y = boundY;
+          }
           break;
         }
         case "circle": {
-          const boundR = getVarValue(`${shapeName}.r`, `${s.id}.r`, "R", "Radius", "radius");
+          const cleanName = s.name ? s.name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") : "";
+          const boundR = getVarValue(
+            `${shapeName}.r`, `${shapeName}_r`, `${shapeName}_Radius`, `${shapeName}_radius`,
+            s.name ? `${s.name}.r` : "", s.name ? `${s.name}_r` : "", s.name ? `${s.name}_Radius` : "",
+            cleanName ? `${cleanName}.r` : "", cleanName ? `${cleanName}_r` : "", cleanName ? `${cleanName}_Radius` : "",
+            `${s.id}.r`, `${s.id}_r`, `${s.id}_Radius`,
+            "R", "Radius", "radius"
+          );
+          const boundCX = getVarValue(
+            `${shapeName}.cx`, `${shapeName}_cx`, `${shapeName}_X`, `${shapeName}_x`,
+            s.name ? `${s.name}.cx` : "", s.name ? `${s.name}_cx` : "", s.name ? `${s.name}_X` : "",
+            cleanName ? `${cleanName}.cx` : "", cleanName ? `${cleanName}_cx` : "", cleanName ? `${cleanName}_X` : "",
+            `${s.id}.cx`, `${s.id}_cx`, `${s.id}_X`
+          );
+          const boundCY = getVarValue(
+            `${shapeName}.cy`, `${shapeName}_cy`, `${shapeName}_Y`, `${shapeName}_y`,
+            s.name ? `${s.name}.cy` : "", s.name ? `${s.name}_cy` : "", s.name ? `${s.name}_Y` : "",
+            cleanName ? `${cleanName}.cy` : "", cleanName ? `${cleanName}_cy` : "", cleanName ? `${cleanName}_Y` : "",
+            `${s.id}.cy`, `${s.id}_cy`, `${s.id}_Y`
+          );
           if (typeof boundR === "number" && boundR > 0 && Math.abs(boundR - s.r) > 1e-4) {
             s.r = boundR;
+          }
+          if (typeof boundCX === "number" && Math.abs(boundCX - s.cx) > 1e-4) {
+            s.cx = boundCX;
+          }
+          if (typeof boundCY === "number" && Math.abs(boundCY - s.cy) > 1e-4) {
+            s.cy = boundCY;
           }
           break;
         }
@@ -374,9 +456,14 @@ export class ParametricModel {
           const boundL = getVarValue(
             s.name ?? "",
             `${s.name}.length`,
+            `${s.name}_length`,
+            `${s.name}_Length`,
             shapeName,
             `${shapeName}.length`,
+            `${shapeName}_length`,
+            `${shapeName}_Length`,
             `${s.id}.length`,
+            `${s.id}_length`,
             "L",
             "Length",
             "length"
