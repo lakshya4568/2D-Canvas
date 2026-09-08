@@ -174,4 +174,111 @@ describe("Formula Selection, Binding & Author Mode Sync Engine", () => {
     const found = merged.find((f) => f.id === acceptedFormula.id);
     expect(found?.status).toBe("accepted");
   });
+
+  it("should recalculate bound R2_Height and resize R2 when changing driving shape variable R1_height (lowercase alias)", () => {
+    let state = drawingReducer(initialDrawingState, {
+      type: "SET_USER_MODE",
+      mode: "author",
+    });
+
+    state = drawingReducer(state, {
+      type: "LOAD_SHAPES",
+      shapes: [outerRect, innerRect],
+    });
+
+    const heightFormula = state.inferredFormulas.find((f) => f.displayTarget.includes("Height"))!;
+    expect(heightFormula).toBeDefined();
+
+    // Accept and bind formula: R2_Height = R1_Height - 2 * SlabThickness (300 - 2 * 40 = 220)
+    state = drawingReducer(state, {
+      type: "ACCEPT_INFERRED_FORMULA",
+      id: heightFormula.id,
+    });
+
+    // Author changes R1_height (lowercase) to 400
+    state = drawingReducer(state, {
+      type: "SET_VARIABLE",
+      name: "R1_height",
+      valueOrFormula: 400,
+    });
+
+    // Check variables synchronized across aliases
+    expect(state.variables["R1_height"]?.value).toBe(400);
+    expect(state.variables["R1_Height"]?.value).toBe(400);
+    expect(state.variables["R1.height"]?.value).toBe(400);
+
+    // Bound R2_Height should re-evaluate to 400 - 2 * 40 = 320
+    expect(state.variables["R2_Height"]?.value).toBe(320);
+
+    // Outer rectangle height should update to 400 on canvas
+    const r1 = state.shapes.find((s) => s.id === outerRect.id) as RectangleShape;
+    expect(r1.height).toBe(400);
+
+    // Inner rectangle height should update to 320 on canvas
+    const r2 = state.shapes.find((s) => s.id === innerRect.id) as RectangleShape;
+    expect(r2.height).toBe(320);
+
+    // Formula card evaluatedValue should also update to 320
+    const updatedFormula = state.inferredFormulas.find((f) => f.id === heightFormula.id);
+    expect(updatedFormula?.evaluatedValue).toBe(320);
+  });
+
+  it("should automatically resize bound cavity R2 when outer shape R1 is resized via UPDATE_SHAPE", () => {
+    let state = drawingReducer(initialDrawingState, {
+      type: "LOAD_SHAPES",
+      shapes: [outerRect, innerRect],
+    });
+
+    const heightFormula = state.inferredFormulas.find((f) => f.displayTarget.includes("Height"))!;
+
+    // Accept formula
+    state = drawingReducer(state, {
+      type: "ACCEPT_INFERRED_FORMULA",
+      id: heightFormula.id,
+    });
+
+    // User resizes R1 via UPDATE_SHAPE (e.g. from Transform inspector or dimension overlay)
+    state = drawingReducer(state, {
+      type: "UPDATE_SHAPE",
+      id: outerRect.id,
+      updates: { height: 500 },
+    });
+
+    // Outer rectangle height is 500
+    const r1 = state.shapes.find((s) => s.id === outerRect.id) as RectangleShape;
+    expect(r1.height).toBe(500);
+    expect(state.variables["R1_Height"]?.value).toBe(500);
+
+    // Bound R2_Height re-evaluates to 500 - 2 * 40 = 420 and updates R2 height
+    const r2 = state.shapes.find((s) => s.id === innerRect.id) as RectangleShape;
+    expect(r2.height).toBe(420);
+    expect(state.variables["R2_Height"]?.value).toBe(420);
+  });
+
+  it("should automatically resize bound cavity R2 when outer shape R1 is resized via RESIZE_SHAPES", () => {
+    let state = drawingReducer(initialDrawingState, {
+      type: "LOAD_SHAPES",
+      shapes: [outerRect, innerRect],
+    });
+
+    const heightFormula = state.inferredFormulas.find((f) => f.displayTarget.includes("Height"))!;
+
+    state = drawingReducer(state, {
+      type: "ACCEPT_INFERRED_FORMULA",
+      id: heightFormula.id,
+    });
+
+    // User drags handle on canvas dispatching RESIZE_SHAPES
+    state = drawingReducer(state, {
+      type: "RESIZE_SHAPES",
+      updatedShapes: [{ ...outerRect, height: 450 }],
+    });
+
+    const r1 = state.shapes.find((s) => s.id === outerRect.id) as RectangleShape;
+    expect(r1.height).toBe(450);
+
+    const r2 = state.shapes.find((s) => s.id === innerRect.id) as RectangleShape;
+    expect(r2.height).toBe(370); // 450 - 2 * 40 = 370
+    expect(state.variables["R2_Height"]?.value).toBe(370);
+  });
 });

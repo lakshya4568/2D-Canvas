@@ -168,6 +168,55 @@ function runParametricSync(
 }
 
 /**
+ * Synchronizes a modified shape's geometric parameters into variables,
+ * updating any existing alias or matching variable keys while preserving formulas.
+ */
+function syncShapeParametersToVariables(
+  shape: Shape,
+  shapeIndex: number,
+  currentVars: Record<string, ParametricVariable>
+): Record<string, ParametricVariable> {
+  const nextVars = { ...currentVars };
+  const shapeName = shape.name || ParametricModel.getShapeName(shape, shapeIndex);
+  const cleanName = shape.name ? shape.name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") : "";
+  const params = ParametricModel.getShapeParameters(shape);
+
+  for (const p of params) {
+    const val = p.value;
+    const keyLow = p.key.toLowerCase();
+    const keyCap = p.key.charAt(0).toUpperCase() + p.key.slice(1).toLowerCase();
+
+    const prefixes = [shapeName, cleanName, shape.id].filter(Boolean);
+    const candidateKeys = new Set<string>();
+    for (const prefix of prefixes) {
+      candidateKeys.add(`${prefix}.${keyLow}`);
+      candidateKeys.add(`${prefix}.${keyCap}`);
+      candidateKeys.add(`${prefix}_${keyLow}`);
+      candidateKeys.add(`${prefix}_${keyCap}`);
+      const normPrefixKey = `${prefix}${p.key}`.replace(/[._]/g, "").toLowerCase();
+      for (const varName of Object.keys(nextVars)) {
+        if (varName.replace(/[._]/g, "").toLowerCase() === normPrefixKey) {
+          candidateKeys.add(varName);
+        }
+      }
+    }
+
+    for (const key of candidateKeys) {
+      if (nextVars[key]) {
+        if (!nextVars[key].formula) {
+          nextVars[key] = {
+            ...nextVars[key],
+            value: val,
+          };
+        }
+      }
+    }
+  }
+
+  return nextVars;
+}
+
+/**
  * Reconciles freshly inferred formulas against existing ones and active variables,
  * preserving accepted/bound status and expressions.
  */
@@ -542,11 +591,40 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const updatedMap = new Map(action.updatedShapes.map((s) => [s.id, s]));
       const nextShapes = state.shapes.map((s) => updatedMap.get(s.id) || s);
 
+      let syncedVars = { ...state.variables };
+      action.updatedShapes.forEach((s) => {
+        const idx = state.shapes.findIndex((orig) => orig.id === s.id);
+        if (idx !== -1) {
+          syncedVars = syncShapeParametersToVariables(s, idx, syncedVars);
+        }
+      });
+
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        nextShapes,
+        syncedVars,
+        state.constraints
+      );
+
+      const finalFormulas = mergeInferredFormulas(
+        state.inferredFormulas,
+        synthesizeFormulasFromGeometry(updatedShapes),
+        updatedVariables
+      ).map((f) => {
+        const matchingVar = updatedVariables[f.targetProperty]
+          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
+        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
+          return { ...f, evaluatedValue: matchingVar.value };
+        }
+        return f;
+      });
+
       return {
         ...state,
-        shapes: nextShapes,
-        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, synthesizeFormulasFromGeometry(nextShapes), state.variables),
-        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
+        shapes: updatedShapes,
+        variables: updatedVariables,
+        parametricErrors: errors,
+        inferredFormulas: finalFormulas,
+        boundaryEvaluations: evaluateAllBoundaryLimits(updatedShapes),
       };
     }
 
@@ -649,6 +727,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const currentShape = state.shapes[targetIndex];
       const updates = action.updates as Record<string, any>;
 
+      let intermediateShapes = state.shapes;
       if (
         updates.width !== undefined ||
         updates.height !== undefined
@@ -660,28 +739,54 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         });
 
         if (gadAdjustment.solved) {
-          const finalShapes = gadAdjustment.updatedShapes.map((s) =>
+          intermediateShapes = gadAdjustment.updatedShapes.map((s) =>
             s.id === action.id ? ({ ...s, ...action.updates } as Shape) : s
           );
-          return {
-            ...state,
-            shapes: finalShapes,
-            inferredFormulas: mergeInferredFormulas(state.inferredFormulas, synthesizeFormulasFromGeometry(finalShapes), state.variables),
-            boundaryEvaluations: evaluateAllBoundaryLimits(finalShapes),
-            history: pushHistory(state, `Update ${currentShape.type}`),
-          };
+        } else {
+          const updatedShape = { ...currentShape, ...action.updates } as Shape;
+          intermediateShapes = [...state.shapes];
+          intermediateShapes[targetIndex] = updatedShape;
         }
+      } else {
+        const updatedShape = { ...currentShape, ...action.updates } as Shape;
+        intermediateShapes = [...state.shapes];
+        intermediateShapes[targetIndex] = updatedShape;
       }
 
-      const updatedShape = { ...currentShape, ...action.updates } as Shape;
-      const nextShapes = [...state.shapes];
-      nextShapes[targetIndex] = updatedShape;
+      // Synchronize modified shape parameters into state.variables
+      const syncedVars = syncShapeParametersToVariables(
+        intermediateShapes[targetIndex],
+        targetIndex,
+        state.variables
+      );
+
+      // Run parametric sync so bound dependent formulas (e.g. R2_Height) re-evaluate
+      const { updatedShapes, updatedVariables, errors } = runParametricSync(
+        intermediateShapes,
+        syncedVars,
+        state.constraints
+      );
+
+      const finalFormulas = mergeInferredFormulas(
+        state.inferredFormulas,
+        synthesizeFormulasFromGeometry(updatedShapes),
+        updatedVariables
+      ).map((f) => {
+        const matchingVar = updatedVariables[f.targetProperty]
+          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
+        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
+          return { ...f, evaluatedValue: matchingVar.value };
+        }
+        return f;
+      });
 
       return {
         ...state,
-        shapes: nextShapes,
-        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, synthesizeFormulasFromGeometry(nextShapes), state.variables),
-        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
+        shapes: updatedShapes,
+        variables: updatedVariables,
+        parametricErrors: errors,
+        inferredFormulas: finalFormulas,
+        boundaryEvaluations: evaluateAllBoundaryLimits(updatedShapes),
         history: pushHistory(state, `Update ${currentShape.type}`),
       };
     }
@@ -1063,16 +1168,58 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           formula: formulaStr,
         };
       }
+
+      // Synchronize all case and punctuation aliases (e.g. R1_height <-> R1_Height <-> R1.height)
+      const normTarget = action.name.replace(/[._]/g, "").toLowerCase();
+      for (const [k, v] of Object.entries(state.variables)) {
+        if (k.replace(/[._]/g, "").toLowerCase() === normTarget) {
+          nextVars[k] = {
+            ...v,
+            value: val,
+            formula: formulaStr,
+          };
+        }
+      }
+
+      const match = action.name.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
+      if (match) {
+        const pfx = match[1];
+        const prp = match[2];
+        const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
+        const low = prp.toLowerCase();
+        for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
+          nextVars[alias] = {
+            name: alias,
+            value: val,
+            formula: formulaStr,
+            description: action.description ?? state.variables[alias]?.description,
+            unit: state.variables[alias]?.unit ?? state.variables[action.name]?.unit,
+          };
+        }
+      }
+
       const { updatedShapes, updatedVariables, errors } = runParametricSync(
         state.shapes,
         nextVars,
         state.constraints
       );
+
+      // Keep formula evaluated values in sync with live variables
+      const syncedFormulas = state.inferredFormulas.map((f) => {
+        const matchingVar = updatedVariables[f.targetProperty]
+          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
+        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
+          return { ...f, evaluatedValue: matchingVar.value };
+        }
+        return f;
+      });
+
       return {
         ...state,
         variables: updatedVariables,
         shapes: updatedShapes,
         parametricErrors: errors,
+        inferredFormulas: syncedFormulas,
         history: pushHistory(state, `Set Variable ${action.name}`),
       };
     }
@@ -1224,6 +1371,16 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const nextVars = { ...state.variables };
       for (const v of formula.variables) {
         nextVars[v.name] = { name: v.name, value: v.value, unit: "mm" };
+        const match = v.name.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
+        if (match) {
+          const pfx = match[1];
+          const prp = match[2];
+          const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
+          const low = prp.toLowerCase();
+          for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
+            nextVars[alias] = { name: alias, value: v.value, unit: "mm" };
+          }
+        }
       }
 
       nextVars[formula.targetProperty] = {
@@ -1232,6 +1389,22 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         formula: formula.expression,
         unit: "mm",
       };
+
+      const targetMatch = formula.targetProperty.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
+      if (targetMatch) {
+        const pfx = targetMatch[1];
+        const prp = targetMatch[2];
+        const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
+        const low = prp.toLowerCase();
+        for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
+          nextVars[alias] = {
+            name: alias,
+            value: formula.evaluatedValue,
+            formula: formula.expression,
+            unit: "mm",
+          };
+        }
+      }
 
       const updatedFormulas = state.inferredFormulas.map((f) =>
         f.id === action.id ? { ...f, status: "accepted" as const } : f
@@ -1243,12 +1416,21 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         state.constraints
       );
 
+      const syncedFormulas = updatedFormulas.map((f) => {
+        const matchingVar = updatedVariables[f.targetProperty]
+          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
+        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
+          return { ...f, evaluatedValue: matchingVar.value };
+        }
+        return f;
+      });
+
       return {
         ...state,
         variables: updatedVariables,
         shapes: updatedShapes,
         parametricErrors: errors,
-        inferredFormulas: updatedFormulas,
+        inferredFormulas: syncedFormulas,
         history: pushHistory(state, `Accept formula ${formula.expression}`),
       };
     }
@@ -1259,6 +1441,24 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
 
       const nextVars = { ...state.variables };
       delete nextVars[formula.targetProperty];
+
+      const targetMatch = formula.targetProperty.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
+      if (targetMatch) {
+        const pfx = targetMatch[1];
+        const prp = targetMatch[2];
+        const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
+        const low = prp.toLowerCase();
+        for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
+          delete nextVars[alias];
+        }
+      }
+
+      const normTarget = formula.targetProperty.replace(/[._]/g, "").toLowerCase();
+      for (const k of Object.keys(nextVars)) {
+        if (k.replace(/[._]/g, "").toLowerCase() === normTarget) {
+          delete nextVars[k];
+        }
+      }
 
       const updatedFormulas = state.inferredFormulas.map((f) =>
         f.id === action.id ? { ...f, status: "pending" as const } : f
@@ -1298,6 +1498,22 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           formula: newExpression,
           unit: "mm",
         };
+
+        const targetMatch = newTargetProperty.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
+        if (targetMatch) {
+          const pfx = targetMatch[1];
+          const prp = targetMatch[2];
+          const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
+          const low = prp.toLowerCase();
+          for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
+            nextVars[alias] = {
+              name: alias,
+              value: formula.evaluatedValue,
+              formula: newExpression,
+              unit: "mm",
+            };
+          }
+        }
       }
 
       const updatedFormulas = state.inferredFormulas.map((f) =>
@@ -1316,12 +1532,21 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         state.constraints
       );
 
+      const syncedFormulas = updatedFormulas.map((f) => {
+        const matchingVar = updatedVariables[f.targetProperty]
+          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
+        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
+          return { ...f, evaluatedValue: matchingVar.value };
+        }
+        return f;
+      });
+
       return {
         ...state,
         variables: updatedVariables,
         shapes: updatedShapes,
         parametricErrors: errors,
-        inferredFormulas: updatedFormulas,
+        inferredFormulas: syncedFormulas,
         history: pushHistory(state, `Update formula ${formula.displayTarget}`),
       };
     }

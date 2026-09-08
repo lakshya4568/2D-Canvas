@@ -178,12 +178,7 @@ export class ParametricModel {
   public buildSymbolTable(shapes: Shape[]): SymbolTable {
     const symbols: SymbolTable = {};
 
-    // 1. Registered custom variables (e.g. W = 200)
-    for (const [name, v] of this.variables.entries()) {
-      symbols[name] = v.value;
-    }
-
-    // 2. Shape properties (e.g. L1.length, Line_1.length, R1.width, Rectangle_1.width)
+    // 1. Default shape properties from drawn canvas geometry (fallback)
     shapes.forEach((s, idx) => {
       const shapeName = ParametricModel.getShapeName(s, idx);
       const legacyPrefix = s.type.charAt(0).toUpperCase() + s.type.slice(1) + `_${idx + 1}`;
@@ -233,6 +228,24 @@ export class ParametricModel {
         symbols[shapeName] = s.r;
       }
     });
+
+    // 2. Explicit registered custom variables and calculated formulas (OVERRIDE shape defaults)
+    for (const [name, v] of this.variables.entries()) {
+      symbols[name] = v.value;
+
+      // Populate common dot/underscore and case aliases so formula expressions resolve cleanly
+      const match = name.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
+      if (match) {
+        const prefix = match[1];
+        const prop = match[2];
+        const capProp = prop.charAt(0).toUpperCase() + prop.slice(1).toLowerCase();
+        const lowProp = prop.toLowerCase();
+        symbols[`${prefix}.${lowProp}`] = v.value;
+        symbols[`${prefix}.${capProp}`] = v.value;
+        symbols[`${prefix}_${lowProp}`] = v.value;
+        symbols[`${prefix}_${capProp}`] = v.value;
+      }
+    }
 
     return symbols;
   }
@@ -334,8 +347,17 @@ export class ParametricModel {
 
     const getVarValue = (...names: string[]): number | undefined => {
       for (const n of names) {
+        if (!n) continue;
         const v = this.variables.get(n);
         if (v !== undefined) return v.value;
+      }
+      // Case-insensitive & dot/underscore normalized fallback
+      const varEntries = Array.from(this.variables.entries());
+      for (const n of names) {
+        if (!n) continue;
+        const normN = n.replace(/[._]/g, "").toLowerCase();
+        const found = varEntries.find(([k]) => k.replace(/[._]/g, "").toLowerCase() === normN);
+        if (found) return found[1].value;
       }
       return undefined;
     };

@@ -418,7 +418,10 @@ export function PropertyInspector({
                 </div>
 
                 {state.inferredFormulas.map((f) => {
-                  const isAccepted = f.status === "accepted";
+                  const matchingVar = state.variables[f.targetProperty]
+                    ?? Object.entries(state.variables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
+                  const isAccepted = f.status === "accepted" || Boolean(matchingVar?.formula);
+                  const liveVal = matchingVar?.value ?? f.evaluatedValue;
                   const isSelected = selectedFormulaId === f.id || (selectedShape && selectedShape.id === f.targetShapeId);
                   const isEditingThisFormula = editingFormulaId === f.id;
 
@@ -445,7 +448,7 @@ export function PropertyInspector({
                           {f.displayTarget}
                         </span>
                         <span className="font-mono text-emerald-400 font-bold text-xs">
-                          {Math.round(f.evaluatedValue)} mm
+                          {Math.round(liveVal)} mm
                         </span>
                       </div>
 
@@ -527,7 +530,9 @@ export function PropertyInspector({
                       {f.variables && f.variables.length > 0 && (
                         <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-[var(--fg-muted)]">
                           {f.variables.map((v) => {
-                            const currentVal = state.variables[v.name]?.value ?? v.value;
+                            const varMatch = state.variables[v.name]
+                              ?? Object.entries(state.variables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === v.name.replace(/[._]/g, "").toLowerCase())?.[1];
+                            const currentVal = varMatch?.value ?? v.value;
                             const isEditingThisVar = editingVarName === `${f.id}_${v.name}`;
 
                             if (isEditingThisVar) {
@@ -1214,7 +1219,11 @@ export function PropertyInspector({
                     const shapeName = selectedShape.name || ParametricModel.getShapeName(selectedShape, state.shapes.indexOf(selectedShape));
                     const varName = `${shapeName}_${p.key}`;
                     const dotVarName = `${shapeName}.${p.key}`;
-                    const boundVar = state.variables[varName] || state.variables[dotVarName] || (selectedShape.name ? (state.variables[`${selectedShape.name}_${p.key}`] || state.variables[`${selectedShape.name}.${p.key}`]) : undefined);
+                    const normKey = `${shapeName}${p.key}`.toLowerCase();
+                    const boundVar = state.variables[varName]
+                      || state.variables[dotVarName]
+                      || (selectedShape.name ? (state.variables[`${selectedShape.name}_${p.key}`] || state.variables[`${selectedShape.name}.${p.key}`]) : undefined)
+                      || Object.entries(state.variables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === normKey)?.[1];
 
                     return (
                       <div key={p.key} className="flex flex-col py-1 border-b border-[var(--border-subtle)]/40 last:border-0 gap-1">
