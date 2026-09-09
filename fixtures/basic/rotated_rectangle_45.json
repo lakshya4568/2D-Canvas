@@ -1,0 +1,107 @@
+{
+  "sketchId": "rotated_rect_45",
+  "schemaVersion": "1.0",
+  "engineVersion": "1.0.0",
+  "name": "Rotated Rectangle 45°",
+  "units": {
+    "length": "mm",
+    "angle": "deg"
+  },
+  "tolerances": {
+    "units": "mm",
+    "weld_mm": 0.5,
+    "geometry_mm": 0.5,
+    "cluster_mm": 1,
+    "angle_rad": 0.008726646259971648,
+    "collinear_rad": 0.05,
+    "solver_residual": 1e-8,
+    "singular_value_eps": 1e-10,
+    "independence_eps": 0.000001,
+    "snap_import_mm": 2
+  },
+  "parameters": {},
+  "formulas": [],
+  "primitives": {
+    "points": {
+      "p1": {
+        "id": "p1",
+        "x": 0,
+        "y": 0,
+        "fixed": true
+      },
+      "p2": {
+        "id": "p2",
+        "x": 707.1067811865476,
+        "y": 707.1067811865474
+      },
+      "p3": {
+        "id": "p3",
+        "x": 282.8427124746191,
+        "y": 1131.370849898476
+      },
+      "p4": {
+        "id": "p4",
+        "x": -424.2640687119285,
+        "y": 424.26406871192853
+      }
+    },
+    "lines": {
+      "l1": {
+        "id": "l1",
+        "startPointId": "p1",
+        "endPointId": "p2"
+      },
+      "l2": {
+        "id": "l2",
+        "startPointId": "p2",
+        "endPointId": "p3"
+      },
+      "l3": {
+        "id": "l3",
+        "startPointId": "p3",
+        "endPointId": "p4"
+      },
+      "l4": {
+        "id": "l4",
+        "startPointId": "p4",
+        "endPointId": "p1"
+      }
+    },
+    "arcs": {},
+    "circles": {}
+  },
+  "topology": {
+    "halfEdges": {},
+    "faces": {}
+  },
+  "constraints": {
+    "c1": {
+      "id": "c1",
+      "type": "PARALLEL",
+      "entities": [
+        "l1",
+        "l3"
+      ],
+      "strength": "hard",
+      "driving": true,
+      "isActive": true,
+      "predicate": "P1",
+      "provenance": "GeometricFact",
+      "state": "active"
+    },
+    "c2": {
+      "id": "c2",
+      "type": "PERPENDICULAR",
+      "entities": [
+        "l1",
+        "l2"
+      ],
+      "strength": "hard",
+      "driving": true,
+      "isActive": true,
+      "predicate": "P2",
+      "provenance": "GeometricFact",
+      "state": "active"
+    }
+  }
+}

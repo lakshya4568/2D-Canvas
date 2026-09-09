@@ -1,0 +1,51 @@
+# Unified Parametric CAD Engine — Legal Notice & License Discipline
+
+## 1. Third-Party Licenses & Attributions
+
+This software incorporates and interfaces with open-source libraries under permissive and copyleft licenses:
+
+- **PlaneGCS (WebAssembly port: `@salusoft89/planegcs`)**
+  - Original C++ Solver: FreeCAD Project (LGPL-2.0-or-later)
+  - WebAssembly Compilation: Salusoft89 (LGPL-2.0-or-later)
+  - SPDX: `LGPL-2.0-or-later`
+  - Relinking & Compliance: See Section 2 below.
+
+- **Frontend & Utility Libraries**
+  - React, Next.js, Motion, Tailwind CSS, Lucide-React: MIT License
+  - Zod: MIT License
+  - Vitest: MIT License
+  - Clipper2 (`pyclipr`): Boost Software License 1.0
+  - ezdxf: MIT License
+  - drawsvg: MIT License
+  - networkx, NumPy, SciPy, scikit-learn, Shapely: BSD-3-Clause License
+  - mathjs: Apache-2.0 License
+  - asteval: MIT License
+
+---
+
+## 2. PlaneGCS LGPL Relinking Architecture
+
+In compliance with the GNU Lesser General Public License (LGPL v2.1/v2.0-or-later):
+1. **Dynamic / Modular Boundary**: `@salusoft89/planegcs` is loaded dynamically as an isolated WebAssembly module (`planegcs.wasm`) and runtime boundary. It is not statically compiled into proprietary source closures.
+2. **User Replaceability**: Users may recompile PlaneGCS from source and substitute the `planegcs.wasm` binary or npm package without rebuilding the proprietary engine application.
+3. **Upstream Modifications**: Any bug fixes, performance modifications, or binding patches made directly to the PlaneGCS solver codebase shall be contributed back or made publicly available under LGPL-2.0-or-later.
+
+---
+
+## 3. Banned License List (CI Enforced)
+
+Per UPCE-MASTER-1.0 §2 Constraint 10 and §84, the following artifacts, licenses, and packages are strictly forbidden from entering any shipped production bundle or runtime dependency closure:
+
+| Forbidden Dependency | License | Reason |
+|---|---|---|
+| `py-slvs`, `python-solvespace`, `SolveSpace` | GPL-3.0 | Viral copyleft forbids commercial linking |
+| `CAD_Sketcher` | GPL-3.0 | Blender add-on wrapping py-slvs |
+| `PyMuPDF` (`fitz`) | AGPL-3.0 | Network-triggered source disclosure clause |
+| `LibreDWG`, `libdxfrw` | GPL-3.0 | Viral copyleft |
+| GPL-licensed CGAL packages | GPL-3.0 | Viral copyleft (only LGPL core is permitted) |
+| `jsketcher` | Dual/Non-Commercial | Commercial restriction in default OSS license |
+| `freecad-stubs` | GPL-3.0 | Viral copyleft on type stubs (generate from schema instead) |
+
+### CI Enforcement Mechanism
+CI pipeline includes an automated dependency-license scanner (`license-checker` / `pip-licenses`) that parses all runtime production dependencies:
+- Any package licensed under `GPL`, `GPL-2.0`, `GPL-3.0`, `AGPL-1.0`, `AGPL-3.0`, or custom non-commercial terms fails the CI build with exit code 1.

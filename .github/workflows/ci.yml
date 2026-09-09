@@ -1,0 +1,35 @@
+name: UPCE CI Pipeline
+
+on:
+  push:
+    branches: [main, upce_master_init_foundation, parametric_formulation]
+  pull_request:
+    branches: [main, upce_master_init_foundation]
+
+jobs:
+  test-and-verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run CI Dependency License Scanner (§2.10, §84)
+        run: bun run license:scan
+
+      - name: Run Tolerance & Shape Branching Lint (§2.4, §2.5, §17)
+        run: bun run lint:tolerance
+
+      - name: Verify Schema Type Generation (§5.1, §25)
+        run: bun run generate:types
+
+      - name: Run Comprehensive Test Suite & Acceptance Gates (§75, §76)
+        run: bun test

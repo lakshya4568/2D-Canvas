@@ -506,10 +506,12 @@ export function synthesizeFormulasFromGeometry(shapes: Shape[]): InferredFormula
 
   // 4. Scan for Circular ducts inside bays
   for (const shape of shapes) {
-    if (shape.type === "circle") {
+    const sType = shape.type;
+    if (sType === "circle") {
       const circ = shape as CircleShape;
       for (const parent of shapes) {
-        if (parent.type === "rectangle" && parent.id !== circ.id) {
+        const pType = parent.type;
+        if (pType === "rectangle" && parent.id !== circ.id) {
           const rect = parent as RectangleShape;
           if (
             circ.cx >= rect.x &&

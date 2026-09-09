@@ -23,6 +23,8 @@ import {
   createTwoSpanCulvertModel,
   solveTwoSpanCulvertBay1,
 } from "../state/index";
+import { BipartiteConstraintGraph } from "./graph/bipartiteGraph";
+import { extractConnectedSubgraphsBFS, ConnectedSubgraph } from "./graph/bfsPartition";
 
 export interface ParametricVariable {
   name: string;
@@ -909,11 +911,12 @@ export class ParametricModel {
    * 3. Runs Bipartite Constraint Graph & Geometric Solver (Gauss-Newton relaxation).
    * 4. Synchronizes resolved coordinates back to canvas shapes.
    */
-  public solveParametricGeometricModel(shapes: Shape[]): {
+  public solveParametricGeometricModel(shapes: Shape[], dirtyEntityIds?: string[]): {
     updatedShapes: Shape[];
     loops: DetectedLoop[];
     errors: string[];
     dofAnalysis?: DOFAnalysis;
+    affectedSubgraphs?: ConnectedSubgraph[];
   } {
     // 1. Detect closed loops and publish derived metrics to symbol table
     const loops = this.detectLoops(shapes);
@@ -922,7 +925,19 @@ export class ParametricModel {
     const lcsRes = this.solveWithLCS(shapes);
     let resolvedShapes = lcsRes.shapes;
 
-    // 3. Populate constraint graph entities and solve geometric constraints if any exist
+    // 3. Incremental dirty sub-problem resolution via BFS partitioning (§33, §34)
+    if (dirtyEntityIds && dirtyEntityIds.length > 0 && this.constraintGraph.constraints.size > 0) {
+      const incRes = this.solveIncrementalDirty(resolvedShapes, dirtyEntityIds);
+      return {
+        updatedShapes: incRes.updatedShapes,
+        loops,
+        errors: [...lcsRes.errors, ...incRes.errors],
+        dofAnalysis: incRes.dofAnalysis,
+        affectedSubgraphs: incRes.affectedSubgraphs,
+      };
+    }
+
+    // 4. Populate constraint graph entities and solve geometric constraints if any exist
     let dofAnalysis: DOFAnalysis | undefined;
     if (this.constraintGraph.constraints.size > 0) {
       dofAnalysis = this.constraintGraph.analyzeDOF();
@@ -943,6 +958,80 @@ export class ParametricModel {
       updatedShapes: resolvedShapes,
       loops,
       errors: lcsRes.errors,
+      dofAnalysis,
+    };
+  }
+
+  /**
+   * Solves an incremental dirty subgraph via BFS partitioning (UPCE-MASTER-1.0 §33, §34).
+   * Restricts the numerical solve to only the connected component containing dirty entities.
+   */
+  public solveIncrementalDirty(shapes: Shape[], dirtyEntityIds: string[]): {
+    updatedShapes: Shape[];
+    affectedSubgraphs: ConnectedSubgraph[];
+    errors: string[];
+    dofAnalysis?: DOFAnalysis;
+  } {
+    // 1. Build bipartite graph from active entities & constraints
+    const bg = new BipartiteConstraintGraph();
+    for (const [id, ent] of this.constraintGraph.entities.entries()) {
+      bg.addEntity(id, ent.isFixed ? 0 : ent.dof || 2);
+    }
+    for (const [id, c] of this.constraintGraph.constraints.entries()) {
+      bg.addConstraint(id, c.entityIds, c.dofCost || 1);
+    }
+
+    // 2. Extract affected connected subgraphs containing dirty entities
+    const subgraphs = extractConnectedSubgraphsBFS(bg, dirtyEntityIds);
+    if (subgraphs.length === 0) {
+      return {
+        updatedShapes: shapes,
+        affectedSubgraphs: [],
+        errors: [],
+      };
+    }
+
+    const allAffectedEntities = new Set<string>();
+    const allAffectedConstraints = new Set<string>();
+    for (const sg of subgraphs) {
+      for (const e of sg.entityIds) allAffectedEntities.add(e);
+      for (const c of sg.constraintIds) allAffectedConstraints.add(c);
+    }
+
+    // 3. Create scoped subgraph with only affected entities & constraints
+    const scopedGraph = new ConstraintGraph();
+    for (const eId of allAffectedEntities) {
+      const ent = this.constraintGraph.entities.get(eId);
+      if (ent) scopedGraph.entities.set(eId, { ...ent });
+    }
+    for (const cId of allAffectedConstraints) {
+      const c = this.constraintGraph.constraints.get(cId);
+      if (c) scopedGraph.constraints.set(cId, { ...c });
+    }
+
+    const dofAnalysis = scopedGraph.analyzeDOF();
+    const geomRes = this.geometricSolver.solve(scopedGraph);
+
+    // 4. Update only shapes affected by the partitioned solve
+    const updatedShapes = shapes.map((s) => {
+      const p1Key = `${s.id}_p1`;
+      const p2Key = `${s.id}_p2`;
+      if (allAffectedEntities.has(p1Key) || allAffectedEntities.has(p2Key) || allAffectedEntities.has(s.id)) {
+        if (s.type === "line" || s.type === "arrow") {
+          const p1 = geomRes.points.get(p1Key);
+          const p2 = geomRes.points.get(p2Key);
+          if (p1 && p2) {
+            return { ...s, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+          }
+        }
+      }
+      return s;
+    });
+
+    return {
+      updatedShapes,
+      affectedSubgraphs: subgraphs,
+      errors: geomRes.errors,
       dofAnalysis,
     };
   }

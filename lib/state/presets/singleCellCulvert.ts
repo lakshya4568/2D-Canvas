@@ -17,6 +17,9 @@ export interface SolvedHaunchMetric {
 
 export interface SolvedSingleCellCulvert {
   converged: boolean;
+  iterations?: number;
+  residualNorm?: number;
+  maxResidual?: number;
   clearSpan: number;
   clearHeight: number;
   outerWidth: number;
@@ -303,6 +306,9 @@ export function solveSingleCellCulvertSpan(
 
   return {
     converged: solveRes.converged,
+    iterations: solveRes.iterations,
+    residualNorm: solveRes.residualNorm,
+    maxResidual: solveRes.maxResidual,
     clearSpan,
     clearHeight,
     outerWidth,

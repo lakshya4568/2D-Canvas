@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "IRC_STRUCTURAL",
+  "revision": "2020",
+  "verified": false,
+  "description": "IRC:112 and IRC:SP:13 structural provisions for highway culverts and small bridges (Unconfirmed - Pending Human Verification)",
+  "parameterBounds": {
+    "ConcreteCover": {
+      "min": 40,
+      "max": 75,
+      "unit": "mm",
+      "note": "Minimum nominal cover for moderate to severe exposure conditions",
+      "codeRef": "IRC:112 Table 14.2"
+    },
+    "MinSlabThickness": {
+      "min": 200,
+      "max": 1200,
+      "unit": "mm",
+      "note": "Crack control and shear resistance minimum thickness",
+      "codeRef": "IRC:SP:13 Section 9"
+    },
+    "MinWallThickness": {
+      "min": 250,
+      "max": 1000,
+      "unit": "mm",
+      "note": "Constructibility and axial-flexure requirement",
+      "codeRef": "IRC:SP:13 Section 9"
+    },
+    "MinHaunchLeg": {
+      "min": 100,
+      "max": 400,
+      "unit": "mm",
+      "note": "Corner stress distribution",
+      "codeRef": "IRC:SP:13 Appendix"
+    }
+  },
+  "requiredParameters": [
+    "ConcreteCover",
+    "MinSlabThickness",
+    "MinWallThickness"
+  ],
+  "relationships": [
+    {
+      "expr": "MinSlabThickness >= 200",
+      "message": "Deck slab thickness less than 200mm is non-compliant with IRC:SP:13",
+      "codeRef": "IRC:SP:13 Cl. 9.3"
+    }
+  ]
+}

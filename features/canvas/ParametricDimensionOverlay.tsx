@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { Shape } from "@/lib/geometry/types";
 import { lineMetrics } from "@/lib/geometry/metrics";
 import { ParametricModel } from "@/lib/parametric/model";
+import { DimensionBadge, BadgeVisualState } from "./DimensionBadge";
+import { ParameterManager } from "@/lib/parametric/parameterManager";
 
 interface ParametricDimensionOverlayProps {
   scale: number;
@@ -12,92 +14,55 @@ interface ParametricDimensionOverlayProps {
 
 export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProps> = ({ scale }) => {
   const { state, dispatch } = useDrawing();
-  const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (editingShapeId && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [editingShapeId]);
+  const handleCommitBadge = (shape: Shape, newValue: string, paramName?: string) => {
+    const trimmed = newValue.trim();
+    if (!trimmed) return;
 
-  const handleStartEdit = (shape: Shape, currentExpr: string, e: React.PointerEvent | React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setEditingShapeId(shape.id);
-    setEditValue(currentExpr);
-  };
+    const parsedNum = Number(trimmed);
+    const shapeIdx = state.shapes.indexOf(shape);
+    const defName = ParametricModel.getShapeName(shape, shapeIdx);
+    const boundVarW =
+      (shape.name && (state.variables[`${shape.name}_Width`] || state.variables[`${shape.name}.width`] || state.variables[`${shape.name}_width`])) ||
+      state.variables[`${defName}_Width`] ||
+      state.variables[`${defName}.width`] ||
+      state.variables[`${defName}_width`] ||
+      state.variables.W ||
+      state.variables.Width;
 
-  const handleCommitEdit = (shape: Shape) => {
-    if (!editingShapeId) return;
-    const trimmed = editValue.trim();
-    if (trimmed) {
-      const parsedNum = Number(trimmed);
-      const shapeIdx = state.shapes.indexOf(shape);
-      const defName = ParametricModel.getShapeName(shape, shapeIdx);
-      const boundVarW =
-        (shape.name && (state.variables[`${shape.name}_Width`] || state.variables[`${shape.name}.width`] || state.variables[`${shape.name}_width`])) ||
-        state.variables[`${defName}_Width`] ||
-        state.variables[`${defName}.width`] ||
-        state.variables[`${defName}_width`] ||
-        state.variables.W ||
-        state.variables.Width;
+    const targetVarName =
+      paramName ??
+      boundVarW?.name ??
+      (shape.type === "rectangle"
+        ? `${shape.name || defName}_Width`
+        : `${shape.name || defName}_Length`);
 
-      if (!isNaN(parsedNum) && parsedNum > 0) {
-        if (state.userMode === "author" && boundVarW) {
-          dispatch({
-            type: "SET_VARIABLE",
-            name: boundVarW.name,
-            valueOrFormula: parsedNum,
-          });
-        } else if (shape.type === "rectangle") {
-          dispatch({
-            type: "UPDATE_SHAPE",
-            id: shape.id,
-            updates: { width: parsedNum },
-          });
-        } else if (shape.type === "line" || shape.type === "arrow") {
-          const metrics = lineMetrics({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
-          const rad = (metrics.angleDeg * Math.PI) / 180;
-          dispatch({
-            type: "UPDATE_SHAPE",
-            id: shape.id,
-            updates: {
-              x2: shape.x1 + parsedNum * Math.cos(rad),
-              y2: shape.y1 + parsedNum * Math.sin(rad),
-            },
-          });
-        }
-      } else {
-        const eqIdx = trimmed.indexOf("=");
-        let varName = boundVarW ? boundVarW.name : (shape.name || defName);
-        let expr = trimmed;
+    const paramMgr = new ParameterManager();
+    if (!isNaN(parsedNum) && parsedNum > 0) {
+      // UPCE-MASTER-1.0 §61, §2 Constraint 14:
+      // Badge commits route through ParameterManager.setDriving() + constraint node + re-solve.
+      // NEVER mutate shape.width or shape.x2 directly!
+      paramMgr.setDriving(targetVarName, parsedNum);
+      dispatch({
+        type: "SET_VARIABLE",
+        name: targetVarName,
+        valueOrFormula: parsedNum,
+      });
+    } else {
+      const eqIdx = trimmed.indexOf("=");
+      let varName = targetVarName;
+      let expr = trimmed;
 
-        if (eqIdx !== -1) {
-          varName = trimmed.substring(0, eqIdx).trim();
-          expr = trimmed.substring(eqIdx + 1).trim();
-        }
-
-        dispatch({
-          type: "SET_VARIABLE",
-          name: varName,
-          valueOrFormula: expr,
-        });
+      if (eqIdx !== -1) {
+        varName = trimmed.substring(0, eqIdx).trim();
+        expr = trimmed.substring(eqIdx + 1).trim();
       }
-    }
 
-    setEditingShapeId(null);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent, shape: Shape) => {
-    if (e.key === "Enter") {
-      e.stopPropagation();
-      handleCommitEdit(shape);
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      setEditingShapeId(null);
+      dispatch({
+        type: "SET_VARIABLE",
+        name: varName,
+        valueOrFormula: expr,
+      });
     }
   };
 
@@ -122,6 +87,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         let displayLabel = "";
         let rawExpr = "";
         let isFormulaDriven = false;
+        let targetVarName = "";
 
         if (shape.type === "line" || shape.type === "arrow") {
           const metrics = lineMetrics({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
@@ -173,6 +139,8 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
             state.variables[`L${shapeIdx + 1}`] ||
             state.variables[`Line_${shapeIdx + 1}`];
 
+          targetVarName = boundVar?.name ?? (shape.name || defName);
+
           if (state.userMode === "draftsman") {
             displayLabel = `${Math.round(len)} mm`;
             rawExpr = String(Math.round(len));
@@ -197,6 +165,8 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
             state.variables.W ||
             state.variables.Width;
 
+          targetVarName = boundVarW?.name ?? (shape.name ? `${shape.name}_Width` : `${defName}_Width`);
+
           if (state.userMode === "draftsman") {
             displayLabel = `${Math.round(shape.width)} × ${Math.round(shape.height)} mm`;
             rawExpr = String(Math.round(shape.width));
@@ -212,110 +182,23 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
           return null;
         }
 
-        const isEditing = editingShapeId === shape.id;
-        const fontSize = 11 / scale;
-        const charWidth = 6.8 / scale;
-        const textWidth = displayLabel.length * charWidth;
-        const dotPadding = isFormulaDriven ? 10 / scale : 0;
-        const badgeWidth = Math.max(36 / scale, textWidth + 18 / scale + dotPadding);
-        const badgeHeight = 20 / scale;
-        const isDark = state.themeMode !== "light";
-
-        const editWidth = Math.max(130 / scale, badgeWidth + 16 / scale);
+        const visualState: BadgeVisualState = isFormulaDriven ? "derived" : "driving";
+        const isEditable = !isFormulaDriven;
 
         return (
-          <g
+          <DimensionBadge
             key={`param-badge-${shape.id}-${index}`}
-            transform={`translate(${badgeX}, ${badgeY})`}
-            className="select-none"
-          >
-            {isEditing ? (
-              <foreignObject
-                x={-editWidth / 2}
-                y={-13 / scale}
-                width={editWidth}
-                height={26 / scale}
-                className="overflow-visible"
-              >
-                <div
-                  className="flex items-center gap-1 rounded bg-zinc-900 border border-amber-500/90 px-1 py-0.5 shadow-md"
-                  style={{
-                    transformOrigin: "center center",
-                    transform: `scale(${1 / scale})`,
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(e, shape)}
-                    onBlur={() => handleCommitEdit(shape)}
-                    className="w-full bg-transparent px-0.5 font-mono text-[10px] text-zinc-100 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      handleCommitEdit(shape);
-                    }}
-                    className="text-[10px] text-amber-400 hover:text-amber-300 px-0.5 cursor-pointer font-bold"
-                  >
-                    ↵
-                  </button>
-                </div>
-              </foreignObject>
-            ) : (
-              <g
-                className="cursor-pointer group"
-                onPointerDown={(e) => handleStartEdit(shape, rawExpr, e)}
-              >
-                <rect
-                  x={-badgeWidth / 2}
-                  y={-badgeHeight / 2}
-                  width={badgeWidth}
-                  height={badgeHeight}
-                  rx={3 / scale}
-                  fill={isDark ? "#14161b" : "#ffffff"}
-                  stroke={
-                    isSelected
-                      ? "#f59e0b"
-                      : isFormulaDriven
-                      ? "rgba(16, 185, 129, 0.7)"
-                      : isDark
-                      ? "rgba(255, 255, 255, 0.25)"
-                      : "rgba(0, 0, 0, 0.25)"
-                  }
-                  strokeWidth={1.2 / scale}
-                  className="transition-colors group-hover:stroke-amber-400 shadow-sm"
-                />
-
-                {isFormulaDriven && (
-                  <circle
-                    cx={-badgeWidth / 2 + 7 / scale}
-                    cy={0}
-                    r={2 / scale}
-                    fill="#10b981"
-                  />
-                )}
-
-                <text
-                  x={isFormulaDriven ? 4 / scale : 0}
-                  y={0}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill={isDark ? "#f1f5f9" : "#0f172a"}
-                  fontSize={fontSize}
-                  fontFamily="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
-                  fontWeight="600"
-                  className="group-hover:fill-amber-400"
-                >
-                  {displayLabel}
-                </text>
-              </g>
-            )}
-          </g>
+            shape={shape}
+            scale={scale}
+            x={badgeX}
+            y={badgeY}
+            label={displayLabel}
+            value={rawExpr}
+            paramName={targetVarName}
+            visualState={visualState}
+            isEditable={isEditable}
+            onCommit={(val, pName) => handleCommitBadge(shape, val, pName)}
+          />
         );
       })}
     </g>

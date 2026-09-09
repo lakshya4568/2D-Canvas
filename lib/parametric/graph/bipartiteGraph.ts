@@ -41,18 +41,12 @@ export class BipartiteConstraintGraph {
   }
 
   public calculateDegreesOfFreedom(): number {
+    const dm = this.decomposeDM();
     let totalDof = 0;
-    for (const entity of this.entities.values()) {
-      totalDof += entity.degreesOfFreedom;
+    for (const comp of dm.components) {
+      totalDof += comp.dof;
     }
-
-    let totalEquations = 0;
-    for (const constraint of this.constraints.values()) {
-      totalEquations += constraint.equationCount;
-    }
-
-    const planarRigidMotions = 3;
-    return Math.max(0, totalDof - totalEquations - planarRigidMotions);
+    return totalDof;
   }
 
   public decomposeDM(): DMResult {

@@ -1,0 +1,58 @@
+{
+  "sketchId": "eccentric_circles",
+  "schemaVersion": "1.0",
+  "engineVersion": "1.0.0",
+  "name": "Eccentric Circles",
+  "units": {
+    "length": "mm",
+    "angle": "deg"
+  },
+  "tolerances": {
+    "units": "mm",
+    "weld_mm": 0.5,
+    "geometry_mm": 0.5,
+    "cluster_mm": 1,
+    "angle_rad": 0.008726646259971648,
+    "collinear_rad": 0.05,
+    "solver_residual": 1e-8,
+    "singular_value_eps": 1e-10,
+    "independence_eps": 0.000001,
+    "snap_import_mm": 2
+  },
+  "parameters": {},
+  "formulas": [],
+  "primitives": {
+    "points": {
+      "c1": {
+        "id": "c1",
+        "x": 500,
+        "y": 500,
+        "fixed": true
+      },
+      "c2": {
+        "id": "c2",
+        "x": 550,
+        "y": 500
+      }
+    },
+    "lines": {},
+    "arcs": {},
+    "circles": {
+      "c1": {
+        "id": "c1",
+        "centerPointId": "c1",
+        "radius": 300
+      },
+      "c2": {
+        "id": "c2",
+        "centerPointId": "c2",
+        "radius": 150
+      }
+    }
+  },
+  "topology": {
+    "halfEdges": {},
+    "faces": {}
+  },
+  "constraints": {}
+}

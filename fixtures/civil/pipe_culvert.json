@@ -1,0 +1,63 @@
+{
+  "sketchId": "pipe_culvert",
+  "schemaVersion": "1.0",
+  "engineVersion": "1.0.0",
+  "name": "PIPE CULVERT",
+  "units": {
+    "length": "mm",
+    "angle": "deg"
+  },
+  "tolerances": {
+    "units": "mm",
+    "weld_mm": 0.5,
+    "geometry_mm": 0.5,
+    "cluster_mm": 1,
+    "angle_rad": 0.008726646259971648,
+    "collinear_rad": 0.05,
+    "solver_residual": 1e-8,
+    "singular_value_eps": 1e-10,
+    "independence_eps": 0.000001,
+    "snap_import_mm": 2
+  },
+  "parameters": {
+    "ClearSpan": {
+      "id": "p1",
+      "name": "ClearSpan",
+      "role": "DRIVING",
+      "type": "LENGTH",
+      "value": 2000,
+      "unit": "mm",
+      "provenance": "UserConstraint"
+    }
+  },
+  "formulas": [],
+  "primitives": {
+    "points": {
+      "p1": {
+        "id": "p1",
+        "x": 0,
+        "y": 0,
+        "fixed": true
+      },
+      "p2": {
+        "id": "p2",
+        "x": 2000,
+        "y": 0
+      }
+    },
+    "lines": {
+      "l1": {
+        "id": "l1",
+        "startPointId": "p1",
+        "endPointId": "p2"
+      }
+    },
+    "arcs": {},
+    "circles": {}
+  },
+  "topology": {
+    "halfEdges": {},
+    "faces": {}
+  },
+  "constraints": {}
+}

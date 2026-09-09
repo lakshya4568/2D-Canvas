@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "RDSO_CULVERT",
+  "revision": "3.0",
+  "verified": false,
+  "description": "Standard RDSO guidelines for Railway RCC Box Culverts (Unconfirmed - Pending Human Verification)",
+  "parameterBounds": {
+    "ClearSpan": {
+      "min": 1200,
+      "max": 6000,
+      "unit": "mm",
+      "note": "Standard single/multi-barrel railway spans",
+      "codeRef": "RDSO Drawing Standard"
+    },
+    "ClearHeight": {
+      "min": 900,
+      "max": 4500,
+      "unit": "mm",
+      "note": "Vertical hydraulic clearance",
+      "codeRef": "RDSO Drawing Standard"
+    },
+    "WallThickness": {
+      "min": 250,
+      "max": 1000,
+      "unit": "mm",
+      "note": "Minimum outer wall thickness to resist lateral earth and train surcharge",
+      "codeRef": "IRS Concrete Bridge Code"
+    },
+    "SlabThickness": {
+      "min": 250,
+      "max": 1000,
+      "unit": "mm",
+      "note": "Top slab thickness for 25t axle load",
+      "codeRef": "IRS Bridge Rules"
+    },
+    "HaunchSize": {
+      "min": 100,
+      "max": 500,
+      "unit": "mm",
+      "note": "Minimum corner haunch leg for moment transfer and stress relief",
+      "codeRef": "RDSO Standard Details"
+    },
+    "InterCellGap": {
+      "min": 10,
+      "max": 50,
+      "unit": "mm",
+      "note": "Expansion joint gap between twin/multi-cell barrels",
+      "codeRef": "RDSO Specification"
+    }
+  },
+  "requiredParameters": [
+    "ClearSpan",
+    "ClearHeight",
+    "WallThickness",
+    "SlabThickness"
+  ],
+  "relationships": [
+    {
+      "expr": "ClearSpan / ClearHeight <= 3.0",
+      "message": "Span-to-height aspect ratio exceeds 3.0, verify bending moments under 25t axle load",
+      "codeRef": "RDSO Recommended Practice"
+    }
+  ]
+}

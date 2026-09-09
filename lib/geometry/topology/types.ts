@@ -7,6 +7,7 @@ export interface DcelVertex {
   id: string;
   point: Point2D;
   incidentHalfEdge: string | null;
+  sourceShapeId?: string;
 }
 
 export interface DcelHalfEdge {
@@ -19,11 +20,14 @@ export interface DcelHalfEdge {
   face: string | null; // Associated face ID
   edge: string;   // Parent undirected edge ID
   angle: number;  // Polar angle from origin to target in radians (-pi to pi)
+  sourceShapeId?: string;
+  tags?: string[];
 }
 
 export interface DcelEdge {
   id: string;
   halfEdge: string; // Pointer to one of the twin half-edges
+  sourceShapeId?: string;
 }
 
 export interface DcelFace {
@@ -32,4 +36,8 @@ export interface DcelFace {
   innerHoles: string[];         // Starting half-edge IDs of inner CW hole cycles
   area: number;                 // Signed Shoelace area (positive = CCW, negative = CW)
   isExterior: boolean;          // True if unbounded exterior face
+  nestingDepth: number;         // 0 = outermost solid (even), 1 = interior void (odd), 2 = island (even), -1 = unbounded exterior
+  centroid: Point2D;            // Interior/boundary centroid
+  tags: string[];               // Semantic tags
+  semanticCategory: string;     // VOID, OUTER_WALL, TOP_SLAB, etc.
 }

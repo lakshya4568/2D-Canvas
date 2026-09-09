@@ -7,15 +7,28 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Bun 1.3+** installed on your system.
+- **Bun 1.3+** (recommended) or **Node.js 20+** with npm 10+.
+
+### Build Environment & Dependency Resolution
+If installing via npm in certain sandboxes, npm Arborist may fail with:
+`TypeError: Cannot read properties of null (reading 'edgesOut')`
+due to peer-dependency resolution between React 19, Next 16, and Vite 6.
+To resolve:
+```bash
+# Recommended: Use Bun (fast, zero-conflict)
+bun install
+
+# Alternative: Use npm with legacy peer deps
+npm install --legacy-peer-deps
+```
 
 ### Installation & Development
 ```bash
 # 1. Install dependencies
 bun install
 
-# 2. Run test suite (49 automated unit tests)
-bun run test
+# 2. Run test suite (180+ tests passing 100%)
+bun test
 
 # 3. Launch local development server
 bun --bun run dev

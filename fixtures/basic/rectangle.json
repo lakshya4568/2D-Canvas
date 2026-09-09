@@ -1,0 +1,176 @@
+{
+  "sketchId": "basic_rect",
+  "schemaVersion": "1.0",
+  "engineVersion": "1.0.0",
+  "name": "Basic Rectangle",
+  "units": {
+    "length": "mm",
+    "angle": "deg"
+  },
+  "tolerances": {
+    "units": "mm",
+    "weld_mm": 0.5,
+    "geometry_mm": 0.5,
+    "cluster_mm": 1,
+    "angle_rad": 0.008726646259971648,
+    "collinear_rad": 0.05,
+    "solver_residual": 1e-8,
+    "singular_value_eps": 1e-10,
+    "independence_eps": 0.000001,
+    "snap_import_mm": 2
+  },
+  "parameters": {
+    "W": {
+      "id": "p_w",
+      "name": "Width",
+      "role": "DRIVING",
+      "type": "LENGTH",
+      "value": 1000,
+      "unit": "mm",
+      "provenance": "UserConstraint"
+    },
+    "H": {
+      "id": "p_h",
+      "name": "Height",
+      "role": "DRIVING",
+      "type": "LENGTH",
+      "value": 600,
+      "unit": "mm",
+      "provenance": "UserConstraint"
+    }
+  },
+  "formulas": [],
+  "primitives": {
+    "points": {
+      "p1": {
+        "id": "p1",
+        "x": 0,
+        "y": 0,
+        "fixed": true
+      },
+      "p2": {
+        "id": "p2",
+        "x": 1000,
+        "y": 0
+      },
+      "p3": {
+        "id": "p3",
+        "x": 1000,
+        "y": 600
+      },
+      "p4": {
+        "id": "p4",
+        "x": 0,
+        "y": 600
+      }
+    },
+    "lines": {
+      "l1": {
+        "id": "l1",
+        "startPointId": "p1",
+        "endPointId": "p2"
+      },
+      "l2": {
+        "id": "l2",
+        "startPointId": "p2",
+        "endPointId": "p3"
+      },
+      "l3": {
+        "id": "l3",
+        "startPointId": "p3",
+        "endPointId": "p4"
+      },
+      "l4": {
+        "id": "l4",
+        "startPointId": "p4",
+        "endPointId": "p1"
+      }
+    },
+    "arcs": {},
+    "circles": {}
+  },
+  "topology": {
+    "halfEdges": {},
+    "faces": {}
+  },
+  "constraints": {
+    "c1": {
+      "id": "c1",
+      "type": "HORIZONTAL",
+      "entities": [
+        "l1"
+      ],
+      "strength": "hard",
+      "driving": true,
+      "isActive": true,
+      "provenance": "GeometricFact",
+      "state": "active"
+    },
+    "c2": {
+      "id": "c2",
+      "type": "VERTICAL",
+      "entities": [
+        "l2"
+      ],
+      "strength": "hard",
+      "driving": true,
+      "isActive": true,
+      "provenance": "GeometricFact",
+      "state": "active"
+    },
+    "c3": {
+      "id": "c3",
+      "type": "HORIZONTAL",
+      "entities": [
+        "l3"
+      ],
+      "strength": "hard",
+      "driving": true,
+      "isActive": true,
+      "provenance": "GeometricFact",
+      "state": "active"
+    },
+    "c4": {
+      "id": "c4",
+      "type": "VERTICAL",
+      "entities": [
+        "l4"
+      ],
+      "strength": "hard",
+      "driving": true,
+      "isActive": true,
+      "provenance": "GeometricFact",
+      "state": "active"
+    },
+    "c5": {
+      "id": "c5",
+      "type": "DISTANCE_POINT_TO_POINT",
+      "entities": [
+        "p1",
+        "p2"
+      ],
+      "targetValue": 1000,
+      "parameterBinding": "p_w",
+      "strength": "driving",
+      "driving": true,
+      "isActive": true,
+      "provenance": "UserConstraint",
+      "state": "active"
+    },
+    "c6": {
+      "id": "c6",
+      "type": "DISTANCE_POINT_TO_POINT",
+      "entities": [
+        "p1",
+        "p4"
+      ],
+      "targetValue": 600,
+      "parameterBinding": "p_h",
+      "strength": "driving",
+      "driving": true,
+      "isActive": true,
+      "provenance": "UserConstraint",
+      "state": "active"
+    }
+  }
+}

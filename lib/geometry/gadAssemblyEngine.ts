@@ -2,6 +2,7 @@ import { Point, Shape, RectangleShape, CircleShape, EllipseShape, PolygonShape, 
 import { lineMetrics, computeShapeBounds } from "./metrics";
 import { detectClosedLoops } from "../parametric/closedGeometry";
 import { recognizeHaunches } from "../inference/haunchRecognizer";
+import { DEFAULT_TOLERANCE_POLICY } from "./tolerance";
 
 export interface BoundingBox {
   minX: number;
@@ -214,7 +215,7 @@ function isGeometricallyContained(child: CandidateRegion, parent: CandidateRegio
   // Child must be strictly smaller in area
   if (child.area >= parent.area * 0.98) return false;
 
-  const eps = 2.0;
+  const eps = DEFAULT_TOLERANCE_POLICY.snap_import_mm;
   return (
     child.bounds.minX >= parent.bounds.minX - eps &&
     child.bounds.maxX <= parent.bounds.maxX + eps &&
@@ -296,23 +297,21 @@ export function detectGADAssemblies(shapes: Shape[]): GADAssembly[] {
     const firstF = directChildren[0];
     const lastF = directChildren[directChildren.length - 1];
 
-    const cLeft = Math.round(firstF.bounds.minX - outerCand.bounds.minX);
-    const cRight = Math.round(outerCand.bounds.maxX - lastF.bounds.maxX);
-    const cTop = Math.round(
-      Math.min(...directChildren.map((v) => v.bounds.minY)) - outerCand.bounds.minY
-    );
-    const cBottom = Math.round(
-      outerCand.bounds.maxY - Math.max(...directChildren.map((v) => v.bounds.maxY))
-    );
+    const cLeft = firstF.bounds.minX - outerCand.bounds.minX;
+    const cRight = outerCand.bounds.maxX - lastF.bounds.maxX;
+    const cTop =
+      Math.min(...directChildren.map((v) => v.bounds.minY)) - outerCand.bounds.minY;
+    const cBottom =
+      outerCand.bounds.maxY - Math.max(...directChildren.map((v) => v.bounds.maxY));
 
     let cMid: number | undefined = undefined;
     if (directChildren.length > 1) {
-      cMid = Math.round(directChildren[1].bounds.minX - directChildren[0].bounds.maxX);
+      cMid = directChildren[1].bounds.minX - directChildren[0].bounds.maxX;
     }
 
     let radial: number | undefined = undefined;
     if (outerCand.kind === "circle" && directChildren.length === 1 && directChildren[0].kind === "circle") {
-      radial = Math.round((outerCand.radius ?? outerCand.bounds.width / 2) - (directChildren[0].radius ?? directChildren[0].bounds.width / 2));
+      radial = (outerCand.radius ?? outerCand.bounds.width / 2) - (directChildren[0].radius ?? directChildren[0].bounds.width / 2);
     }
 
     const assemblyFeatures: GADFeature[] = directChildren.map((v) => {
@@ -344,8 +343,8 @@ export function detectGADAssemblies(shapes: Shape[]): GADAssembly[] {
         kind: v.kind,
         shapeIds: v.shapeIds,
         bounds: v.bounds,
-        span: Math.round(v.bounds.width),
-        clearHeight: Math.round(v.bounds.height),
+        span: v.bounds.width,
+        clearHeight: v.bounds.height,
         radius: v.radius,
         center: v.center,
         depth: depthMap.get(v.id) || 1,
@@ -376,8 +375,8 @@ export function detectGADAssemblies(shapes: Shape[]): GADAssembly[] {
       voids: assemblyFeatures,
       clearances: clearancesSpec,
       walls: clearancesSpec,
-      totalWidth: Math.round(outerCand.bounds.width),
-      totalHeight: Math.round(outerCand.bounds.height),
+      totalWidth: outerCand.bounds.width,
+      totalHeight: outerCand.bounds.height,
       treeDepth: depthMap.get(outerCand.id) || 0,
     });
   }
@@ -403,10 +402,10 @@ export function isShapeInGADAssembly(
         const shape = shapes.find((s) => s.id === shapeId);
 
         // Compute clearances specifically to this feature's parent
-        const cLeft = Math.round(f.bounds.minX - asm.outer.bounds.minX);
-        const cRight = Math.round(asm.outer.bounds.maxX - f.bounds.maxX);
-        const cTop = Math.round(f.bounds.minY - asm.outer.bounds.minY);
-        const cBottom = Math.round(asm.outer.bounds.maxY - f.bounds.maxY);
+        const cLeft = f.bounds.minX - asm.outer.bounds.minX;
+        const cRight = asm.outer.bounds.maxX - f.bounds.maxX;
+        const cTop = f.bounds.minY - asm.outer.bounds.minY;
+        const cBottom = asm.outer.bounds.maxY - f.bounds.maxY;
 
         const clearancesToParent: GADClearanceSpec = {
           left: Math.max(0, cLeft),

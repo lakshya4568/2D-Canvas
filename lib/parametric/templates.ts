@@ -671,3 +671,7 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
     },
   },
 ];
+
+export { CANONICAL_TEMPLATES } from "./templates/canonicalTemplates";
+export { TemplateRegistry, templateRegistry } from "./templates/templateRegistry";
+export { TemplateValidator, validateTemplate } from "./templates/templateValidator";

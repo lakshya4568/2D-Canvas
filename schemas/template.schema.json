@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aagento.cad/schemas/template.schema.json",
+  "title": "TemplateDefinition",
+  "description": "Canonical data model for a deliverable, reusable parametric CAD template definition",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "category",
+    "schemaVersion",
+    "engineVersion",
+    "parameters",
+    "expressions",
+    "geometry",
+    "constraints",
+    "ports",
+    "semantics",
+    "validation",
+    "provenance"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "category": {
+      "enum": ["component", "bridge", "detail", "assembly"]
+    },
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "engineVersion": { "type": "string" },
+    "standardsReference": { "type": "string" },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "role", "type", "value", "unit", "provenance"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+          "role": { "enum": ["DRIVING", "DERIVED", "FIXED", "MEASURED"] },
+          "type": { "enum": ["LENGTH", "ANGLE", "COUNT", "RATIO", "BOOLEAN"] },
+          "value": { "type": "number" },
+          "unit": { "enum": ["mm", "m", "deg", "rad", "count", "ratio"] },
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "step": { "type": "number" },
+          "expr": { "type": "string" },
+          "semanticTag": { "type": "string" },
+          "sourceGeometry": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "provenance": {
+            "enum": ["GeometricFact", "Inference", "UserConstraint", "UserFormula", "Measurement"]
+          },
+          "codeRef": { "type": "string" },
+          "uiGroup": { "type": "string" }
+        }
+      }
+    },
+    "expressions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["targetParameterId", "expression", "dependencies"],
+        "properties": {
+          "targetParameterId": { "type": "string" },
+          "expression": { "type": "string" },
+          "dependencies": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "required": ["points", "lines", "arcs", "circles", "polylines"],
+      "properties": {
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "x", "y"],
+            "properties": {
+              "id": { "type": "string" },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "fixed": { "type": "boolean" },
+              "construction": { "type": "boolean" }
+            }
+          }
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "p1", "p2"],
+            "properties": {
+              "id": { "type": "string" },
+              "p1": { "type": "string" },
+              "p2": { "type": "string" },
+              "construction": { "type": "boolean" },
+              "semanticRole": { "type": "string" }
+            }
+          }
+        },
+        "arcs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "center", "radius", "startAngle", "endAngle"],
+            "properties": {
+              "id": { "type": "string" },
+              "center": { "type": "string" },
+              "radius": { "type": "number" },
+              "startAngle": { "type": "number" },
+              "endAngle": { "type": "number" },
+              "startPoint": { "type": "string" },
+              "endPoint": { "type": "string" },
+              "construction": { "type": "boolean" }
+            }
+          }
+        },
+        "circles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "center", "radius"],
+            "properties": {
+              "id": { "type": "string" },
+              "center": { "type": "string" },
+              "radius": { "type": "number" },
+              "construction": { "type": "boolean" }
+            }
+          }
+        },
+        "polylines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "vertices", "closed"],
+            "properties": {
+              "id": { "type": "string" },
+              "vertices": { "type": "array", "items": { "type": "string" } },
+              "closed": { "type": "boolean" },
+              "construction": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "refs", "strength", "driving", "state", "provenance"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": {
+            "enum": [
+              "coincident",
+              "collinear",
+              "parallel",
+              "perpendicular",
+              "horizontal",
+              "vertical",
+              "equal_length",
+              "equal_radius",
+              "symmetric",
+              "tangent",
+              "point_on_object",
+              "midpoint",
+              "concentric",
+              "offset",
+              "distance",
+              "distance_x",
+              "distance_y",
+              "angle",
+              "radius",
+              "diameter",
+              "chamfer_equal_leg",
+              "fixed"
+            ]
+          },
+          "refs": { "type": "array", "items": { "type": "string" } },
+          "value": { "type": "number" },
+          "paramRef": { "type": "string" },
+          "strength": { "enum": ["fixed", "driving", "hard", "soft", "reference", "temporary"] },
+          "driving": { "type": "boolean" },
+          "predicate": { "enum": ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"] },
+          "clause": { "type": "string" },
+          "provenance": { "enum": ["GeometricFact", "Inference", "UserConstraint"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "state": { "enum": ["active", "suppressed", "conflicting", "redundant"] },
+          "diagnostic": { "type": "string" }
+        }
+      }
+    },
+    "ports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "localFrame"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["point", "edge", "axis"] },
+          "localFrame": {
+            "type": "object",
+            "required": ["origin", "angle"],
+            "properties": {
+              "origin": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": { "x": { "type": "string" }, "y": { "type": "string" } }
+              },
+              "angle": { "type": "string" }
+            }
+          },
+          "direction": { "enum": ["in", "out", "bidirectional"] },
+          "length": { "type": "string" }
+        }
+      }
+    },
+    "repeats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "sourceComponent", "countParamRef", "spacingExpr", "spacingMode", "direction", "anchorPortId", "indexVariable"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "enum": ["linear_array", "path_array", "polar_array", "mirror"] },
+          "sourceComponent": { "type": "string" },
+          "countParamRef": { "type": "string" },
+          "spacingExpr": { "type": "string" },
+          "spacingMode": { "enum": ["driven", "derived"] },
+          "direction": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "anchorPortId": { "type": "string" },
+          "indexVariable": { "type": "string", "default": "i" },
+          "parameterOverrides": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "pathGeometryId": { "type": "string" }
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["instanceId", "templateId", "parameterOverrides"],
+        "properties": {
+          "instanceId": { "type": "string" },
+          "templateId": { "type": "string" },
+          "parameterOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
+          "attachedVia": {
+            "type": "object",
+            "required": ["parentInstanceId", "parentPortId", "ownPortId"],
+            "properties": {
+              "parentInstanceId": { "type": "string" },
+              "parentPortId": { "type": "string" },
+              "ownPortId": { "type": "string" },
+              "offsetExpr": {
+                "type": "object",
+                "properties": {
+                  "along": { "type": "string" },
+                  "normal": { "type": "string" },
+                  "rotate": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "semantics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "faces", "edges", "children", "params", "confirmedBy"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "faces": { "type": "array", "items": { "type": "string" } },
+          "edges": { "type": "array", "items": { "type": "string" } },
+          "parent": { "type": "string" },
+          "children": { "type": "array", "items": { "type": "string" } },
+          "params": { "type": "array", "items": { "type": "string" } },
+          "confirmedBy": { "enum": ["author", "inference-pending"] }
+        }
+      }
+    },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ruleId", "type", "severity", "expression", "message"],
+        "properties": {
+          "ruleId": { "type": "string" },
+          "type": { "enum": ["BOUNDS", "CROSS_PARAM", "STANDARDS", "TOPOLOGY"] },
+          "severity": { "enum": ["ERROR", "WARNING", "INFO"] },
+          "expression": { "type": "string" },
+          "message": { "type": "string" },
+          "codeRef": { "type": "string" }
+        }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "action", "author"],
+        "properties": {
+          "timestamp": { "type": "string" },
+          "action": { "type": "string" },
+          "author": { "type": "string" },
+          "details": { "type": "object" }
+        }
+      }
+    }
+  }
+}

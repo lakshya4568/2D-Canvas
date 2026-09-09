@@ -5,4 +5,8 @@ export * from "./jacobians/types";
 export * from "./jacobians/analyticalJacobians";
 export * from "./jacobians/finiteDifference";
 export * from "./levenbergMarquardt";
+export * from "./dogleg";
+export * from "./planegcsClient";
 export * from "./hysteresis";
+export * from "./solverBenchmark";
+export * from "./fixtureReplayer";

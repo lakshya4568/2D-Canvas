@@ -129,7 +129,7 @@ export function solveLevenbergMarquardt(
     }
     predictedReduction *= 0.5;
 
-    const actualReduction = resNormSq - trialResNormSq;
+    const actualReduction = 0.5 * (resNormSq - trialResNormSq);
     const rho = predictedReduction > 1e-15 ? actualReduction / predictedReduction : -1.0;
 
     if (rho > 0) {

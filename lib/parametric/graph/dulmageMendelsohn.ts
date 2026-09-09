@@ -1,4 +1,17 @@
 import { BipartiteConstraintGraph } from "./bipartiteGraph";
+import { svd } from "../../solver/matrix/svd";
+
+export interface ComponentDOF {
+  componentId: string;
+  entityIds: string[];
+  variableCount: number; // |V_k|
+  rank: number;          // rank(J_k)
+  isAnchored: boolean;
+  dAnchor: number;       // D_anchor,k: 0 if anchored, 3 if floating (capped at |V_k|)
+  dof: number;           // DOF_k = |V_k| - rank(J_k) - D_anchor,k
+  status: "under_constrained" | "well_constrained" | "over_constrained";
+  conflictingConstraints?: string[];
+}
 
 export interface DMResult {
   underConstrained: {
@@ -18,16 +31,131 @@ export interface DMResult {
   };
   totalDof: number;
   status: "under_constrained" | "well_constrained" | "over_constrained";
+  components: ComponentDOF[];
+}
+
+export interface SVDConflictResult {
+  conflictingConstraints: string[];
+  redundantConstraints: string[];
+  rank: number;
+  nullspaceModes: {
+    singularValue: number;
+    residualProjection: number;
+    participatingConstraints: string[];
+    isConflicting: boolean;
+  }[];
+}
+
+/**
+ * Traces constraint conflicts and redundancies using Thin SVD left singular vectors (UPCE-MASTER-1.0 §30).
+ * For J in R^(m x n), the left nullspace projection is P_perp = I - U U^T.
+ * Left singular vectors u_l spanning the nullspace satisfy u_l^T J = 0.
+ * If |u_l^T * F| > epsRes, constraints with non-zero components in u_l are in direct mathematical conflict.
+ * If |u_l^T * F| <= epsRes, the linear dependency is satisfied and constraints are redundant.
+ */
+export function traceConflictsViaSVD(
+  J: number[][],
+  F: number[],
+  constraintIds: string[],
+  epsRank: number = 1e-8,
+  epsRes: number = 1e-4
+): SVDConflictResult {
+  const m = J.length;
+  if (m === 0) {
+    return {
+      conflictingConstraints: [],
+      redundantConstraints: [],
+      rank: 0,
+      nullspaceModes: [],
+    };
+  }
+
+  const { U, q } = svd(J);
+  const k = q.length;
+
+  let numericalRank = 0;
+  for (let l = 0; l < k; l++) {
+    if (q[l] > epsRank) numericalRank++;
+  }
+
+  const conflictingSet = new Set<string>();
+  const redundantSet = new Set<string>();
+  const modes: SVDConflictResult["nullspaceModes"] = [];
+
+  // Compute left nullspace projection matrix P_perp = I_m - U * U^T
+  const Pperp: number[][] = Array.from({ length: m }, () => new Array(m).fill(0));
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < m; j++) {
+      let uut = 0.0;
+      for (let l = 0; l < k; l++) {
+        if (q[l] > epsRank) {
+          uut += U[i][l] * U[j][l];
+        }
+      }
+      Pperp[i][j] = (i === j ? 1.0 : 0.0) - uut;
+    }
+  }
+
+  // Decompose P_perp to find orthonormal basis of left nullspace
+  const nullSvd = svd(Pperp);
+  for (let l = 0; l < nullSvd.q.length; l++) {
+    if (nullSvd.q[l] > 0.5) {
+      // Valid left nullspace singular vector u_l
+      const uVec = nullSvd.U.map((row) => row[l]);
+      let projRes = 0.0;
+      let maxWeight = 0.0;
+
+      for (let i = 0; i < m; i++) {
+        const uVal = Math.abs(uVec[i]);
+        if (uVal > maxWeight) maxWeight = uVal;
+        projRes += uVec[i] * (i < F.length ? F[i] : 0.0);
+      }
+
+      const isConflicting = Math.abs(projRes) > epsRes;
+      const participating: string[] = [];
+      const threshold = maxWeight * 0.15;
+
+      for (let i = 0; i < m; i++) {
+        if (Math.abs(uVec[i]) >= threshold && i < constraintIds.length) {
+          const cId = constraintIds[i];
+          participating.push(cId);
+          if (isConflicting) {
+            conflictingSet.add(cId);
+          } else {
+            redundantSet.add(cId);
+          }
+        }
+      }
+
+      modes.push({
+        singularValue: 0.0,
+        residualProjection: projRes,
+        participatingConstraints: participating,
+        isConflicting,
+      });
+    }
+  }
+
+  return {
+    conflictingConstraints: Array.from(conflictingSet),
+    redundantConstraints: Array.from(redundantSet),
+    rank: numericalRank,
+    nullspaceModes: modes,
+  };
 }
 
 export class DulmageMendelsohnSolver {
+  /**
+   * Decomposes the bipartite constraint graph into G_under, G_square, G_over,
+   * Tarjan SCC Block Triangular Form (BTF), and computes per-connected-component DOF.
+   */
   public static decompose(graph: BipartiteConstraintGraph): DMResult {
     const varNodes: string[] = [];
     const entityVarMap = new Map<string, string[]>();
 
     for (const [entityId, entity] of graph.entities.entries()) {
       const vars: string[] = [];
-      const dof = entity.degreesOfFreedom || 2;
+      const dof = entity.degreesOfFreedom !== undefined ? entity.degreesOfFreedom : 2;
       for (let d = 0; d < dof; d++) {
         const vName = `${entityId}_d${d}`;
         vars.push(vName);
@@ -215,7 +343,6 @@ export class DulmageMendelsohnSolver {
 
     const unmatchedEqCount = eqNodes.filter((u) => !pairU.has(u)).length;
     const unmatchedVarCount = varNodes.filter((v) => !pairV.has(v)).length;
-    const netDof = Math.max(0, unmatchedVarCount);
 
     let status: DMResult["status"] = "well_constrained";
     if (unmatchedEqCount > 0) {
@@ -297,6 +424,10 @@ export class DulmageMendelsohnSolver {
       }
     }
 
+    // 4. Per-Connected-Component DOF: DOF_k = |V_k| - rank(J_k) - D_anchor,k
+    // Eliminates the global -3 rigid-motion bug!
+    const components = this.extractComponentDOFs(graph, pairV, overEqs, eqConstraintMap);
+
     return {
       underConstrained: {
         variables: Array.from(underVars),
@@ -313,8 +444,114 @@ export class DulmageMendelsohnSolver {
         constraints: overConstraintIds,
         conflictingConstraints: overConstraintIds,
       },
-      totalDof: netDof,
+      totalDof: Math.max(0, unmatchedVarCount),
       status,
+      components,
     };
+  }
+
+  /**
+   * Identifies connected components and computes kinematic degrees of freedom per component:
+   * DOF_k = |V_k| - rank(J_k) - D_anchor,k (D_anchor = 0 if anchored, 3 if floating).
+   */
+  public static extractComponentDOFs(
+    graph: BipartiteConstraintGraph,
+    pairV: Map<string, string>,
+    overEqs?: Set<string>,
+    eqConstraintMap?: Map<string, string>
+  ): ComponentDOF[] {
+    const visitedEntities = new Set<string>();
+    const components: ComponentDOF[] = [];
+    let compCounter = 1;
+
+    for (const [entId, ent] of graph.entities.entries()) {
+      if (visitedEntities.has(entId)) continue;
+
+      const compEntityIds: string[] = [];
+      const queue = [entId];
+      visitedEntities.add(entId);
+
+      let isAnchored = !!(ent.degreesOfFreedom === 0 || (ent as any).isFixed);
+
+      while (queue.length > 0) {
+        const curr = queue.shift()!;
+        compEntityIds.push(curr);
+        const currEnt = graph.entities.get(curr);
+        if (currEnt && (currEnt.degreesOfFreedom === 0 || (currEnt as any).isFixed)) {
+          isAnchored = true;
+        }
+
+        const linkedConstraints = graph.entityToConstraints.get(curr) || new Set();
+        for (const cId of linkedConstraints) {
+          const neighborEntities = graph.constraintToEntities.get(cId) || new Set();
+          for (const nId of neighborEntities) {
+            if (!visitedEntities.has(nId) && graph.entities.has(nId)) {
+              visitedEntities.add(nId);
+              queue.push(nId);
+            }
+          }
+        }
+      }
+
+      // Collect variables for this component
+      let varCount = 0;
+      let matchedCount = 0;
+      for (const eId of compEntityIds) {
+        const e = graph.entities.get(eId);
+        const dof = e?.degreesOfFreedom !== undefined ? e.degreesOfFreedom : 2;
+        varCount += dof;
+        for (let d = 0; d < dof; d++) {
+          const vName = `${eId}_d${d}`;
+          if (pairV.has(vName)) {
+            matchedCount++;
+          }
+        }
+      }
+
+      // Rigid body anchor modes D_anchor,k:
+      // In 2D, an unanchored body has 3 planar rigid motions (2 translations, 1 rotation).
+      // If anchored, D_anchor = 0.
+      const dAnchor = isAnchored ? 0 : Math.min(3, varCount);
+      const dofK = Math.max(0, varCount - matchedCount - dAnchor);
+
+      let compStatus: ComponentDOF["status"] = "well_constrained";
+      const compConflicts: string[] = [];
+
+      if (overEqs && eqConstraintMap) {
+        for (const eId of compEntityIds) {
+          const cIds = graph.entityToConstraints.get(eId) || new Set();
+          for (const cId of cIds) {
+            const constraint = graph.constraints.get(cId);
+            const eqCount = constraint?.equationCount || 1;
+            for (let e = 0; e < eqCount; e++) {
+              if (overEqs.has(`${cId}_eq${e}`)) {
+                compStatus = "over_constrained";
+                if (!compConflicts.includes(cId)) compConflicts.push(cId);
+              }
+            }
+          }
+        }
+      }
+
+      if (compStatus !== "over_constrained") {
+        if (dofK > 0 || varCount > matchedCount) {
+          compStatus = "under_constrained";
+        }
+      }
+
+      components.push({
+        componentId: `comp_${compCounter++}`,
+        entityIds: compEntityIds,
+        variableCount: varCount,
+        rank: matchedCount,
+        isAnchored,
+        dAnchor,
+        dof: dofK,
+        status: compStatus,
+        conflictingConstraints: compConflicts,
+      });
+    }
+
+    return components;
   }
 }

@@ -214,6 +214,9 @@ export function getShapeCenter(shape: Shape): Point {
 
 /**
  * Computes the axis-aligned bounding box (AABB) for any single shape.
+ * @deprecated UPCE-MASTER-1.0 §86: Bounding-box heuristics in candidate detection
+ * and inference are deprecated in favor of real edge-to-edge Level-1 vector predicates
+ * on DCEL half-edges/vertices. Reserved for rendering and viewport framing only.
  */
 export function computeShapeBounds(shape: Shape): BoundingBox {
   switch (shape.type) {
@@ -358,3 +361,5 @@ export function formatDimension(value: number, decimals: number = 1, unit: strin
   const rounded = Number.isInteger(value) ? value.toString() : value.toFixed(decimals);
   return unit ? `${rounded} ${unit}` : rounded;
 }
+
+export * from "./metrics/arcMetrics";

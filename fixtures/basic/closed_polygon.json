@@ -1,0 +1,103 @@
+{
+  "sketchId": "closed_polygon",
+  "schemaVersion": "1.0",
+  "engineVersion": "1.0.0",
+  "name": "Closed Hexagon",
+  "units": {
+    "length": "mm",
+    "angle": "deg"
+  },
+  "tolerances": {
+    "units": "mm",
+    "weld_mm": 0.5,
+    "geometry_mm": 0.5,
+    "cluster_mm": 1,
+    "angle_rad": 0.008726646259971648,
+    "collinear_rad": 0.05,
+    "solver_residual": 1e-8,
+    "singular_value_eps": 1e-10,
+    "independence_eps": 0.000001,
+    "snap_import_mm": 2
+  },
+  "parameters": {},
+  "formulas": [],
+  "primitives": {
+    "points": {
+      "p1": {
+        "id": "p1",
+        "x": 700,
+        "y": 500,
+        "fixed": true
+      },
+      "p2": {
+        "id": "p2",
+        "x": 600,
+        "y": 673.2050807568877,
+        "fixed": false
+      },
+      "p3": {
+        "id": "p3",
+        "x": 400,
+        "y": 673.2050807568878,
+        "fixed": false
+      },
+      "p4": {
+        "id": "p4",
+        "x": 300,
+        "y": 500,
+        "fixed": false
+      },
+      "p5": {
+        "id": "p5",
+        "x": 399.9999999999999,
+        "y": 326.7949192431123,
+        "fixed": false
+      },
+      "p6": {
+        "id": "p6",
+        "x": 600,
+        "y": 326.7949192431123,
+        "fixed": false
+      }
+    },
+    "lines": {
+      "l1": {
+        "id": "l1",
+        "startPointId": "p1",
+        "endPointId": "p2"
+      },
+      "l2": {
+        "id": "l2",
+        "startPointId": "p2",
+        "endPointId": "p3"
+      },
+      "l3": {
+        "id": "l3",
+        "startPointId": "p3",
+        "endPointId": "p4"
+      },
+      "l4": {
+        "id": "l4",
+        "startPointId": "p4",
+        "endPointId": "p5"
+      },
+      "l5": {
+        "id": "l5",
+        "startPointId": "p5",
+        "endPointId": "p6"
+      },
+      "l6": {
+        "id": "l6",
+        "startPointId": "p6",
+        "endPointId": "p1"
+      }
+    },
+    "arcs": {},
+    "circles": {}
+  },
+  "topology": {
+    "halfEdges": {},
+    "faces": {}
+  },
+  "constraints": {}
+}
