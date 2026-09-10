@@ -8,7 +8,7 @@ export function CadViewportOverlays() {
   const { state, dispatch } = useDrawing();
 
   const handleZoomExtents = () => {
-    dispatch({ type: "RESET_VIEWPORT" });
+    dispatch({ type: "ZOOM_EXTENTS" });
   };
 
   return (

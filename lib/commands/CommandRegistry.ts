@@ -437,8 +437,8 @@ export class CadCommandRegistry {
         };
 
       case "ZOOM":
-        ctx.dispatch({ type: "RESET_VIEWPORT" });
-        return { success: true, message: "ZOOM: View reset to extents" };
+        ctx.dispatch({ type: "ZOOM_EXTENTS" });
+        return { success: true, message: "ZOOM: Extents — all entities framed" };
 
       case "PAN":
         ctx.setTool("pan");

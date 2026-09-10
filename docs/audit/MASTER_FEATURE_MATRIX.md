@@ -4,7 +4,7 @@
 **Document Revision**: 2.0.0  
 **Target Platform**: Unified Parametric 2D CAD Engine (UPCE-MASTER-1.0)  
 **Total Verified Features**: 60+ distinct CAD capabilities cataloged  
-**Verification Baseline**: 773 automated Vitest tests passing across 82 test suites (7,442 assertions)  
+**Verification Baseline**: 791 automated Vitest tests passing across 84 test suites (7,518 assertions)  
 
 ---
 
@@ -85,6 +85,8 @@ This master matrix establishes the definitive feature accounting for the 2D Canv
 | 100-Step Transactional Undo / Redo | `lib/state/drawingReducer.ts` | G7 | ToolRail, Canvas | `Ctrl+Z`, `Ctrl+Y`, `U`, `REDO` | `undo_redo_transaction.test.ts` | **Verified** |
 | **7. I/O & Document Exporters** | | | | | | |
 | Offline Pure Vector DXF (AutoCAD R2010 AC1024) | `lib/serialization/offlineDxfExporter.ts` | G10 | ExportMenu | `Export DXF` | `exporters.test.ts` | **Verified** |
+| AutoCAD DXF Import (R12–R2018, nested INSERT block expansion) | `lib/io/dxfImporter.ts` | G10 | CadHeader · CommandLine · canvas drop target | `Import DXF` / `DXFIN` | `dxf_importer.test.ts` · `dxf_import_viewport.test.ts` | **Verified** |
+| Zoom Extents — frame all entities; auto-framing on import | `lib/geometry/transform.ts` · `lib/state/drawingReducer.ts` | G10 | ViewCube · nav bar · `Ctrl+0` | `ZOOM` | `dxf_import_viewport.test.ts` | **Verified** |
 | Print-Ready PDF Engineering Sheet (A3 PDF 1.4) | `lib/serialization/pdfSheetExporter.ts` | G10 | ExportMenu | `Export PDF` | `exporters.test.ts` | **Verified** |
 | Canonical Shape-to-Sketch Lowering | `lib/serialization/shapesToSketch.ts` | G0, G10 | ExportMenu | Automatic | `exporters.test.ts` | **Verified** |
 | Canonical JSON Schema Serialization | `lib/serialization/parametricSketchSerializer.ts` | G0, G8 | ExportMenu | `IMPORT`, `EXPORT` | `serialization.test.ts` | **Verified** |

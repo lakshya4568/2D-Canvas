@@ -12,7 +12,12 @@ import {
   rotatePoint,
 } from "@/lib/geometry/metrics";
 import { hitTestShapes } from "@/lib/geometry/hitTest";
-import { zoomAtPoint, screenToWorldPoint } from "@/lib/geometry/transform";
+import {
+  zoomAtPoint,
+  screenToWorldPoint,
+  MIN_ZOOM_SCALE,
+  MAX_ZOOM_SCALE,
+} from "@/lib/geometry/transform";
 import { applySnapping, getShapeKeySnapPoints, snapToGrid } from "@/lib/geometry/snapping";
 import { solveGADAssemblyAdjustment } from "@/lib/geometry/gadAssemblyEngine";
 import { evaluateCadMarqueeSelection } from "@/lib/geometry/cadSelection";
@@ -106,6 +111,23 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       cancelMove();
     }
   }, [state.tool, moveBasePoint, cancelMove]);
+
+  // Zoom-extents needs the canvas's pixel size, and the reducer must not touch
+  // the DOM. Report it on mount and on every resize.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const report = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        dispatch({ type: "SET_CANVAS_SIZE", width: rect.width, height: rect.height });
+      }
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [dispatch]);
 
   const getWorldPoint = useCallback(
     (clientX: number, clientY: number): Point => {
@@ -1185,7 +1207,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
       if (e.ctrlKey || e.metaKey) {
         const zoomFactor = Math.exp(-e.deltaY * 0.01);
-        const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, 0.05, 20);
+        const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, MIN_ZOOM_SCALE, MAX_ZOOM_SCALE);
         dispatch({ type: "SET_VIEWPORT", viewport: nextViewport });
         return;
       }
@@ -1202,7 +1224,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }
 
       const zoomFactor = e.deltaY < 0 ? 1.08 : 0.925;
-      const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, 0.05, 20);
+      const nextViewport = zoomAtPoint(state.viewport, screenPt, zoomFactor, MIN_ZOOM_SCALE, MAX_ZOOM_SCALE);
       dispatch({ type: "SET_VIEWPORT", viewport: nextViewport });
     };
 
@@ -1238,15 +1260,15 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         if (e.key === "+" || e.key === "=") {
           dispatch({
             type: "SET_VIEWPORT",
-            viewport: { ...state.viewport, scale: Math.min(20, state.viewport.scale * 1.2) },
+            viewport: { ...state.viewport, scale: Math.min(MAX_ZOOM_SCALE, state.viewport.scale * 1.2) },
           });
         } else if (e.key === "-") {
           dispatch({
             type: "SET_VIEWPORT",
-            viewport: { ...state.viewport, scale: Math.max(0.05, state.viewport.scale / 1.2) },
+            viewport: { ...state.viewport, scale: Math.max(MIN_ZOOM_SCALE, state.viewport.scale / 1.2) },
           });
         } else if (e.key === "0") {
-          dispatch({ type: "RESET_VIEWPORT" });
+          dispatch({ type: "ZOOM_EXTENTS" });
         }
         return;
       }

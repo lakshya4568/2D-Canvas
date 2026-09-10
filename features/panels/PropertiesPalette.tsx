@@ -49,7 +49,7 @@ export function PropertiesPalette() {
             </div>
             <div className="flex items-center justify-between px-2.5 py-1 bg-(--ink-panel)">
               <span className="text-(--fg-muted)">Zoom Scale</span>
-              <span className="font-mono text-(--fg-primary)">{Math.round(state.viewport.scale * 100)}%</span>
+              <span className="font-mono text-(--fg-primary)">{state.viewport.scale * 100 >= 10 ? Math.round(state.viewport.scale * 100) : Number((state.viewport.scale * 100).toPrecision(2))}%</span>
             </div>
           </div>
         </section>

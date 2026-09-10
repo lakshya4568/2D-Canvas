@@ -1,5 +1,6 @@
 import { ID, Shape, ToolId, Viewport, SnapResult } from "../geometry/types";
 import { computeMultiShapeBounds, rotatePoint } from "../geometry/metrics";
+import { fitViewportToBounds } from "../geometry/transform";
 import { ParametricModel, ParametricVariable } from "../parametric/model";
 import { GeometricConstraint } from "../parametric/constraints";
 import { BUILTIN_TEMPLATES } from "../parametric/templates";
@@ -36,6 +37,12 @@ export interface DrawingState {
   selectedIds: ID[]; // Multi-selection / Group selection
   draft: Shape | null;
   viewport: Viewport;
+  /**
+   * Live pixel size of the drawing canvas. Zoom-extents cannot be computed
+   * without it, and the reducer must not reach into the DOM, so the canvas
+   * reports its size here on mount and on resize.
+   */
+  canvasSize: { width: number; height: number };
   gridSnapEnabled: boolean;
   objectSnapEnabled: boolean;
   orthoEnabled: boolean;
@@ -100,6 +107,8 @@ export type DrawingAction =
   | { type: "JUMP_TO_HISTORY_INDEX"; index: number }
   | { type: "SET_VIEWPORT"; viewport: Viewport }
   | { type: "RESET_VIEWPORT" }
+  | { type: "SET_CANVAS_SIZE"; width: number; height: number }
+  | { type: "ZOOM_EXTENTS" }
   | { type: "TOGGLE_GRID" }
   | { type: "TOGGLE_GRID_SNAP" }
   | { type: "TOGGLE_OBJECT_SNAP" }
@@ -131,6 +140,7 @@ export const initialDrawingState: DrawingState = {
   selectedIds: [],
   draft: null,
   viewport: { x: 0, y: 0, scale: 1 },
+  canvasSize: { width: 1200, height: 800 },
   gridSnapEnabled: false,
   objectSnapEnabled: true,
   orthoEnabled: false,
@@ -1028,6 +1038,39 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       };
     }
 
+    case "SET_CANVAS_SIZE": {
+      if (
+        state.canvasSize.width === action.width &&
+        state.canvasSize.height === action.height
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        canvasSize: { width: action.width, height: action.height },
+      };
+    }
+
+    /**
+     * ZOOM EXTENTS — frame every visible entity. Distinct from RESET_VIEWPORT,
+     * which returns to the 1:1 origin view. On an empty drawing there is nothing
+     * to frame, so it degrades to that origin view.
+     */
+    case "ZOOM_EXTENTS": {
+      const bounds = computeMultiShapeBounds(state.shapes);
+      if (!bounds) {
+        return { ...state, viewport: { x: 0, y: 0, scale: 1 } };
+      }
+      return {
+        ...state,
+        viewport: fitViewportToBounds(
+          bounds,
+          state.canvasSize.width,
+          state.canvasSize.height
+        ),
+      };
+    }
+
     case "TOGGLE_GRID": {
       return {
         ...state,
@@ -1143,9 +1186,21 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       }
       const inferred = synthesizeFormulasFromGeometry(action.shapes);
       const boundaryEvals = evaluateAllBoundaryLimits(action.shapes);
+      // Imported drawings carry their own coordinate system: a real DXF may sit
+      // hundreds of metres from the origin at a scale of 1:1000. Loading it
+      // without reframing the view leaves the entities in state but off screen,
+      // which reads to the user as "the import did nothing". Frame it.
+      const importBounds = computeMultiShapeBounds(action.shapes);
       return {
         ...state,
         shapes: action.shapes,
+        viewport: importBounds
+          ? fitViewportToBounds(
+              importBounds,
+              state.canvasSize.width,
+              state.canvasSize.height
+            )
+          : state.viewport,
         variables: nextVars,
         inferredFormulas: mergeInferredFormulas(state.inferredFormulas, inferred, nextVars),
         boundaryEvaluations: boundaryEvals,

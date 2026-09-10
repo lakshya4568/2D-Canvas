@@ -25,7 +25,10 @@ export function StatusStrip({ cursorPos }: { cursorPos: Point | null }) {
     toggleObjectSnap,
     toggleDynamicInput,
   } = useDrawing();
-  const scalePct = Math.round(state.viewport.scale * 100);
+  // Sub-1 % zoom is normal on a drawing that spans hundreds of metres; rounding
+  // it to a flat "0%" reads as a broken viewport.
+  const rawPct = state.viewport.scale * 100;
+  const scalePct = rawPct >= 10 ? Math.round(rawPct) : Number(rawPct.toPrecision(2));
   const shapeCount = state.shapes.filter((s) => s.isVisible !== false).length;
 
   return (

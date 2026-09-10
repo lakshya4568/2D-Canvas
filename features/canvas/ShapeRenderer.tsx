@@ -6,6 +6,9 @@ import { DimensionBadge } from "./DimensionBadge";
 import { getShapeCenter, getPolygonPoints, getStarPoints, pointsToSvgString } from "@/lib/geometry/metrics";
 import { detectClosedLoops } from "@/lib/parametric/closedGeometry";
 
+/** Floor for rendered stroke width, in screen pixels. */
+const MIN_SCREEN_STROKE_PX = 1.0;
+
 interface ShapeRendererProps {
   shapes: Shape[];
   selectedIds: string[];
@@ -29,7 +32,12 @@ const SingleShape = React.memo<{
 
   const defaultThemeStroke = themeMode === "light" ? "#0f172a" : "#f8fafc";
   const strokeColor = shape.strokeColor || defaultThemeStroke;
-  const strokeWidth = shape.strokeWidth || 1.5;
+  // Lineweights are stored in model-space millimetres, so the SVG CTM scales
+  // them along with the geometry. A 1.5 mm line on a drawing zoomed to fit a
+  // 460 m section renders 0.002 px wide — present in the DOM, invisible on
+  // screen. Real CAD never draws a line thinner than about a pixel, whatever
+  // the zoom; floor it the same way. At ordinary zoom this changes nothing.
+  const strokeWidth = Math.max(shape.strokeWidth || 1.5, MIN_SCREEN_STROKE_PX / scale);
   const opacity = shape.opacity ?? 1;
   const rotation = shape.rotation || 0;
   const center = getShapeCenter(shape);

@@ -26,7 +26,13 @@ export interface DxfImportOptions {
   detectRectangles?: boolean;
   /** Prefix for generated entity IDs. Default: dxf */
   idPrefix?: string;
-  /** Invert Y axis if source CAD uses inverted orientation. Default: false */
+  /**
+   * Negate Y when mapping DXF model space into the canonical model.
+   *
+   * DXF is Y-up; the canonical model and canvas are Y-down (SVG convention), so
+   * this must be on for a drawing to appear the right way up rather than
+   * mirrored. Default: true. Set false only to read raw DXF coordinates.
+   */
   flipY?: boolean;
 }
 
@@ -85,6 +91,89 @@ export function parseDxf(dxfContent: string): IDxf {
  * Imports a DXF document and maps its geometric entities into UPCE Canvas Shape[] array.
  * Retains layers, colors, coordinates, and polyline groupings.
  */
+/**
+ * 2D affine transform `[a c e; b d f]`, mapping `(x, y)` to
+ * `(a·x + c·y + e, b·x + d·y + f)`.
+ *
+ * Block references (`INSERT`) place a block's geometry under an arbitrary
+ * scale / rotation / mirror / translation, and blocks nest. Carrying one matrix
+ * down the recursion is what keeps that exact — and it is also how the `flipY`
+ * option is applied, as a root transform, rather than as a special case sprinkled
+ * through every entity branch.
+ */
+export interface Matrix2D {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+}
+
+export const IDENTITY_MATRIX: Matrix2D = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+/** Returns `m ∘ n` — the transform that applies `n` first, then `m`. */
+export function multiplyMatrix(m: Matrix2D, n: Matrix2D): Matrix2D {
+  return {
+    a: m.a * n.a + m.c * n.b,
+    b: m.b * n.a + m.d * n.b,
+    c: m.a * n.c + m.c * n.d,
+    d: m.b * n.c + m.d * n.d,
+    e: m.a * n.e + m.c * n.f + m.e,
+    f: m.b * n.e + m.d * n.f + m.f,
+  };
+}
+
+/** Applies `m` to a point. */
+export function applyMatrix(m: Matrix2D, x: number, y: number): { x: number; y: number } {
+  return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f };
+}
+
+/**
+ * The uniform length scale a transform implies, taken as `sqrt(|det|)`.
+ *
+ * Exact for the conformal transforms real INSERTs use (uniform scale, rotation,
+ * mirror). Under a genuinely non-uniform scale a circle becomes an ellipse; this
+ * approximates it with the equal-area circle. Arcs and polylines do not rely on
+ * this — they are discretised in block space and then transformed point by
+ * point, which is exact for any affine.
+ */
+export function matrixScale(m: Matrix2D): number {
+  const det = Math.abs(m.a * m.d - m.b * m.c);
+  return det > 1e-12 ? Math.sqrt(det) : 1;
+}
+
+/** Builds the placement transform for one INSERT, including the block base point. */
+function insertMatrix(insertEnt: any, blockBase: { x: number; y: number }): Matrix2D {
+  const rot = ((insertEnt.rotation ?? 0) * Math.PI) / 180;
+  const sx = insertEnt.xScale ?? 1;
+  const sy = insertEnt.yScale ?? 1;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+
+  // Scale, then rotate, then translate to the insertion point.
+  const placement: Matrix2D = {
+    a: cos * sx,
+    b: sin * sx,
+    c: -sin * sy,
+    d: cos * sy,
+    e: insertEnt.position?.x ?? 0,
+    f: insertEnt.position?.y ?? 0,
+  };
+
+  // Block geometry is authored about the block's base point, not the origin.
+  return multiplyMatrix(placement, { a: 1, b: 0, c: 0, d: 1, e: -blockBase.x, f: -blockBase.y });
+}
+
+/** Guard against blocks that reference each other, directly or in a cycle. */
+const MAX_BLOCK_DEPTH = 16;
+
+/**
+ * Imports a DXF document and maps its geometric entities into UPCE Canvas Shape[] array.
+ * Retains layers, colors, coordinates, and polyline groupings, and expands block
+ * references (INSERT) recursively so geometry that lives inside blocks is imported
+ * rather than silently dropped.
+ */
 export function importDxfToShapes(
   dxfContent: string,
   options: DxfImportOptions = {}
@@ -97,7 +186,7 @@ export function importDxfToShapes(
   const strokeWidth = options.defaultStrokeWidth ?? 1.5;
   const detectRectangles = options.detectRectangles !== false;
   const idPrefix = options.idPrefix ?? "dxf";
-  const flipY = options.flipY === true;
+  const flipY = options.flipY !== false;
 
   // Resolve layer color table
   const layerColors: Record<string, string> = {};
@@ -109,6 +198,8 @@ export function importDxfToShapes(
     }
   }
 
+  const blocks: Record<string, any> = (dxf as any).blocks ?? {};
+
   const resolveColor = (entity: IEntity): string => {
     if (entity.colorIndex && entity.colorIndex !== 256 && entity.colorIndex !== 0) {
       return aciToHex(entity.colorIndex, defaultColor);
@@ -119,290 +210,349 @@ export function importDxfToShapes(
     return defaultColor;
   };
 
-  const transformY = (y: number): number => (flipY ? -y : y);
-
   let seq = 0;
   const allocId = (type: string, handle?: string | number): string => {
     return `${idPrefix}_${handle ? handle : type.toLowerCase()}_${seq++}`;
   };
 
-  if (!dxf.entities || !Array.isArray(dxf.entities)) {
-    return shapes;
-  }
+  const emitEntities = (entities: IEntity[] | undefined, xf: Matrix2D, depth: number): void => {
+    if (!entities || !Array.isArray(entities)) return;
 
-  for (const entity of dxf.entities) {
-    // Filter by target layer if specified
-    if (options.targetLayer && entity.layer !== options.targetLayer) {
-      continue;
-    }
+    const pt = (x: number, y: number) => applyMatrix(xf, x, y);
+    const lengthScale = matrixScale(xf);
 
-    const strokeColor = resolveColor(entity);
-    const layerName = entity.layer || "0";
-
-    switch (entity.type) {
-      case "LINE": {
-        const lineEnt = entity as any;
-        if (lineEnt.vertices && lineEnt.vertices.length >= 2) {
-          const v1 = lineEnt.vertices[0];
-          const v2 = lineEnt.vertices[1];
-          shapes.push({
-            id: allocId("line", entity.handle),
-            type: "line",
-            name: `${layerName}_Line_${seq}`,
-            x1: v1.x,
-            y1: transformY(v1.y),
-            x2: v2.x,
-            y2: transformY(v2.y),
-            strokeColor,
-            strokeWidth,
-            opacity: 1,
-            rotation: 0,
-          });
-        }
-        break;
+    for (const entity of entities) {
+      // Filter by target layer if specified
+      if (options.targetLayer && entity.layer !== options.targetLayer) {
+        continue;
       }
 
-      case "CIRCLE": {
-        const circleEnt = entity as any;
-        if (circleEnt.center && typeof circleEnt.radius === "number") {
-          shapes.push({
-            id: allocId("circle", entity.handle),
-            type: "circle",
-            name: `${layerName}_Circle_${seq}`,
-            cx: circleEnt.center.x,
-            cy: transformY(circleEnt.center.y),
-            r: circleEnt.radius,
-            strokeColor,
-            strokeWidth,
-            opacity: 1,
-            rotation: 0,
-          });
-        }
-        break;
-      }
+      const strokeColor = resolveColor(entity);
+      const layerName = entity.layer || "0";
 
-      case "ARC": {
-        const arcEnt = entity as any;
-        if (arcEnt.center && typeof arcEnt.radius === "number") {
-          const cx = arcEnt.center.x;
-          const cy = transformY(arcEnt.center.y);
-          const r = arcEnt.radius;
-          let a1 = arcEnt.startAngle ?? 0;
-          let a2 = arcEnt.endAngle ?? Math.PI;
-          if (flipY) {
-            const tmp = -a1;
-            a1 = -a2;
-            a2 = tmp;
-          }
-          let span = a2 - a1;
-          while (span < 0) span += 2 * Math.PI;
-          while (span >= 2 * Math.PI) span -= 2 * Math.PI;
-          if (span < 1e-6) span = 2 * Math.PI;
+      switch (entity.type) {
+        case "INSERT": {
+          if (depth >= MAX_BLOCK_DEPTH) break;
+          const ins = entity as any;
+          const block = ins.name ? blocks[ins.name] : undefined;
+          if (!block || !block.entities) break;
 
-          // Discretize arc into chord segments with sagitta <= policy.geometry_mm
-          const maxSagitta = policy.geometry_mm;
-          const maxDTheta = r > maxSagitta ? 2 * Math.acos(Math.max(-1, 1 - maxSagitta / r)) : Math.PI / 4;
-          const numSegs = Math.max(8, Math.min(64, Math.ceil(span / Math.max(0.05, maxDTheta))));
-          const dTheta = span / numSegs;
+          const base = { x: block.position?.x ?? 0, y: block.position?.y ?? 0 };
+          const placement = multiplyMatrix(xf, insertMatrix(ins, base));
 
-          const arcGroupId = `group_arc_${allocId("arc", entity.handle)}`;
-          for (let s = 0; s < numSegs; s++) {
-            const thetaStart = a1 + s * dTheta;
-            const thetaEnd = a1 + (s + 1) * dTheta;
-            shapes.push({
-              id: allocId("line", `${entity.handle}_arc_seg${s}`),
-              type: "line",
-              groupId: arcGroupId,
-              groupName: `${layerName}_Arc`,
-              name: `${layerName}_Arc_${seq}`,
-              x1: cx + r * Math.cos(thetaStart),
-              y1: cy + r * Math.sin(thetaStart),
-              x2: cx + r * Math.cos(thetaEnd),
-              y2: cy + r * Math.sin(thetaEnd),
-              strokeColor,
-              strokeWidth,
-              opacity: 1,
-              rotation: 0,
-            });
-          }
-        }
-        break;
-      }
+          // MINSERT — a rectangular array of the same block.
+          const cols = Math.max(1, ins.columnCount ?? 1);
+          const rows = Math.max(1, ins.rowCount ?? 1);
+          const colSpacing = ins.columnSpacing ?? 0;
+          const rowSpacing = ins.rowSpacing ?? 0;
 
-      case "ELLIPSE": {
-        const elEnt = entity as any;
-        if (elEnt.center) {
-          const majorX = elEnt.majorAxisEndPoint?.x ?? 50;
-          const majorY = elEnt.majorAxisEndPoint?.y ?? 0;
-          const rx = Math.hypot(majorX, majorY);
-          const ry = rx * (elEnt.axisRatio ?? 0.5);
-          shapes.push({
-            id: allocId("ellipse", entity.handle),
-            type: "ellipse",
-            name: `${layerName}_Ellipse_${seq}`,
-            cx: elEnt.center.x,
-            cy: transformY(elEnt.center.y),
-            rx: Math.max(1, rx),
-            ry: Math.max(1, ry),
-            strokeColor,
-            strokeWidth,
-            opacity: 1,
-            rotation: 0,
-          });
-        }
-        break;
-      }
-
-      case "LWPOLYLINE":
-      case "POLYLINE": {
-        const polyEnt = entity as any;
-        const rawVerts: { x: number; y: number; bulge?: number }[] = polyEnt.vertices || [];
-        if (rawVerts.length < 2) break;
-
-        const isClosed = polyEnt.shape === true || polyEnt.closed === true;
-
-        // Rectangle recognition: 4 vertices (or 5 with first == last), closed, orthogonal
-        let isRect = false;
-        if (detectRectangles && isClosed && (rawVerts.length === 4 || (rawVerts.length === 5 && Math.hypot(rawVerts[0].x - rawVerts[4].x, rawVerts[0].y - rawVerts[4].y) < policy.weld_mm))) {
-          const xs = rawVerts.slice(0, 4).map((v) => v.x);
-          const ys = rawVerts.slice(0, 4).map((v) => transformY(v.y));
-          const minX = Math.min(...xs);
-          const maxX = Math.max(...xs);
-          const minY = Math.min(...ys);
-          const maxY = Math.max(...ys);
-          const w = maxX - minX;
-          const h = maxY - minY;
-
-          // Check if all 4 corners align to bounding box within geometry tolerance
-          const matchesBox = xs.every((x) => Math.abs(x - minX) < policy.geometry_mm || Math.abs(x - maxX) < policy.geometry_mm) &&
-                             ys.every((y) => Math.abs(y - minY) < policy.geometry_mm || Math.abs(y - maxY) < policy.geometry_mm);
-
-          if (matchesBox && w > policy.geometry_mm && h > policy.geometry_mm) {
-            isRect = true;
-            shapes.push({
-              id: allocId("rect", entity.handle),
-              type: "rectangle",
-              name: `${layerName}_Rect_${seq}`,
-              x: minX,
-              y: minY,
-              width: w,
-              height: h,
-              strokeColor,
-              strokeWidth,
-              opacity: 1,
-              rotation: 0,
-            });
-          }
-        }
-
-        if (!isRect) {
-          // Decompose polyline into connected line segments sharing a groupId
-          const polyGroupId = `group_poly_${allocId("pline", entity.handle)}`;
-          const count = isClosed ? rawVerts.length : rawVerts.length - 1;
-
-          for (let i = 0; i < count; i++) {
-            const v1 = rawVerts[i];
-            const v2 = rawVerts[(i + 1) % rawVerts.length];
-
-            // If segment has non-zero bulge, it represents an arc
-            if (v1.bulge && Math.abs(v1.bulge) > 1e-4) {
-              const dx = v2.x - v1.x;
-              const dy = transformY(v2.y) - transformY(v1.y);
-              const chord = Math.hypot(dx, dy);
-              if (chord > policy.weld_mm) {
-                const theta = 4 * Math.atan(v1.bulge);
-                const radius = Math.abs(chord / (2 * Math.sin(theta / 2)));
-                const sagitta = (chord / 2) * Math.abs(v1.bulge);
-                const midX = (v1.x + v2.x) / 2;
-                const midY = (transformY(v1.y) + transformY(v2.y)) / 2;
-                const normalX = -dy / chord;
-                const normalY = dx / chord;
-                const sign = v1.bulge > 0 ? 1 : -1;
-                const cx = midX + normalX * (radius - sagitta) * sign;
-                const cy = midY + normalY * (radius - sagitta) * sign;
-
-                const startAng = Math.atan2(transformY(v1.y) - cy, v1.x - cx);
-                const endAng = Math.atan2(transformY(v2.y) - cy, v2.x - cx);
-                let arcSpan = endAng - startAng;
-                if (v1.bulge > 0 && arcSpan < 0) arcSpan += 2 * Math.PI;
-                if (v1.bulge < 0 && arcSpan > 0) arcSpan -= 2 * Math.PI;
-
-                const numBulgeSegs = Math.max(4, Math.min(32, Math.ceil(Math.abs(arcSpan) / (Math.PI / 8))));
-                const step = arcSpan / numBulgeSegs;
-                for (let b = 0; b < numBulgeSegs; b++) {
-                  const t1 = startAng + b * step;
-                  const t2 = startAng + (b + 1) * step;
-                  shapes.push({
-                    id: allocId("line", `${entity.handle}_seg${i}_b${b}`),
-                    type: "line",
-                    groupId: polyGroupId,
-                    groupName: `${layerName}_Polyline`,
-                    x1: cx + radius * Math.cos(t1),
-                    y1: cy + radius * Math.sin(t1),
-                    x2: cx + radius * Math.cos(t2),
-                    y2: cy + radius * Math.sin(t2),
-                    strokeColor,
-                    strokeWidth,
-                    opacity: 1,
-                    rotation: 0,
-                  });
-                }
-                continue;
-              }
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              const cell =
+                r === 0 && c === 0
+                  ? placement
+                  : multiplyMatrix(placement, {
+                      a: 1,
+                      b: 0,
+                      c: 0,
+                      d: 1,
+                      e: c * colSpacing,
+                      f: r * rowSpacing,
+                    });
+              emitEntities(block.entities, cell, depth + 1);
             }
+          }
+          break;
+        }
 
+        case "LINE": {
+          const lineEnt = entity as any;
+          if (lineEnt.vertices && lineEnt.vertices.length >= 2) {
+            const v1 = pt(lineEnt.vertices[0].x, lineEnt.vertices[0].y);
+            const v2 = pt(lineEnt.vertices[1].x, lineEnt.vertices[1].y);
             shapes.push({
-              id: allocId("line", `${entity.handle}_seg${i}`),
+              id: allocId("line", entity.handle),
               type: "line",
-              groupId: polyGroupId,
-              groupName: `${layerName}_Polyline`,
+              name: `${layerName}_Line_${seq}`,
               x1: v1.x,
-              y1: transformY(v1.y),
+              y1: v1.y,
               x2: v2.x,
-              y2: transformY(v2.y),
+              y2: v2.y,
               strokeColor,
               strokeWidth,
               opacity: 1,
               rotation: 0,
             });
           }
+          break;
         }
-        break;
-      }
 
-      case "SOLID":
-      case "3DFACE": {
-        const solidEnt = entity as any;
-        const verts = solidEnt.vertices;
-        if (verts && verts.length >= 3) {
-          const groupId = `group_solid_${allocId("solid", entity.handle)}`;
-          for (let i = 0; i < verts.length; i++) {
-            const v1 = verts[i];
-            const v2 = verts[(i + 1) % verts.length];
+        case "CIRCLE": {
+          const circleEnt = entity as any;
+          if (circleEnt.center && typeof circleEnt.radius === "number") {
+            const c = pt(circleEnt.center.x, circleEnt.center.y);
             shapes.push({
-              id: allocId("line", `${entity.handle}_edge${i}`),
-              type: "line",
-              groupId,
-              groupName: `${layerName}_Solid`,
-              x1: v1.x,
-              y1: transformY(v1.y),
-              x2: v2.x,
-              y2: transformY(v2.y),
+              id: allocId("circle", entity.handle),
+              type: "circle",
+              name: `${layerName}_Circle_${seq}`,
+              cx: c.x,
+              cy: c.y,
+              r: circleEnt.radius * lengthScale,
               strokeColor,
               strokeWidth,
               opacity: 1,
               rotation: 0,
             });
           }
+          break;
         }
-        break;
-      }
 
-      default:
-        // Ignore unsupported non-geometric entities
-        break;
+        case "ARC": {
+          const arcEnt = entity as any;
+          if (arcEnt.center && typeof arcEnt.radius === "number") {
+            const cx = arcEnt.center.x;
+            const cy = arcEnt.center.y;
+            const r = arcEnt.radius;
+            const a1 = arcEnt.startAngle ?? 0;
+            const a2 = arcEnt.endAngle ?? Math.PI;
+
+            let span = a2 - a1;
+            while (span < 0) span += 2 * Math.PI;
+            while (span >= 2 * Math.PI) span -= 2 * Math.PI;
+            if (span < 1e-6) span = 2 * Math.PI;
+
+            // Discretize with sagitta <= policy.geometry_mm, measured at the
+            // radius the arc will actually have on the sheet.
+            const worldR = r * lengthScale;
+            const maxSagitta = policy.geometry_mm;
+            const maxDTheta =
+              worldR > maxSagitta ? 2 * Math.acos(Math.max(-1, 1 - maxSagitta / worldR)) : Math.PI / 4;
+            const numSegs = Math.max(8, Math.min(64, Math.ceil(span / Math.max(0.05, maxDTheta))));
+            const dTheta = span / numSegs;
+
+            const arcGroupId = `group_arc_${allocId("arc", entity.handle)}`;
+            for (let sIdx = 0; sIdx < numSegs; sIdx++) {
+              // Sampled in block space, then transformed — exact under any affine.
+              const p1 = pt(cx + r * Math.cos(a1 + sIdx * dTheta), cy + r * Math.sin(a1 + sIdx * dTheta));
+              const p2 = pt(
+                cx + r * Math.cos(a1 + (sIdx + 1) * dTheta),
+                cy + r * Math.sin(a1 + (sIdx + 1) * dTheta)
+              );
+              shapes.push({
+                id: allocId("line", `${entity.handle}_arc_seg${sIdx}`),
+                type: "line",
+                groupId: arcGroupId,
+                groupName: `${layerName}_Arc`,
+                name: `${layerName}_Arc_${seq}`,
+                x1: p1.x,
+                y1: p1.y,
+                x2: p2.x,
+                y2: p2.y,
+                strokeColor,
+                strokeWidth,
+                opacity: 1,
+                rotation: 0,
+              });
+            }
+          }
+          break;
+        }
+
+        case "ELLIPSE": {
+          const elEnt = entity as any;
+          if (elEnt.center) {
+            const c = pt(elEnt.center.x, elEnt.center.y);
+            const majorX = elEnt.majorAxisEndPoint?.x ?? 50;
+            const majorY = elEnt.majorAxisEndPoint?.y ?? 0;
+            const rx = Math.hypot(majorX, majorY) * lengthScale;
+            const ry = rx * (elEnt.axisRatio ?? 0.5);
+            shapes.push({
+              id: allocId("ellipse", entity.handle),
+              type: "ellipse",
+              name: `${layerName}_Ellipse_${seq}`,
+              cx: c.x,
+              cy: c.y,
+              rx: Math.max(1, rx),
+              ry: Math.max(1, ry),
+              strokeColor,
+              strokeWidth,
+              opacity: 1,
+              rotation: 0,
+            });
+          }
+          break;
+        }
+
+        case "LWPOLYLINE":
+        case "POLYLINE": {
+          const polyEnt = entity as any;
+          const rawVerts: { x: number; y: number; bulge?: number }[] = polyEnt.vertices || [];
+          if (rawVerts.length < 2) break;
+
+          const isClosed = polyEnt.shape === true || polyEnt.closed === true;
+
+          // Rectangle recognition: 4 vertices (or 5 with first == last), closed,
+          // orthogonal. Tested in world space — a rotated block instance is not
+          // axis-aligned and correctly falls through to segments.
+          let isRect = false;
+          if (
+            detectRectangles &&
+            isClosed &&
+            (rawVerts.length === 4 ||
+              (rawVerts.length === 5 &&
+                Math.hypot(rawVerts[0].x - rawVerts[4].x, rawVerts[0].y - rawVerts[4].y) < policy.weld_mm))
+          ) {
+            const corners = rawVerts.slice(0, 4).map((v) => pt(v.x, v.y));
+            const xs = corners.map((v) => v.x);
+            const ys = corners.map((v) => v.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            const w = maxX - minX;
+            const h = maxY - minY;
+
+            const matchesBox =
+              xs.every((x) => Math.abs(x - minX) < policy.geometry_mm || Math.abs(x - maxX) < policy.geometry_mm) &&
+              ys.every((y) => Math.abs(y - minY) < policy.geometry_mm || Math.abs(y - maxY) < policy.geometry_mm);
+
+            if (matchesBox && w > policy.geometry_mm && h > policy.geometry_mm) {
+              isRect = true;
+              shapes.push({
+                id: allocId("rect", entity.handle),
+                type: "rectangle",
+                name: `${layerName}_Rect_${seq}`,
+                x: minX,
+                y: minY,
+                width: w,
+                height: h,
+                strokeColor,
+                strokeWidth,
+                opacity: 1,
+                rotation: 0,
+              });
+            }
+          }
+
+          if (!isRect) {
+            // Decompose polyline into connected line segments sharing a groupId
+            const polyGroupId = `group_poly_${allocId("pline", entity.handle)}`;
+            const count = isClosed ? rawVerts.length : rawVerts.length - 1;
+
+            for (let i = 0; i < count; i++) {
+              const v1 = rawVerts[i];
+              const v2 = rawVerts[(i + 1) % rawVerts.length];
+
+              // If segment has non-zero bulge, it represents an arc. Solved in
+              // block space, then each sample is transformed.
+              if (v1.bulge && Math.abs(v1.bulge) > 1e-4) {
+                const dx = v2.x - v1.x;
+                const dy = v2.y - v1.y;
+                const chord = Math.hypot(dx, dy);
+                if (chord * lengthScale > policy.weld_mm) {
+                  const theta = 4 * Math.atan(v1.bulge);
+                  const radius = Math.abs(chord / (2 * Math.sin(theta / 2)));
+                  const sagitta = (chord / 2) * Math.abs(v1.bulge);
+                  const midX = (v1.x + v2.x) / 2;
+                  const midY = (v1.y + v2.y) / 2;
+                  const normalX = -dy / chord;
+                  const normalY = dx / chord;
+                  const sign = v1.bulge > 0 ? 1 : -1;
+                  const bcx = midX + normalX * (radius - sagitta) * sign;
+                  const bcy = midY + normalY * (radius - sagitta) * sign;
+
+                  const startAng = Math.atan2(v1.y - bcy, v1.x - bcx);
+                  const endAng = Math.atan2(v2.y - bcy, v2.x - bcx);
+                  let arcSpan = endAng - startAng;
+                  if (v1.bulge > 0 && arcSpan < 0) arcSpan += 2 * Math.PI;
+                  if (v1.bulge < 0 && arcSpan > 0) arcSpan -= 2 * Math.PI;
+
+                  const numBulgeSegs = Math.max(4, Math.min(32, Math.ceil(Math.abs(arcSpan) / (Math.PI / 8))));
+                  const step = arcSpan / numBulgeSegs;
+                  for (let b = 0; b < numBulgeSegs; b++) {
+                    const t1 = startAng + b * step;
+                    const t2 = startAng + (b + 1) * step;
+                    const p1 = pt(bcx + radius * Math.cos(t1), bcy + radius * Math.sin(t1));
+                    const p2 = pt(bcx + radius * Math.cos(t2), bcy + radius * Math.sin(t2));
+                    shapes.push({
+                      id: allocId("line", `${entity.handle}_seg${i}_b${b}`),
+                      type: "line",
+                      groupId: polyGroupId,
+                      groupName: `${layerName}_Polyline`,
+                      x1: p1.x,
+                      y1: p1.y,
+                      x2: p2.x,
+                      y2: p2.y,
+                      strokeColor,
+                      strokeWidth,
+                      opacity: 1,
+                      rotation: 0,
+                    });
+                  }
+                  continue;
+                }
+              }
+
+              const p1 = pt(v1.x, v1.y);
+              const p2 = pt(v2.x, v2.y);
+              shapes.push({
+                id: allocId("line", `${entity.handle}_seg${i}`),
+                type: "line",
+                groupId: polyGroupId,
+                groupName: `${layerName}_Polyline`,
+                x1: p1.x,
+                y1: p1.y,
+                x2: p2.x,
+                y2: p2.y,
+                strokeColor,
+                strokeWidth,
+                opacity: 1,
+                rotation: 0,
+              });
+            }
+          }
+          break;
+        }
+
+        case "SOLID":
+        case "3DFACE": {
+          const solidEnt = entity as any;
+          const verts = solidEnt.vertices;
+          if (verts && verts.length >= 3) {
+            const groupId = `group_solid_${allocId("solid", entity.handle)}`;
+            for (let i = 0; i < verts.length; i++) {
+              const p1 = pt(verts[i].x, verts[i].y);
+              const p2 = pt(verts[(i + 1) % verts.length].x, verts[(i + 1) % verts.length].y);
+              shapes.push({
+                id: allocId("line", `${entity.handle}_edge${i}`),
+                type: "line",
+                groupId,
+                groupName: `${layerName}_Solid`,
+                x1: p1.x,
+                y1: p1.y,
+                x2: p2.x,
+                y2: p2.y,
+                strokeColor,
+                strokeWidth,
+                opacity: 1,
+                rotation: 0,
+              });
+            }
+          }
+          break;
+        }
+
+        default:
+          // Ignore unsupported non-geometric entities
+          break;
+      }
     }
-  }
+  };
+
+  // `flipY` is applied once, as the root transform, so it composes correctly
+  // through nested block references.
+  const rootMatrix: Matrix2D = flipY ? { a: 1, b: 0, c: 0, d: -1, e: 0, f: 0 } : IDENTITY_MATRIX;
+  emitEntities(dxf.entities, rootMatrix, 0);
 
   return shapes;
 }
@@ -423,7 +573,7 @@ export function importDxfToSketch(
   const arcs: ParametricSketch["primitives"]["arcs"] = {};
   const polylines: NonNullable<ParametricSketch["primitives"]["polylines"]> = {};
 
-  const flipY = options.flipY === true;
+  const flipY = options.flipY !== false;
   const transformY = (y: number) => (flipY ? -y : y);
 
   let ptSeq = 0;
@@ -495,8 +645,10 @@ export function importDxfToSketch(
               id,
               centerPointId: centerPt,
               radius: a.radius,
-              startAngle: a.startAngle ?? 0,
-              endAngle: a.endAngle ?? Math.PI,
+              // Negating Y reflects the plane, reversing the sense of sweep: an
+              // arc running CCW from a to b becomes one running CCW from -b to -a.
+              startAngle: flipY ? -(a.endAngle ?? Math.PI) : a.startAngle ?? 0,
+              endAngle: flipY ? -(a.startAngle ?? 0) : a.endAngle ?? Math.PI,
             };
           }
           break;

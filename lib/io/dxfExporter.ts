@@ -159,8 +159,26 @@ export function exportDxf(sketch: ParametricSketch, options: DxfExportOptions = 
   const w = new DxfWriter();
   const isR12 = version === "R12";
 
-  const points = sketch.primitives.points ?? {};
+  // The canonical model is Y-down — the SVG/screen convention the canvas and the
+  // SVG exporter both use — while DXF model space is Y-up. Negate Y once, here at
+  // the interchange boundary, so a drawing opens the right way up in AutoCAD
+  // instead of mirrored. `importDxfToShapes` applies the inverse on the way in,
+  // so the round trip is an identity.
+  const rawPoints = sketch.primitives.points ?? {};
+  const points: Record<string, { id: string; x: number; y: number; isConstruction?: boolean; fixed?: boolean }> = {};
+  for (const [id, pt] of Object.entries(rawPoints)) {
+    points[id] = { ...(pt as any), y: -(pt as any).y };
+  }
   const resolve = (id: string) => points[id];
+
+  // Negating Y reflects the plane, which reverses the sense of arc sweep: an arc
+  // running CCW from a to b becomes one running CCW from -b to -a.
+  const dimensions = (options.dimensions ?? []).map((dim) => ({
+    ...dim,
+    p1: { ...dim.p1, y: -dim.p1.y },
+    p2: { ...dim.p2, y: -dim.p2.y },
+    textPosition: { ...dim.textPosition, y: -dim.textPosition.y },
+  }));
 
   // ---------------- HEADER ----------------
   w.tag(0, "SECTION");
@@ -302,8 +320,8 @@ export function exportDxf(sketch: ParametricSketch, options: DxfExportOptions = 
     w.tag(30, 0);
     w.tag(40, arc.radius);
     if (!isR12) w.tag(100, "AcDbArc");
-    w.tag(50, normalizeDegrees((arc.startAngle * 180) / Math.PI));
-    w.tag(51, normalizeDegrees((arc.endAngle * 180) / Math.PI));
+    w.tag(50, normalizeDegrees((-arc.endAngle * 180) / Math.PI));
+    w.tag(51, normalizeDegrees((-arc.startAngle * 180) / Math.PI));
   }
 
   // Polylines — LWPOLYLINE on R2010, POLYLINE/VERTEX/SEQEND on R12.
@@ -339,7 +357,7 @@ export function exportDxf(sketch: ParametricSketch, options: DxfExportOptions = 
   }
 
   // Native associative DIMENSION entities.
-  for (const dim of options.dimensions ?? []) {
+  for (const dim of dimensions) {
     startEntity("DIMENSION", DXF_LAYERS.DIMS.name, "AcDbDimension");
     w.tag(2, "*D_" + dim.id);
     // 10/20 = dimension line definition point.
