@@ -6,7 +6,6 @@ import { useDrawing } from "@/lib/state/drawingContext";
 import { DrawingCanvas } from "../canvas/DrawingCanvas";
 import { CadHeader } from "./CadHeader";
 import { CommandLine } from "./CommandLine";
-import { ToolRail } from "./ToolRail";
 import { StatusStrip } from "./StatusStrip";
 import { PersonaDock } from "./PersonaDock";
 import { TemplateModal } from "../parametric/TemplateModal";
@@ -104,8 +103,6 @@ export function CadShell() {
       />
 
       <div className="flex-1 min-h-0 flex">
-        <ToolRail />
-
         <main className="flex-1 min-w-0 relative bg-(--paper)">
           <DrawingCanvas onCursorChange={setCursorPos} />
 

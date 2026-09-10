@@ -29,6 +29,9 @@ import {
   LayoutTemplate,
   Crosshair,
   Lock,
+  MousePointer2,
+  Hand,
+  Slash,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { ModeSwitch } from "./ModeSwitch";
@@ -319,12 +322,39 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
 
       {/* 3. AutoCAD Ribbon Action Bar (Active Panels) */}
       <div className="h-[64px] px-3 flex items-center gap-4 bg-(--ink-panel) overflow-x-auto overflow-y-hidden text-[11px]">
+        {/* Select & Navigate Panel */}
+        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setTool("select")}
+              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+                state.tool === "select" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
+              }`}
+              title="Select (V) - Selects geometry entities"
+            >
+              <MousePointer2 className="w-4 h-4" />
+              <span className="text-[9.5px]">Select</span>
+            </button>
+            <button
+              onClick={() => setTool("pan")}
+              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+                state.tool === "pan" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
+              }`}
+              title="Pan (H / Space) - Pans the viewport"
+            >
+              <Hand className="w-4 h-4" />
+              <span className="text-[9.5px]">Pan</span>
+            </button>
+          </div>
+          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Select</span>
+        </div>
+
         {/* Draw Panel */}
         <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
           <div className="flex items-center gap-1">
             <button
               onClick={() => setTool("line")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "line" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Line (L) - Creates straight line segments"
@@ -334,7 +364,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
             </button>
             <button
               onClick={() => setTool("polyline")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "polyline" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Polyline (PL) - Creates connected segments"
@@ -344,7 +374,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
             </button>
             <button
               onClick={() => setTool("rectangle")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "rectangle" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Rectangle (REC) - Creates rectangular polyline"
@@ -354,7 +384,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
             </button>
             <button
               onClick={() => setTool("circle")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "circle" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Circle (C) - Creates circle with center & radius"
@@ -364,13 +394,23 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
             </button>
             <button
               onClick={() => setTool("polygon")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "polygon" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Polygon (POL) - Creates regular polygon"
             >
               <Hexagon className="w-4 h-4" />
               <span className="text-[9.5px]">Polygon</span>
+            </button>
+            <button
+              onClick={() => setTool("construction")}
+              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+                state.tool === "construction" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
+              }`}
+              title="Construction Line (X) - Creates reference geometry"
+            >
+              <Crosshair className="w-4 h-4" />
+              <span className="text-[9.5px]">Xline</span>
             </button>
           </div>
           <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Draw</span>
@@ -381,7 +421,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
           <div className="flex items-center gap-1">
             <button
               onClick={() => setTool("move")}
-              className={`flex flex-col items-center justify-center w-[42px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "move" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Move (M) - Displaces objects"
@@ -391,7 +431,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
             </button>
             <button
               onClick={() => dispatch({ type: "DUPLICATE_SELECTED" })}
-              className="flex flex-col items-center justify-center w-[42px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer text-(--fg-secondary)"
+              className="flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer text-(--fg-secondary)"
               title="Copy (CO) - Duplicate selected objects"
             >
               <Copy className="w-4 h-4" />
@@ -399,7 +439,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
             </button>
             <button
               onClick={() => setTool("rotate")}
-              className={`flex flex-col items-center justify-center w-[42px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "rotate" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Rotate (RO) - Rotates objects around center"
@@ -409,7 +449,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
             </button>
             <button
               onClick={() => setTool("trim")}
-              className={`flex flex-col items-center justify-center w-[42px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
                 state.tool === "trim" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
               }`}
               title="Trim (TR) - Trims intersecting segment"
@@ -418,8 +458,18 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
               <span className="text-[9.5px]">Trim</span>
             </button>
             <button
+              onClick={() => setTool("chamfer")}
+              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
+                state.tool === "chamfer" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
+              }`}
+              title="Chamfer / Haunch (CHA / F) - Creates chamfer corner"
+            >
+              <Slash className="w-4 h-4" />
+              <span className="text-[9.5px]">Chamfer</span>
+            </button>
+            <button
               onClick={() => dispatch({ type: "DELETE_SELECTED" })}
-              className="flex flex-col items-center justify-center w-[42px] h-[36px] rounded hover:bg-(--crit-soft) hover:text-(--crit) transition-colors cursor-pointer text-(--fg-secondary)"
+              className="flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--crit-soft) hover:text-(--crit) transition-colors cursor-pointer text-(--fg-secondary)"
               title="Erase (E / Del) - Removes selected objects"
             >
               <Trash2 className="w-4 h-4" />
