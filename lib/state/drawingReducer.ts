@@ -4,7 +4,6 @@ import { fitViewportToBounds } from "../geometry/transform";
 import { ParametricModel, ParametricVariable } from "../parametric/model";
 import { GeometricConstraint } from "../parametric/constraints";
 import { BUILTIN_TEMPLATES } from "../parametric/templates";
-import { synthesizeFormulasFromGeometry, InferredFormula } from "../inference/formulaSynthesizer";
 import { solveGADAssemblyAdjustment } from "../geometry/gadAssemblyEngine";
 import { evaluateAllBoundaryLimits, BoundaryLimitEvaluation } from "../parametric/boundaryLimits";
 
@@ -61,7 +60,6 @@ export interface DrawingState {
   variables: Record<string, ParametricVariable>;
   constraints: GeometricConstraint[];
   parametricErrors: string[];
-  inferredFormulas: InferredFormula[];
   boundaryEvaluations: BoundaryLimitEvaluation[];
   /**
    * §3 personas. Three roles, three completely different products sharing one
@@ -129,9 +127,7 @@ export type DrawingAction =
   | { type: "TOGGLE_CONSTRAINT"; id: string }
   | { type: "INSTANTIATE_TEMPLATE"; templateId: string; params?: Record<string, number> }
   | { type: "SYNC_PARAMETRIC_MODEL" }
-  | { type: "ACCEPT_INFERRED_FORMULA"; id: string }
-  | { type: "UNBIND_INFERRED_FORMULA"; id: string }
-  | { type: "UPDATE_INFERRED_FORMULA"; id: string; expression?: string; targetProperty?: string };
+  | { type: "APPLY_SOLVED_SHAPES"; shapes: Shape[]; description?: string };
 
 export const initialDrawingState: DrawingState = {
   shapes: [],
@@ -163,7 +159,6 @@ export const initialDrawingState: DrawingState = {
   variables: {},
   constraints: [],
   parametricErrors: [],
-  inferredFormulas: [],
   boundaryEvaluations: [],
   userMode: "draftsman",
 };
@@ -243,37 +238,6 @@ function syncShapeParametersToVariables(
   }
 
   return nextVars;
-}
-
-/**
- * Reconciles freshly inferred formulas against existing ones and active variables,
- * preserving accepted/bound status and expressions.
- */
-export function mergeInferredFormulas(
-  existingFormulas: InferredFormula[] = [],
-  newFormulas: InferredFormula[] = [],
-  variables: Record<string, ParametricVariable> = {}
-): InferredFormula[] {
-  const acceptedMap = new Map<string, InferredFormula>();
-  for (const f of existingFormulas) {
-    if (f.status === "accepted") {
-      acceptedMap.set(f.id, f);
-      acceptedMap.set(`${f.targetShapeId}:${f.targetProperty}`, f);
-    }
-  }
-
-  return newFormulas.map((f) => {
-    const existing = acceptedMap.get(f.id) || acceptedMap.get(`${f.targetShapeId}:${f.targetProperty}`);
-    const isVarBound = Boolean(variables[f.targetProperty]?.formula);
-    if (existing?.status === "accepted" || isVarBound) {
-      return {
-        ...f,
-        status: "accepted" as const,
-        expression: existing?.expression || variables[f.targetProperty]?.formula || f.expression,
-      };
-    }
-    return f;
-  });
 }
 
 /**
@@ -417,14 +381,12 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       }
 
       const nextShapes = [...state.shapes, committedShape];
-      const inferred = synthesizeFormulasFromGeometry(nextShapes);
       const boundaryEvals = evaluateAllBoundaryLimits(nextShapes);
 
       return {
         ...state,
         shapes: nextShapes,
         variables: nextVars,
-        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, inferred, nextVars),
         boundaryEvaluations: boundaryEvals,
         draft: null,
         selectedId: committedShape.id,
@@ -634,25 +596,11 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         state.constraints
       );
 
-      const finalFormulas = mergeInferredFormulas(
-        state.inferredFormulas,
-        synthesizeFormulasFromGeometry(updatedShapes),
-        updatedVariables
-      ).map((f) => {
-        const matchingVar = updatedVariables[f.targetProperty]
-          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
-        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
-          return { ...f, evaluatedValue: matchingVar.value };
-        }
-        return f;
-      });
-
       return {
         ...state,
         shapes: updatedShapes,
         variables: updatedVariables,
         parametricErrors: errors,
-        inferredFormulas: finalFormulas,
         boundaryEvaluations: evaluateAllBoundaryLimits(updatedShapes),
       };
     }
@@ -796,25 +744,11 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         state.constraints
       );
 
-      const finalFormulas = mergeInferredFormulas(
-        state.inferredFormulas,
-        synthesizeFormulasFromGeometry(updatedShapes),
-        updatedVariables
-      ).map((f) => {
-        const matchingVar = updatedVariables[f.targetProperty]
-          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
-        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
-          return { ...f, evaluatedValue: matchingVar.value };
-        }
-        return f;
-      });
-
       return {
         ...state,
         shapes: updatedShapes,
         variables: updatedVariables,
         parametricErrors: errors,
-        inferredFormulas: finalFormulas,
         boundaryEvaluations: evaluateAllBoundaryLimits(updatedShapes),
         history: pushHistory(state, `Update ${currentShape.type}`),
       };
@@ -1184,7 +1118,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
           }
         }
       }
-      const inferred = synthesizeFormulasFromGeometry(action.shapes);
+
       const boundaryEvals = evaluateAllBoundaryLimits(action.shapes);
       // Imported drawings carry their own coordinate system: a real DXF may sit
       // hundreds of metres from the origin at a scale of 1:1000. Loading it
@@ -1202,7 +1136,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
             )
           : state.viewport,
         variables: nextVars,
-        inferredFormulas: mergeInferredFormulas(state.inferredFormulas, inferred, nextVars),
         boundaryEvaluations: boundaryEvals,
         selectedId: null,
         selectedIds: [],
@@ -1303,22 +1236,11 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         state.constraints
       );
 
-      // Keep formula evaluated values in sync with live variables
-      const syncedFormulas = state.inferredFormulas.map((f) => {
-        const matchingVar = updatedVariables[f.targetProperty]
-          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
-        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
-          return { ...f, evaluatedValue: matchingVar.value };
-        }
-        return f;
-      });
-
       return {
         ...state,
         variables: updatedVariables,
         shapes: updatedShapes,
         parametricErrors: errors,
-        inferredFormulas: syncedFormulas,
         history: pushHistory(state, `Set Variable ${action.name}`),
       };
     }
@@ -1463,190 +1385,19 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       };
     }
 
-    case "ACCEPT_INFERRED_FORMULA": {
-      const formula = state.inferredFormulas?.find((f) => f.id === action.id);
-      if (!formula) return state;
-
-      const nextVars = { ...state.variables };
-      for (const v of formula.variables) {
-        nextVars[v.name] = { name: v.name, value: v.value, unit: "mm" };
-        const match = v.name.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
-        if (match) {
-          const pfx = match[1];
-          const prp = match[2];
-          const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
-          const low = prp.toLowerCase();
-          for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
-            nextVars[alias] = { name: alias, value: v.value, unit: "mm" };
-          }
-        }
-      }
-
-      nextVars[formula.targetProperty] = {
-        name: formula.targetProperty,
-        value: formula.evaluatedValue,
-        formula: formula.expression,
-        unit: "mm",
-      };
-
-      const targetMatch = formula.targetProperty.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
-      if (targetMatch) {
-        const pfx = targetMatch[1];
-        const prp = targetMatch[2];
-        const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
-        const low = prp.toLowerCase();
-        for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
-          nextVars[alias] = {
-            name: alias,
-            value: formula.evaluatedValue,
-            formula: formula.expression,
-            unit: "mm",
-          };
-        }
-      }
-
-      const updatedFormulas = state.inferredFormulas.map((f) =>
-        f.id === action.id ? { ...f, status: "accepted" as const } : f
-      );
-
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        nextVars,
-        state.constraints
-      );
-
-      const syncedFormulas = updatedFormulas.map((f) => {
-        const matchingVar = updatedVariables[f.targetProperty]
-          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
-        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
-          return { ...f, evaluatedValue: matchingVar.value };
-        }
-        return f;
-      });
-
+    /**
+     * The parametric authoring kernel has re-solved the drawing and these are
+     * the coordinates it produced. It arrives as its own action rather than as
+     * LOAD_SHAPES because the geometry has already been through the solver,
+     * the topology check and the invariant report — re-running the drafting
+     * pipeline over it would only be able to make it worse.
+     */
+    case "APPLY_SOLVED_SHAPES": {
       return {
         ...state,
-        variables: updatedVariables,
-        shapes: updatedShapes,
-        parametricErrors: errors,
-        inferredFormulas: syncedFormulas,
-        history: pushHistory(state, `Accept formula ${formula.expression}`),
-      };
-    }
-
-    case "UNBIND_INFERRED_FORMULA": {
-      const formula = state.inferredFormulas?.find((f) => f.id === action.id);
-      if (!formula) return state;
-
-      const nextVars = { ...state.variables };
-      delete nextVars[formula.targetProperty];
-
-      const targetMatch = formula.targetProperty.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
-      if (targetMatch) {
-        const pfx = targetMatch[1];
-        const prp = targetMatch[2];
-        const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
-        const low = prp.toLowerCase();
-        for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
-          delete nextVars[alias];
-        }
-      }
-
-      const normTarget = formula.targetProperty.replace(/[._]/g, "").toLowerCase();
-      for (const k of Object.keys(nextVars)) {
-        if (k.replace(/[._]/g, "").toLowerCase() === normTarget) {
-          delete nextVars[k];
-        }
-      }
-
-      const updatedFormulas = state.inferredFormulas.map((f) =>
-        f.id === action.id ? { ...f, status: "pending" as const } : f
-      );
-
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        nextVars,
-        state.constraints
-      );
-
-      return {
-        ...state,
-        variables: updatedVariables,
-        shapes: updatedShapes,
-        parametricErrors: errors,
-        inferredFormulas: updatedFormulas,
-        history: pushHistory(state, `Unbind formula ${formula.displayTarget}`),
-      };
-    }
-
-    case "UPDATE_INFERRED_FORMULA": {
-      const formula = state.inferredFormulas?.find((f) => f.id === action.id);
-      if (!formula) return state;
-
-      const newExpression = action.expression !== undefined ? action.expression.trim() : formula.expression;
-      const newTargetProperty = action.targetProperty !== undefined ? action.targetProperty.trim() : formula.targetProperty;
-
-      const nextVars = { ...state.variables };
-      if (formula.status === "accepted") {
-        if (newTargetProperty !== formula.targetProperty) {
-          delete nextVars[formula.targetProperty];
-        }
-        nextVars[newTargetProperty] = {
-          name: newTargetProperty,
-          value: formula.evaluatedValue,
-          formula: newExpression,
-          unit: "mm",
-        };
-
-        const targetMatch = newTargetProperty.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
-        if (targetMatch) {
-          const pfx = targetMatch[1];
-          const prp = targetMatch[2];
-          const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
-          const low = prp.toLowerCase();
-          for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
-            nextVars[alias] = {
-              name: alias,
-              value: formula.evaluatedValue,
-              formula: newExpression,
-              unit: "mm",
-            };
-          }
-        }
-      }
-
-      const updatedFormulas = state.inferredFormulas.map((f) =>
-        f.id === action.id
-          ? {
-              ...f,
-              expression: newExpression,
-              targetProperty: newTargetProperty,
-            }
-          : f
-      );
-
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        nextVars,
-        state.constraints
-      );
-
-      const syncedFormulas = updatedFormulas.map((f) => {
-        const matchingVar = updatedVariables[f.targetProperty]
-          ?? Object.entries(updatedVariables).find(([k]) => k.replace(/[._]/g, "").toLowerCase() === f.targetProperty.replace(/[._]/g, "").toLowerCase())?.[1];
-        if (matchingVar !== undefined && typeof matchingVar.value === "number") {
-          return { ...f, evaluatedValue: matchingVar.value };
-        }
-        return f;
-      });
-
-      return {
-        ...state,
-        variables: updatedVariables,
-        shapes: updatedShapes,
-        parametricErrors: errors,
-        inferredFormulas: syncedFormulas,
-        history: pushHistory(state, `Update formula ${formula.displayTarget}`),
+        shapes: action.shapes,
+        boundaryEvaluations: evaluateAllBoundaryLimits(action.shapes),
+        history: pushHistory(state, action.description ?? "Parametric update"),
       };
     }
 

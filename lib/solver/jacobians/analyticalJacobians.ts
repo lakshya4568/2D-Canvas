@@ -19,12 +19,12 @@ export function evaluateCoincidentConstraint(
   const jacobian = createMatrix(2, n);
 
   // Row 0: xA - xB
-  jacobian[0][2 * idxA] = 1.0;
-  jacobian[0][2 * idxB] = -1.0;
+  jacobian[0][2 * idxA] += 1.0;
+  jacobian[0][2 * idxB] += -1.0;
 
   // Row 1: yA - yB
-  jacobian[1][2 * idxA + 1] = 1.0;
-  jacobian[1][2 * idxB + 1] = -1.0;
+  jacobian[1][2 * idxA + 1] += 1.0;
+  jacobian[1][2 * idxB + 1] += -1.0;
 
   return { residuals, jacobian };
 }
@@ -44,8 +44,8 @@ export function evaluateHorizontalConstraint(
   const residuals = [yB - yA];
   const jacobian = createMatrix(1, n);
 
-  jacobian[0][2 * idxA + 1] = -1.0;
-  jacobian[0][2 * idxB + 1] = 1.0;
+  jacobian[0][2 * idxA + 1] += -1.0;
+  jacobian[0][2 * idxB + 1] += 1.0;
 
   return { residuals, jacobian };
 }
@@ -65,8 +65,8 @@ export function evaluateVerticalConstraint(
   const residuals = [xB - xA];
   const jacobian = createMatrix(1, n);
 
-  jacobian[0][2 * idxA] = -1.0;
-  jacobian[0][2 * idxB] = 1.0;
+  jacobian[0][2 * idxA] += -1.0;
+  jacobian[0][2 * idxB] += 1.0;
 
   return { residuals, jacobian };
 }
@@ -93,10 +93,10 @@ export function evaluateDistanceConstraint(
   const residuals = [dist - targetDistance];
   const jacobian = createMatrix(1, n);
 
-  jacobian[0][2 * idxA] = -dx / dist;
-  jacobian[0][2 * idxA + 1] = -dy / dist;
-  jacobian[0][2 * idxB] = dx / dist;
-  jacobian[0][2 * idxB + 1] = dy / dist;
+  jacobian[0][2 * idxA] += -dx / dist;
+  jacobian[0][2 * idxA + 1] += -dy / dist;
+  jacobian[0][2 * idxB] += dx / dist;
+  jacobian[0][2 * idxB + 1] += dy / dist;
 
   return { residuals, jacobian };
 }
@@ -128,16 +128,16 @@ export function evaluatePointOnLineConstraint(
   const jacobian = createMatrix(1, n);
 
   // df / dx = dy21, df / dy = -dx21
-  jacobian[0][2 * idxP] = dy21;
-  jacobian[0][2 * idxP + 1] = -dx21;
+  jacobian[0][2 * idxP] += dy21;
+  jacobian[0][2 * idxP + 1] += -dx21;
 
   // df / dx1 = y - y2, df / dy1 = x2 - x
-  jacobian[0][2 * idxP1] = y - y2;
-  jacobian[0][2 * idxP1 + 1] = x2 - x;
+  jacobian[0][2 * idxP1] += y - y2;
+  jacobian[0][2 * idxP1 + 1] += x2 - x;
 
   // df / dx2 = y1 - y, df / dy2 = x - x1
-  jacobian[0][2 * idxP2] = y1 - y;
-  jacobian[0][2 * idxP2 + 1] = x - x1;
+  jacobian[0][2 * idxP2] += y1 - y;
+  jacobian[0][2 * idxP2 + 1] += x - x1;
 
   return { residuals, jacobian };
 }
@@ -171,17 +171,17 @@ export function evaluateParallelConstraint(
   const residuals = [dx12 * dy34 - dy12 * dx34];
   const jacobian = createMatrix(1, n);
 
-  jacobian[0][2 * idxP1] = -dy34;
-  jacobian[0][2 * idxP1 + 1] = dx34;
+  jacobian[0][2 * idxP1] += -dy34;
+  jacobian[0][2 * idxP1 + 1] += dx34;
 
-  jacobian[0][2 * idxP2] = dy34;
-  jacobian[0][2 * idxP2 + 1] = -dx34;
+  jacobian[0][2 * idxP2] += dy34;
+  jacobian[0][2 * idxP2 + 1] += -dx34;
 
-  jacobian[0][2 * idxP3] = dy12;
-  jacobian[0][2 * idxP3 + 1] = -dx12;
+  jacobian[0][2 * idxP3] += dy12;
+  jacobian[0][2 * idxP3 + 1] += -dx12;
 
-  jacobian[0][2 * idxP4] = -dy12;
-  jacobian[0][2 * idxP4 + 1] = dx12;
+  jacobian[0][2 * idxP4] += -dy12;
+  jacobian[0][2 * idxP4 + 1] += dx12;
 
   return { residuals, jacobian };
 }
@@ -215,17 +215,17 @@ export function evaluatePerpendicularConstraint(
   const residuals = [dx12 * dx34 + dy12 * dy34];
   const jacobian = createMatrix(1, n);
 
-  jacobian[0][2 * idxP1] = -dx34;
-  jacobian[0][2 * idxP1 + 1] = -dy34;
+  jacobian[0][2 * idxP1] += -dx34;
+  jacobian[0][2 * idxP1 + 1] += -dy34;
 
-  jacobian[0][2 * idxP2] = dx34;
-  jacobian[0][2 * idxP2 + 1] = dy34;
+  jacobian[0][2 * idxP2] += dx34;
+  jacobian[0][2 * idxP2 + 1] += dy34;
 
-  jacobian[0][2 * idxP3] = -dx12;
-  jacobian[0][2 * idxP3 + 1] = -dy12;
+  jacobian[0][2 * idxP3] += -dx12;
+  jacobian[0][2 * idxP3 + 1] += -dy12;
 
-  jacobian[0][2 * idxP4] = dx12;
-  jacobian[0][2 * idxP4 + 1] = dy12;
+  jacobian[0][2 * idxP4] += dx12;
+  jacobian[0][2 * idxP4 + 1] += dy12;
 
   return { residuals, jacobian };
 }
@@ -256,12 +256,12 @@ export function evaluateHaunch45Constraint(
   const jacobian = createMatrix(2, n);
 
   // Row 0: xB - xA
-  jacobian[0][2 * idxA] = -1.0;
-  jacobian[0][2 * idxB] = 1.0;
+  jacobian[0][2 * idxA] += -1.0;
+  jacobian[0][2 * idxB] += 1.0;
 
   // Row 1: yB - yA
-  jacobian[1][2 * idxA + 1] = -1.0;
-  jacobian[1][2 * idxB + 1] = 1.0;
+  jacobian[1][2 * idxA + 1] += -1.0;
+  jacobian[1][2 * idxB + 1] += 1.0;
 
   return { residuals, jacobian };
 }
@@ -324,14 +324,14 @@ export function evaluateWallThicknessConstraint(
   // df/dX_j = (dN/dX_j * L - N * dL/dX_j) / L^2
   const L2 = L * L;
 
-  jacobian[0][2 * idxP1] = (dN_dx1 * L - N * dL_dx1) / L2;
-  jacobian[0][2 * idxP1 + 1] = (dN_dy1 * L - N * dL_dy1) / L2;
+  jacobian[0][2 * idxP1] += (dN_dx1 * L - N * dL_dx1) / L2;
+  jacobian[0][2 * idxP1 + 1] += (dN_dy1 * L - N * dL_dy1) / L2;
 
-  jacobian[0][2 * idxP2] = (dN_dx2 * L - N * dL_dx2) / L2;
-  jacobian[0][2 * idxP2 + 1] = (dN_dy2 * L - N * dL_dy2) / L2;
+  jacobian[0][2 * idxP2] += (dN_dx2 * L - N * dL_dx2) / L2;
+  jacobian[0][2 * idxP2 + 1] += (dN_dy2 * L - N * dL_dy2) / L2;
 
-  jacobian[0][2 * idxP3] = dN_dx3 / L;
-  jacobian[0][2 * idxP3 + 1] = dN_dy3 / L;
+  jacobian[0][2 * idxP3] += dN_dx3 / L;
+  jacobian[0][2 * idxP3 + 1] += dN_dy3 / L;
 
   return { residuals, jacobian };
 }
@@ -360,10 +360,10 @@ export function evaluateSquaredDistanceConstraint(
   const residuals = [dx * dx + dy * dy - targetSq];
   const jacobian = createMatrix(1, n);
 
-  jacobian[0][2 * idxA] = -2.0 * dx;
-  jacobian[0][2 * idxA + 1] = -2.0 * dy;
-  jacobian[0][2 * idxB] = 2.0 * dx;
-  jacobian[0][2 * idxB + 1] = 2.0 * dy;
+  jacobian[0][2 * idxA] += -2.0 * dx;
+  jacobian[0][2 * idxA + 1] += -2.0 * dy;
+  jacobian[0][2 * idxB] += 2.0 * dx;
+  jacobian[0][2 * idxB + 1] += 2.0 * dy;
 
   return { residuals, jacobian };
 }
@@ -625,8 +625,8 @@ export function evaluateDragTargetConstraint(
   const residuals = [x - targetX, y - targetY];
   const jacobian = createMatrix(2, n);
 
-  jacobian[0][2 * idxP] = 1.0;
-  jacobian[1][2 * idxP + 1] = 1.0;
+  jacobian[0][2 * idxP] += 1.0;
+  jacobian[1][2 * idxP + 1] += 1.0;
 
   return { residuals, jacobian };
 }
@@ -657,14 +657,14 @@ export function evaluateMidpointConstraint(
   const jacobian = createMatrix(2, n);
 
   // Row 0: xM - 0.5*(x1 + x2)
-  jacobian[0][2 * idxM] = 1.0;
-  jacobian[0][2 * idxP1] = -0.5;
-  jacobian[0][2 * idxP2] = -0.5;
+  jacobian[0][2 * idxM] += 1.0;
+  jacobian[0][2 * idxP1] += -0.5;
+  jacobian[0][2 * idxP2] += -0.5;
 
   // Row 1: yM - 0.5*(y1 + y2)
-  jacobian[1][2 * idxM + 1] = 1.0;
-  jacobian[1][2 * idxP1 + 1] = -0.5;
-  jacobian[1][2 * idxP2 + 1] = -0.5;
+  jacobian[1][2 * idxM + 1] += 1.0;
+  jacobian[1][2 * idxP1 + 1] += -0.5;
+  jacobian[1][2 * idxP2 + 1] += -0.5;
 
   return { residuals, jacobian };
 }

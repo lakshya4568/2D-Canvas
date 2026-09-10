@@ -1,203 +1,144 @@
 "use client";
 
+/**
+ * Dimension badges as first-class constraints — UPCE-MASTER-1.0 §61.
+ *
+ * A badge here is not a label printed next to a shape; it IS a dimensional
+ * constraint that a parameter drives. That is why there is exactly one badge per
+ * parameter-driven dimension and none for anything else: an unconstrained edge
+ * has no dimension to edit, only a length you could measure.
+ *
+ * Typing a new number into a badge sets the PARAMETER and re-solves through the
+ * same pipeline the panel uses (§12: "the editor must never fake this by
+ * changing SVG coordinates independently of the model"). If the solver refuses
+ * the value, the drawing does not move and the panel says why.
+ *
+ * The previous implementation looked its target up by trying `${name}_Width`,
+ * `${name}.width`, `${name}_width`, `W` and `Width` in turn against a global
+ * variable bag, which is how a badge could end up editing a different shape's
+ * dimension. There is no name matching left in this file.
+ */
+
 import React from "react";
-import { useDrawing } from "@/lib/state/drawingContext";
-import { Shape } from "@/lib/geometry/types";
-import { lineMetrics } from "@/lib/geometry/metrics";
-import { ParametricModel } from "@/lib/parametric/model";
+import { useUpce } from "../parametric/upceContext";
 import { DimensionBadge, BadgeVisualState } from "./DimensionBadge";
-import { ParameterManager } from "@/lib/parametric/parameterManager";
+import type { SketchConstraint } from "@/lib/upce/types";
 
 interface ParametricDimensionOverlayProps {
   scale: number;
 }
 
+interface Placement {
+  x: number;
+  y: number;
+  measured: number;
+}
+
 export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProps> = ({ scale }) => {
-  const { state, dispatch } = useDrawing();
+  const { sketch, started, dof, setParameterValue } = useUpce();
 
-  const handleCommitBadge = (shape: Shape, newValue: string, paramName?: string) => {
-    const trimmed = newValue.trim();
-    if (!trimmed) return;
+  const conflicting = React.useMemo(
+    () => new Set((dof?.diagnoses ?? []).filter((d) => d.status === "conflicting").map((d) => d.constraintId)),
+    [dof]
+  );
 
-    const parsedNum = Number(trimmed);
-    const shapeIdx = state.shapes.indexOf(shape);
-    const defName = ParametricModel.getShapeName(shape, shapeIdx);
-    const boundVarW =
-      (shape.name && (state.variables[`${shape.name}_Width`] || state.variables[`${shape.name}.width`] || state.variables[`${shape.name}_width`])) ||
-      state.variables[`${defName}_Width`] ||
-      state.variables[`${defName}.width`] ||
-      state.variables[`${defName}_width`] ||
-      state.variables.W ||
-      state.variables.Width;
+  if (!started) return null;
 
-    const targetVarName =
-      paramName ??
-      boundVarW?.name ??
-      (shape.type === "rectangle"
-        ? `${shape.name || defName}_Width`
-        : `${shape.name || defName}_Length`);
+  const place = (c: SketchConstraint): Placement | null => {
+    const pt = (id: string) => sketch.points[id];
 
-    const paramMgr = new ParameterManager();
-    if (!isNaN(parsedNum) && parsedNum > 0) {
-      // UPCE-MASTER-1.0 §61, §2 Constraint 14:
-      // Badge commits route through ParameterManager.setDriving() + constraint node + re-solve.
-      // NEVER mutate shape.width or shape.x2 directly!
-      paramMgr.setDriving(targetVarName, parsedNum);
-      dispatch({
-        type: "SET_VARIABLE",
-        name: targetVarName,
-        valueOrFormula: parsedNum,
-      });
-    } else {
-      const eqIdx = trimmed.indexOf("=");
-      let varName = targetVarName;
-      let expr = trimmed;
-
-      if (eqIdx !== -1) {
-        varName = trimmed.substring(0, eqIdx).trim();
-        expr = trimmed.substring(eqIdx + 1).trim();
-      }
-
-      dispatch({
-        type: "SET_VARIABLE",
-        name: varName,
-        valueOrFormula: expr,
-      });
+    if (c.kind === "distance" || c.kind === "distance_x" || c.kind === "distance_y") {
+      const a = pt(c.points[0]);
+      const b = pt(c.points[1]);
+      if (!a || !b) return null;
+      const measured =
+        c.kind === "distance"
+          ? Math.hypot(b.x - a.x, b.y - a.y)
+          : c.kind === "distance_x"
+            ? b.x - a.x
+            : b.y - a.y;
+      // Nudge the badge off the edge along its own normal so it never sits on
+      // top of the line it measures.
+      const nx = -(b.y - a.y);
+      const ny = b.x - a.x;
+      const len = Math.hypot(nx, ny) || 1;
+      const off = 12 / scale;
+      return {
+        x: (a.x + b.x) / 2 + (nx / len) * off,
+        y: (a.y + b.y) / 2 + (ny / len) * off,
+        measured,
+      };
     }
+
+    if (c.kind === "point_line_distance") {
+      const p = pt(c.points[0]);
+      const seg = sketch.segments[c.segments[0]];
+      if (!p || !seg) return null;
+      const a = pt(seg.p1);
+      const b = pt(seg.p2);
+      if (!a || !b) return null;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (len * len);
+      const foot = { x: a.x + dx * t, y: a.y + dy * t };
+      return {
+        x: (p.x + foot.x) / 2,
+        y: (p.y + foot.y) / 2,
+        measured: Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len,
+      };
+    }
+
+    return null;
   };
 
+  const badges = sketch.constraints
+    .filter((c) => c.paramRef && c.state !== "suppressed")
+    .map((c) => ({ constraint: c, placement: place(c) }))
+    .filter((b): b is { constraint: SketchConstraint; placement: Placement } => b.placement !== null);
+
+  // One badge per parameter: a thickness driving both walls does not need two
+  // identical labels, and the pair is what the panel explains anyway.
+  const seen = new Set<string>();
+  const unique = badges.filter((b) => {
+    const key = b.constraint.paramRef!;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   return (
-    <g id="parametric-dimensions-layer">
-      {state.shapes.map((shape, index) => {
-        if (shape.isVisible === false) return null;
+    <g className="parametric-dimensions">
+      {unique.map(({ constraint, placement }) => {
+        const param = sketch.parameters[constraint.paramRef!];
+        if (!param) return null;
 
-        const isSelected = state.selectedIds.includes(shape.id);
-        const hasVariable = Boolean(
-          (shape.name && state.variables[shape.name]) ||
-          state.variables[ParametricModel.getShapeName(shape, state.shapes.indexOf(shape))]
-        );
-
-        // Only show badge when the shape is specifically clicked / selected
-        if (!isSelected) {
-          return null;
-        }
-
-        let badgeX = 0;
-        let badgeY = 0;
-        let displayLabel = "";
-        let rawExpr = "";
-        let isFormulaDriven = false;
-        let targetVarName = "";
-
-        if (shape.type === "line" || shape.type === "arrow") {
-          const metrics = lineMetrics({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
-          const len = metrics.length;
-          if (len < 8) return null;
-
-          const dx = Math.abs(shape.x2 - shape.x1);
-          const dy = Math.abs(shape.y2 - shape.y1);
-          const isHorizontal = dx >= dy;
-          const name = shape.name || "";
-
-          // Calculate directional non-colliding offsets with clearance for selection handles
-          if (isHorizontal) {
-            badgeX = metrics.midpoint.x;
-            const isTop = name.includes("top");
-            const isBottom = name.includes("bot");
-            const isInner = name.includes("inner");
-
-            if (isTop) {
-              // 38px clearance above the selection box rotation handle
-              badgeY = metrics.midpoint.y - (isInner ? -16 : (isSelected ? 38 : 16)) / scale;
-            } else if (isBottom) {
-              badgeY = metrics.midpoint.y + (isInner ? -16 : (isSelected ? 26 : 16)) / scale;
-            } else {
-              badgeY = metrics.midpoint.y - (isSelected ? 38 : 14) / scale;
-            }
-          } else {
-            // Vertical lines: clearance for handles
-            const isLeft = name.includes("left");
-            const isRight = name.includes("right");
-            const isInner = name.includes("inner");
-
-            badgeY = metrics.midpoint.y + (isInner ? 28 : -28) / scale;
-
-            if (isLeft) {
-              badgeX = metrics.midpoint.x - (isInner ? -40 : (isSelected ? 52 : 44)) / scale;
-            } else if (isRight) {
-              badgeX = metrics.midpoint.x + (isInner ? -40 : (isSelected ? 52 : 44)) / scale;
-            } else {
-              badgeX = metrics.midpoint.x + (isSelected ? 44 : 30) / scale;
-            }
-          }
-
-          const shapeIdx = state.shapes.indexOf(shape);
-          const defName = ParametricModel.getShapeName(shape, shapeIdx);
-          const boundVar =
-            (shape.name && state.variables[shape.name]) ||
-            state.variables[defName] ||
-            state.variables[`L${shapeIdx + 1}`] ||
-            state.variables[`Line_${shapeIdx + 1}`];
-
-          targetVarName = boundVar?.name ?? (shape.name || defName);
-
-          if (state.userMode === "draftsman") {
-            displayLabel = `${Math.round(len)} mm`;
-            rawExpr = String(Math.round(len));
-          } else if (boundVar) {
-            isFormulaDriven = Boolean(boundVar.formula);
-            rawExpr = boundVar.formula ? boundVar.formula : String(Math.round(len));
-            displayLabel = `${boundVar.name}: ${Math.round(len)}`;
-          } else {
-            rawExpr = String(Math.round(len));
-            displayLabel = `${shape.name || defName}: ${Math.round(len)}`;
-          }
-        } else if (shape.type === "rectangle") {
-          badgeX = shape.x + shape.width / 2;
-          badgeY = shape.y - 10 / scale;
-          const shapeIdx = state.shapes.indexOf(shape);
-          const defName = ParametricModel.getShapeName(shape, shapeIdx);
-          const boundVarW =
-            (shape.name && (state.variables[`${shape.name}_Width`] || state.variables[`${shape.name}.width`] || state.variables[`${shape.name}_width`])) ||
-            state.variables[`${defName}_Width`] ||
-            state.variables[`${defName}.width`] ||
-            state.variables[`${defName}_width`] ||
-            state.variables.W ||
-            state.variables.Width;
-
-          targetVarName = boundVarW?.name ?? (shape.name ? `${shape.name}_Width` : `${defName}_Width`);
-
-          if (state.userMode === "draftsman") {
-            displayLabel = `${Math.round(shape.width)} × ${Math.round(shape.height)} mm`;
-            rawExpr = String(Math.round(shape.width));
-          } else if (boundVarW) {
-            isFormulaDriven = Boolean(boundVarW.formula);
-            rawExpr = boundVarW.formula ? boundVarW.formula : String(Math.round(shape.width));
-            displayLabel = `${boundVarW.name}: ${Math.round(shape.width)} × ${Math.round(shape.height)}`;
-          } else {
-            rawExpr = String(Math.round(shape.width));
-            displayLabel = `${shape.name ? `${shape.name}: ` : ""}${Math.round(shape.width)} × ${Math.round(shape.height)}`;
-          }
-        } else {
-          return null;
-        }
-
-        const visualState: BadgeVisualState = isFormulaDriven ? "derived" : "driving";
-        const isEditable = !isFormulaDriven;
+        const visualState: BadgeVisualState = conflicting.has(constraint.id)
+          ? "conflicting"
+          : param.role === "DERIVED" || param.role === "FIXED"
+            ? "derived"
+            : "driving";
 
         return (
           <DimensionBadge
-            key={`param-badge-${shape.id}-${index}`}
-            shape={shape}
+            key={`upce-badge-${constraint.id}`}
             scale={scale}
-            x={badgeX}
-            y={badgeY}
-            label={displayLabel}
-            value={rawExpr}
-            paramName={targetVarName}
+            x={placement.x}
+            y={placement.y}
+            label={`${param.name} ${param.value.toFixed(param.unit === "count" ? 0 : 1)}`}
+            value={param.value}
+            paramName={param.name}
             visualState={visualState}
-            isEditable={isEditable}
-            onCommit={(val, pName) => handleCommitBadge(shape, val, pName)}
+            isEditable={visualState === "driving"}
+            diagnosticMessage={
+              visualState === "conflicting"
+                ? `${constraint.label} cannot hold together with the other requirements.`
+                : undefined
+            }
+            onCommit={(raw) => {
+              const v = Number(raw.trim());
+              if (Number.isFinite(v)) setParameterValue(param.name, v);
+            }}
           />
         );
       })}

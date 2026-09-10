@@ -1,85 +1,59 @@
 "use client";
 
-import React from "react";
-import { useDrawing } from "@/lib/state/drawingContext";
-
 /**
  * Constraint health, told twice — UPCE-MASTER-1.0 §62.
  *
- *   Draftsman: "Neutral/grey dot 'N free' ... green check 'fully defined' ...
- *               red 'conflicting' with named parameters"
- *   Author:    "Full DM partition: under / well / over-constrained blocks,
- *               redundant-vs-conflicting ... per connected component"
+ *   Draftsman: a neutral chip saying how much is still free, or "fully defined",
+ *              or a conflict named by the requirements involved.
+ *   Author:    the per-block partition, with redundant and conflicting rules
+ *              distinguished by their residual rather than by counting (§7.3).
  *
- * §12 is binding on the wording: "Conflicts MUST be surfaced using driving-
- * parameter names, never raw constraint or predicate identifiers."
+ * This file previously computed `entities * 2 - constraints - 3` and clamped the
+ * result at zero, which meant a single free rectangle reported "Fully defined,
+ * 0 DOF". Every number here now comes from the rank of the assembled Jacobian.
+ * If there is no live analysis, the chip says so instead of inventing one.
  */
 
-export type DofState = "unconstrained" | "well" | "conflicting";
+import React from "react";
+import { useUpce } from "../parametric/upceContext";
 
-export interface DofSummary {
-  state: DofState;
-  /** Remaining free degrees of freedom. */
-  free: number;
-  entities: number;
-  underBlocks: number;
-  wellBlocks: number;
-  overBlocks: number;
-  /** Driving-parameter names involved in a conflict. Never constraint ids. */
-  conflictingParameters: string[];
-  /** What to add next, in the draftsman's vocabulary. */
-  suggestion?: string;
-}
-
-export function useDofSummary(): DofSummary {
-  const { state } = useDrawing();
-
-  // Derived from the live model. Until the canvas is wired to the DM analyser
-  // this reports the honest shape of the current sketch rather than a placeholder.
-  const entities = state.shapes.filter((s) => s.isVisible !== false).length;
-  const applied = state.constraints.length;
-  const conflicting = state.parametricErrors.length > 0;
-  const free = Math.max(0, entities * 2 - applied - (entities > 0 ? 3 : 0));
-
-  return {
-    state: conflicting ? "conflicting" : free === 0 && entities > 0 ? "well" : "unconstrained",
-    free,
-    entities,
-    underBlocks: free > 0 ? 1 : 0,
-    wellBlocks: free === 0 && entities > 0 ? 1 : 0,
-    overBlocks: conflicting ? 1 : 0,
-    conflictingParameters: state.parametricErrors.slice(0, 3),
-    suggestion: free > 0 ? "Add a dimension to lock the remaining freedom." : undefined,
-  };
-}
-
-const TONE: Record<DofState, { dot: string; fg: string; bg: string }> = {
-  unconstrained: {
-    dot: "bg-(--fg-muted)",
-    fg: "text-(--fg-secondary)",
-    bg: "bg-transparent",
-  },
+const TONE = {
+  unknown: { dot: "bg-(--fg-muted)", fg: "text-(--fg-muted)", bg: "bg-transparent" },
+  under: { dot: "bg-(--fg-muted)", fg: "text-(--fg-secondary)", bg: "bg-transparent" },
   well: { dot: "bg-(--ok)", fg: "text-(--ok)", bg: "bg-(--ok-soft)" },
-  conflicting: { dot: "bg-(--crit)", fg: "text-(--crit)", bg: "bg-(--crit-soft)" },
-};
+  over: { dot: "bg-(--crit)", fg: "text-(--crit)", bg: "bg-(--crit-soft)" },
+} as const;
 
 /** The draftsman's view: plain words, one chip, no jargon. */
 export function ConstraintChip() {
-  const dof = useDofSummary();
-  const tone = TONE[dof.state];
+  const { dof, started } = useUpce();
+
+  if (!started || !dof) {
+    return (
+      <span
+        title="Run Analyse geometry in the Author dock to measure this drawing."
+        className={`inline-flex items-center gap-1.5 h-[18px] px-2 rounded-full text-[10.5px] font-medium ${TONE.unknown.bg} ${TONE.unknown.fg}`}
+      >
+        <span className={`w-[6px] h-[6px] rounded-full ${TONE.unknown.dot}`} aria-hidden="true" />
+        Not analysed
+      </span>
+    );
+  }
+
+  const conflicts = dof.diagnoses.filter((d) => d.status === "conflicting");
+  const key = dof.status === "over" ? "over" : dof.status === "well" ? "well" : "under";
+  const tone = TONE[key];
 
   const text =
-    dof.state === "conflicting"
-      ? dof.conflictingParameters.length > 0
-        ? `Conflict: ${dof.conflictingParameters.join(", ")}`
-        : "Conflicting dimensions"
-      : dof.state === "well"
+    key === "over"
+      ? `Conflict: ${conflicts.slice(0, 2).map((c) => c.label).join(" vs ") || "requirements disagree"}`
+      : key === "well"
         ? "Fully defined"
-        : `${dof.free} free`;
+        : `${dof.dof} free`;
 
   return (
     <span
-      title={dof.suggestion ?? text}
+      title={dof.motions[0]?.description ?? text}
       className={`inline-flex items-center gap-1.5 h-[18px] px-2 rounded-full text-[10.5px] font-medium ${tone.bg} ${tone.fg}`}
     >
       <span className={`w-[6px] h-[6px] rounded-full ${tone.dot}`} aria-hidden="true" />
@@ -88,14 +62,32 @@ export function ConstraintChip() {
   );
 }
 
-/** The author's view: the full Dulmage–Mendelsohn partition (§30.3). */
+/** The author's view: the per-block partition (§30.3). */
 export function ConstraintHealthPanel() {
-  const dof = useDofSummary();
+  const { dof, started } = useUpce();
 
-  const rows: { label: string; value: number; tone: string }[] = [
-    { label: "Well-constrained", value: dof.wellBlocks, tone: "text-(--ok)" },
-    { label: "Under-constrained", value: dof.underBlocks, tone: "text-(--fg-secondary)" },
-    { label: "Over-constrained", value: dof.overBlocks, tone: "text-(--crit)" },
+  if (!started || !dof) {
+    return (
+      <section className="flex flex-col gap-2">
+        <h3 className="label">Constraint health</h3>
+        <p className="text-[11px] leading-relaxed text-(--fg-muted)">
+          Nothing has been measured yet. Analyse the geometry and this fills in from the constraint
+          system itself.
+        </p>
+      </section>
+    );
+  }
+
+  const under = dof.blocks.filter((b) => b.status === "under").length;
+  const well = dof.blocks.filter((b) => b.status === "well").length;
+  const over = dof.blocks.filter((b) => b.status === "over").length;
+  const redundant = dof.diagnoses.filter((d) => d.status === "redundant");
+  const conflicting = dof.diagnoses.filter((d) => d.status === "conflicting");
+
+  const rows = [
+    { label: "Well-constrained", value: well, tone: "text-(--ok)" },
+    { label: "Under-constrained", value: under, tone: "text-(--fg-secondary)" },
+    { label: "Over-constrained", value: over, tone: "text-(--crit)" },
   ];
 
   return (
@@ -117,12 +109,23 @@ export function ConstraintHealthPanel() {
         ))}
         <div className="flex items-center justify-between px-2.5 h-[28px] text-[11.5px] border-t border-(--rule) bg-(--ink-sunken)">
           <span className="text-(--fg-muted)">Remaining freedom</span>
-          <span className="num text-[12px] text-(--fg-primary)">{dof.free} DOF</span>
+          <span className="num text-[12px] text-(--fg-primary)">{dof.dof} DOF</span>
+        </div>
+        <div className="flex items-center justify-between px-2.5 h-[24px] text-[10.5px] border-t border-(--rule) text-(--fg-muted)">
+          <span>{dof.rows} requirements over {dof.variables} coordinates</span>
+          <span className="num">rank {dof.rank}</span>
         </div>
       </div>
-      {dof.conflictingParameters.length > 0 && (
+
+      {conflicting.length > 0 && (
         <p className="text-[11px] leading-relaxed text-(--crit)">
-          {dof.conflictingParameters.join(" · ")}
+          Cannot all hold at once: {conflicting.map((c) => c.label).join(" · ")}
+        </p>
+      )}
+      {redundant.length > 0 && (
+        <p className="text-[10.5px] leading-relaxed text-(--fg-muted)">
+          {redundant.length} rule{redundant.length === 1 ? " is" : "s are"} repeated by others and
+          harmless: {redundant.slice(0, 2).map((c) => c.label).join(" · ")}
         </p>
       )}
     </section>
