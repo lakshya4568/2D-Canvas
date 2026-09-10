@@ -20,28 +20,16 @@ import { solveConnectedGeometry } from "./connectedComponentSolver";
 import {
   createSingleCellCulvertModel,
   solveSingleCellCulvertSpan,
+} from "../state/presets/singleCellCulvert";
+import {
   createTwoSpanCulvertModel,
   solveTwoSpanCulvertBay1,
-} from "../state/index";
+} from "../state/presets/twoSpanCulvert";
 import { BipartiteConstraintGraph } from "./graph/bipartiteGraph";
 import { extractConnectedSubgraphsBFS, ConnectedSubgraph } from "./graph/bfsPartition";
+import type { ParametricVariable, ShapeParameterDef } from "./types";
 
-export interface ParametricVariable {
-  name: string;
-  value: number;
-  formula?: string;
-  unit?: string;
-  description?: string;
-  min?: number;
-  max?: number;
-}
-
-export interface ShapeParameterDef {
-  key: string;
-  label: string;
-  value: number;
-  readOnly?: boolean;
-}
+export type { ParametricVariable, ShapeParameterDef };
 
 export class ParametricModel {
   public variables = new Map<string, ParametricVariable>();

@@ -4,7 +4,7 @@
  */
 
 import { Shape } from "../geometry/types";
-import { ParametricVariable } from "./model";
+import type { ParametricVariable } from "./types";
 import { GeometricConstraint } from "./constraints";
 import { generateRCCBridgeAssembly } from "./templates/rccBridgeTemplate";
 import { generateRDSOBridgeAssembly } from "./templates/rdsoBridgeTemplate";

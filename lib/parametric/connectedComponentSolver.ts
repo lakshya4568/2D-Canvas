@@ -36,7 +36,7 @@
  */
 
 import { Point, Shape } from "../geometry/types";
-import { ParametricVariable } from "./model";
+import type { ParametricVariable } from "./types";
 import { solveDogleg } from "../solver/dogleg";
 import { SystemModel } from "../solver/levenbergMarquardt";
 import { TolerancePolicy, DEFAULT_TOLERANCE_POLICY } from "../geometry/tolerance";

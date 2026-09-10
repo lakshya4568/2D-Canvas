@@ -1,5 +1,5 @@
 import { Point, Shape } from "../geometry/types";
-import { ParametricVariable } from "./model";
+import type { ParametricVariable } from "./types";
 
 export interface StructuralLoopSolveOptions {
   loopShapes: Shape[];

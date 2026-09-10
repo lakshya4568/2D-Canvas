@@ -1,24 +1,14 @@
-import { DulmageMendelsohnSolver, DMResult } from "./dulmageMendelsohn";
+import { DulmageMendelsohnSolver } from "./dulmageMendelsohn";
+import type {
+  EntityNode,
+  ConstraintNode,
+  IBipartiteConstraintGraph,
+  DMResult,
+} from "./types";
 
-export interface EntityNode {
-  id: string;
-  degreesOfFreedom: number;
-  /**
-   * §18 anchor rule: "every ParametricSketch MUST fix at least one entity (or one
-   * LCS origin) to remove the three global rigid-body DOF. Without it, DOF
-   * analysis mis-reports three spurious degrees of freedom on every sketch and
-   * every diagnosis downstream is wrong."
-   */
-  isFixed?: boolean;
-}
+export type { EntityNode, ConstraintNode };
 
-export interface ConstraintNode {
-  id: string;
-  entityIds: string[];
-  equationCount: number;
-}
-
-export class BipartiteConstraintGraph {
+export class BipartiteConstraintGraph implements IBipartiteConstraintGraph {
   public entities = new Map<string, EntityNode>();
   public constraints = new Map<string, ConstraintNode>();
   public entityToConstraints = new Map<string, Set<string>>();

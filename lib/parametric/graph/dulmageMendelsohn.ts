@@ -1,50 +1,12 @@
-import { BipartiteConstraintGraph } from "./bipartiteGraph";
 import { svd } from "../../solver/matrix/svd";
+import type {
+  IBipartiteConstraintGraph,
+  ComponentDOF,
+  DMResult,
+  SVDConflictResult,
+} from "./types";
 
-export interface ComponentDOF {
-  componentId: string;
-  entityIds: string[];
-  variableCount: number; // |V_k|
-  rank: number;          // rank(J_k)
-  isAnchored: boolean;
-  dAnchor: number;       // D_anchor,k: 0 if anchored, 3 if floating (capped at |V_k|)
-  dof: number;           // DOF_k = |V_k| - rank(J_k) - D_anchor,k
-  status: "under_constrained" | "well_constrained" | "over_constrained";
-  conflictingConstraints?: string[];
-}
-
-export interface DMResult {
-  underConstrained: {
-    variables: string[];
-    constraints: string[];
-    dof: number;
-  };
-  wellConstrained: {
-    variables: string[];
-    constraints: string[];
-    blocks: { variables: string[]; constraints: string[] }[];
-  };
-  overConstrained: {
-    variables: string[];
-    constraints: string[];
-    conflictingConstraints: string[];
-  };
-  totalDof: number;
-  status: "under_constrained" | "well_constrained" | "over_constrained";
-  components: ComponentDOF[];
-}
-
-export interface SVDConflictResult {
-  conflictingConstraints: string[];
-  redundantConstraints: string[];
-  rank: number;
-  nullspaceModes: {
-    singularValue: number;
-    residualProjection: number;
-    participatingConstraints: string[];
-    isConflicting: boolean;
-  }[];
-}
+export type { ComponentDOF, DMResult, SVDConflictResult };
 
 /**
  * Traces constraint conflicts and redundancies using Thin SVD left singular vectors (UPCE-MASTER-1.0 §30).
@@ -149,7 +111,7 @@ export class DulmageMendelsohnSolver {
    * Decomposes the bipartite constraint graph into G_under, G_square, G_over,
    * Tarjan SCC Block Triangular Form (BTF), and computes per-connected-component DOF.
    */
-  public static decompose(graph: BipartiteConstraintGraph): DMResult {
+  public static decompose(graph: IBipartiteConstraintGraph): DMResult {
     const varNodes: string[] = [];
     const entityVarMap = new Map<string, string[]>();
 
@@ -455,7 +417,7 @@ export class DulmageMendelsohnSolver {
    * DOF_k = |V_k| - rank(J_k) - D_anchor,k (D_anchor = 0 if anchored, 3 if floating).
    */
   public static extractComponentDOFs(
-    graph: BipartiteConstraintGraph,
+    graph: IBipartiteConstraintGraph,
     pairV: Map<string, string>,
     overEqs?: Set<string>,
     eqConstraintMap?: Map<string, string>
