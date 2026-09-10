@@ -93,6 +93,7 @@ export function CommandLine({
       setHistoryIndex(-1);
 
       const ctx = {
+        state,
         shapes: state.shapes,
         selectedIds: state.selectedIds,
         lastPoint: lastPointRef.current,

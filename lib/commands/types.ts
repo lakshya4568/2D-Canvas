@@ -5,6 +5,7 @@
  */
 
 import { Point, Shape } from "../geometry/types";
+import { DrawingState } from "../state/drawingReducer";
 
 export type CoordinateParseResult =
   | { type: "absolute"; x: number; y: number }
@@ -29,6 +30,7 @@ export interface CommandCompletion {
 }
 
 export interface CadCommandContext {
+  state?: DrawingState;
   shapes: Shape[];
   selectedIds: string[];
   lastPoint: Point | null;

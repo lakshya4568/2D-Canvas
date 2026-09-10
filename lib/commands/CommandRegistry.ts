@@ -10,6 +10,7 @@ import {
   CommandExecutionResult,
 } from "./types";
 import { parseCommandLine, parseCoordinateInput, resolveCoordinate } from "./CommandParser";
+import { LineShape, RectangleShape, CircleShape } from "../geometry/types";
 
 export const COMMAND_ALIASES: CommandAlias[] = [
   // Drawing primitives
@@ -82,6 +83,15 @@ export const COMMAND_ALIASES: CommandAlias[] = [
   { alias: "?", commandName: "HELP", description: "Opens the CAD Instruction Manual & Guide", category: "utility" },
   { alias: "ESC", commandName: "SELECT", description: "Cancels active tool and returns to selection mode", category: "utility" },
   { alias: "SELECT", commandName: "SELECT", description: "Select objects mode", category: "utility" },
+
+  // Drafting mode toggles
+  { alias: "ORTHO", commandName: "ORTHO", description: "Toggles orthogonal lock (F8)", category: "utility" },
+  { alias: "POLAR", commandName: "POLAR", description: "Toggles polar tracking (F10)", category: "utility" },
+  { alias: "OSNAP", commandName: "OSNAP", description: "Toggles object snapping (F3)", category: "utility" },
+  { alias: "GRID", commandName: "GRID", description: "Toggles grid display (F7)", category: "utility" },
+  { alias: "SNAP", commandName: "SNAP", description: "Toggles grid snap mode (F9)", category: "utility" },
+  { alias: "DYN", commandName: "DYNAMIC_INPUT", description: "Toggles dynamic input display (F12)", category: "utility" },
+  { alias: "DYNMODE", commandName: "DYNAMIC_INPUT", description: "Toggles dynamic input display (F12)", category: "utility" },
 ];
 
 export class CadCommandRegistry {
@@ -117,6 +127,7 @@ export class CadCommandRegistry {
     if (!command) {
       return { success: true };
     }
+    const argTokens = args ? args.split(/\s+/).filter(Boolean) : [];
 
     // Check if the input is a standalone coordinate entry while an interactive command might be awaiting points
     const coordCheck = parseCoordinateInput(rawText);
@@ -141,6 +152,31 @@ export class CadCommandRegistry {
 
     switch (matched.commandName) {
       case "LINE":
+        if (argTokens.length >= 2) {
+          const c1 = parseCoordinateInput(argTokens[0]);
+          const p1 = resolveCoordinate(c1, null, null);
+          const c2 = parseCoordinateInput(argTokens[1]);
+          const p2 = resolveCoordinate(c2, p1, null);
+          if (p1 && p2) {
+            const style = ctx.state?.currentStyle;
+            const newShape: LineShape = {
+              id: `line_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              type: "line",
+              x1: p1.x,
+              y1: p1.y,
+              x2: p2.x,
+              y2: p2.y,
+              strokeColor: style?.strokeColor ?? "#38bdf8",
+              strokeWidth: style?.strokeWidth ?? 2,
+              opacity: style?.opacity ?? 1,
+            };
+            ctx.dispatch({ type: "ADD_SHAPE", shape: newShape });
+            return {
+              success: true,
+              message: `LINE created from (${p1.x}, ${p1.y}) to (${p2.x}, ${p2.y})`,
+            };
+          }
+        }
         ctx.setTool("line");
         return {
           success: true,
@@ -161,6 +197,37 @@ export class CadCommandRegistry {
         };
 
       case "RECTANGLE":
+        if (argTokens.length >= 2) {
+          const c1 = parseCoordinateInput(argTokens[0]);
+          const p1 = resolveCoordinate(c1, null, null);
+          const c2 = parseCoordinateInput(argTokens[1]);
+          const p2 = resolveCoordinate(c2, p1, null);
+          if (p1 && p2) {
+            const minX = Math.min(p1.x, p2.x);
+            const minY = Math.min(p1.y, p2.y);
+            const w = Math.abs(p2.x - p1.x);
+            const h = Math.abs(p2.y - p1.y);
+            const style = ctx.state?.currentStyle;
+            const newShape: RectangleShape = {
+              id: `rect_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              type: "rectangle",
+              x: minX,
+              y: minY,
+              width: w,
+              height: h,
+              strokeColor: style?.strokeColor ?? "#38bdf8",
+              strokeWidth: style?.strokeWidth ?? 2,
+              fillColor: style?.fillColor ?? "transparent",
+              opacity: style?.opacity ?? 1,
+              rotation: 0,
+            };
+            ctx.dispatch({ type: "ADD_SHAPE", shape: newShape });
+            return {
+              success: true,
+              message: `RECTANGLE created: (${minX}, ${minY}) ${w}x${h}mm`,
+            };
+          }
+        }
         ctx.setTool("rect");
         return {
           success: true,
@@ -171,6 +238,31 @@ export class CadCommandRegistry {
         };
 
       case "CIRCLE":
+        if (argTokens.length >= 2) {
+          const c1 = parseCoordinateInput(argTokens[0]);
+          const p1 = resolveCoordinate(c1, null, null);
+          const radius = parseFloat(argTokens[1]);
+          if (p1 && !isNaN(radius) && radius > 0) {
+            const style = ctx.state?.currentStyle;
+            const newShape: CircleShape = {
+              id: `circle_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              type: "circle",
+              cx: p1.x,
+              cy: p1.y,
+              r: radius,
+              strokeColor: style?.strokeColor ?? "#38bdf8",
+              strokeWidth: style?.strokeWidth ?? 2,
+              fillColor: style?.fillColor ?? "transparent",
+              opacity: style?.opacity ?? 1,
+              rotation: 0,
+            };
+            ctx.dispatch({ type: "ADD_SHAPE", shape: newShape });
+            return {
+              success: true,
+              message: `CIRCLE created at (${p1.x}, ${p1.y}) r=${radius}mm`,
+            };
+          }
+        }
         ctx.setTool("circle");
         return {
           success: true,
@@ -367,6 +459,30 @@ export class CadCommandRegistry {
       case "TEMPLATES":
         ctx.openTemplates?.();
         return { success: true, message: "Opened parametric template catalog" };
+
+      case "ORTHO":
+        ctx.dispatch({ type: "TOGGLE_ORTHO" });
+        return { success: true, message: `ORTHO: ${ctx.state ? (!ctx.state.orthoEnabled ? "ON" : "OFF") : "TOGGLED"}` };
+
+      case "POLAR":
+        ctx.dispatch({ type: "TOGGLE_POLAR_TRACKING" });
+        return { success: true, message: `POLAR TRACKING: ${ctx.state ? (!ctx.state.polarTrackingEnabled ? "ON" : "OFF") : "TOGGLED"}` };
+
+      case "OSNAP":
+        ctx.dispatch({ type: "TOGGLE_OBJECT_SNAP" });
+        return { success: true, message: `OBJECT SNAP: ${ctx.state ? (!ctx.state.objectSnapEnabled ? "ON" : "OFF") : "TOGGLED"}` };
+
+      case "GRID":
+        ctx.dispatch({ type: "TOGGLE_GRID" });
+        return { success: true, message: `GRID: ${ctx.state ? (!ctx.state.showGrid ? "ON" : "OFF") : "TOGGLED"}` };
+
+      case "SNAP":
+        ctx.dispatch({ type: "TOGGLE_GRID_SNAP" });
+        return { success: true, message: `SNAP: ${ctx.state ? (!ctx.state.gridSnapEnabled ? "ON" : "OFF") : "TOGGLED"}` };
+
+      case "DYNAMIC_INPUT":
+        ctx.dispatch({ type: "TOGGLE_DYNAMIC_INPUT" });
+        return { success: true, message: `DYNAMIC INPUT: ${ctx.state ? (!ctx.state.dynamicInputEnabled ? "ON" : "OFF") : "TOGGLED"}` };
 
       case "HELP":
         ctx.openHelp?.();

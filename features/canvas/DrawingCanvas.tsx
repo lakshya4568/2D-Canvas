@@ -15,6 +15,8 @@ import { hitTestShapes } from "@/lib/geometry/hitTest";
 import { zoomAtPoint, screenToWorldPoint } from "@/lib/geometry/transform";
 import { applySnapping, getShapeKeySnapPoints, snapToGrid } from "@/lib/geometry/snapping";
 import { solveGADAssemblyAdjustment } from "@/lib/geometry/gadAssemblyEngine";
+import { evaluateCadMarqueeSelection } from "@/lib/geometry/cadSelection";
+import { applyOrthoProjection, applyPolarTrackingProjection } from "@/lib/geometry/cadTracking";
 import { GridLayer } from "./GridLayer";
 import { ShapeRenderer } from "./ShapeRenderer";
 import { DraftPreview } from "./DraftPreview";
@@ -810,22 +812,13 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
         // Apply AutoCAD Ortho Mode (F8) or Polar Tracking (F10)
         if (state.orthoEnabled) {
-          if (Math.abs(rawDx) >= Math.abs(rawDy)) {
-            rawDy = 0;
-          } else {
-            rawDx = 0;
-          }
+          const orthoPt = applyOrthoProjection({ x: 0, y: 0 }, { x: rawDx, y: rawDy });
+          rawDx = orthoPt.x;
+          rawDy = orthoPt.y;
         } else if (state.polarTrackingEnabled) {
-          const dist = Math.hypot(rawDx, rawDy);
-          if (dist > 5) {
-            const angle = Math.atan2(rawDy, rawDx);
-            const step = Math.PI / 4; // 45° increments
-            const nearestAngle = Math.round(angle / step) * step;
-            if (Math.abs(angle - nearestAngle) < 0.1) {
-              rawDx = dist * Math.cos(nearestAngle);
-              rawDy = dist * Math.sin(nearestAngle);
-            }
-          }
+          const polarRes = applyPolarTrackingProjection({ x: 0, y: 0 }, { x: rawDx, y: rawDy });
+          rawDx = polarRes.point.x;
+          rawDy = polarRes.point.y;
         }
 
         const selIds = new Set(initialShapesRef.current.map((s) => s.id));
@@ -905,28 +898,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
         // Apply AutoCAD Ortho Mode (F8) or Polar Tracking (F10)
         if (state.orthoEnabled) {
-          const dx = candidatePt.x - startPt.x;
-          const dy = candidatePt.y - startPt.y;
-          if (Math.abs(dx) >= Math.abs(dy)) {
-            candidatePt = { x: candidatePt.x, y: startPt.y };
-          } else {
-            candidatePt = { x: startPt.x, y: candidatePt.y };
-          }
+          candidatePt = applyOrthoProjection(startPt, candidatePt);
         } else if (state.polarTrackingEnabled) {
-          const dx = candidatePt.x - startPt.x;
-          const dy = candidatePt.y - startPt.y;
-          const dist = Math.hypot(dx, dy);
-          if (dist > 5) {
-            const angle = Math.atan2(dy, dx);
-            const step = Math.PI / 4; // 45° polar ray
-            const nearestAngle = Math.round(angle / step) * step;
-            if (Math.abs(angle - nearestAngle) < 0.1) {
-              candidatePt = {
-                x: startPt.x + dist * Math.cos(nearestAngle),
-                y: startPt.y + dist * Math.sin(nearestAngle),
-              };
-            }
-          }
+          const polarRes = applyPolarTrackingProjection(startPt, candidatePt);
+          candidatePt = polarRes.point;
         }
 
         const snapResult = applySnapping(candidatePt, {
@@ -1087,39 +1062,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       if (isMarqueeRef.current) {
         isMarqueeRef.current = false;
         if (marqueeBox && marqueeBox.width > 5 && marqueeBox.height > 5) {
-          const mMinX = marqueeBox.x;
-          const mMaxX = marqueeBox.x + marqueeBox.width;
-          const mMinY = marqueeBox.y;
-          const mMaxY = marqueeBox.y + marqueeBox.height;
-
-          const matchedIds: string[] = [];
-          const isCrossing = marqueeBox.isCrossing;
-
-          for (const shape of state.shapes) {
-            const b = computeShapeBounds(shape);
-            if (isCrossing) {
-              // Crossing (Right-to-Left): any intersection or touch
-              const intersects =
-                b.maxX >= mMinX &&
-                b.minX <= mMaxX &&
-                b.maxY >= mMinY &&
-                b.minY <= mMaxY;
-              if (intersects) {
-                matchedIds.push(shape.id);
-              }
-            } else {
-              // Window (Left-to-Right): strict containment only
-              const strictlyContained =
-                b.minX >= mMinX &&
-                b.maxX <= mMaxX &&
-                b.minY >= mMinY &&
-                b.maxY <= mMaxY;
-              if (strictlyContained) {
-                matchedIds.push(shape.id);
-              }
-            }
-          }
-
+          const matchedIds = evaluateCadMarqueeSelection(state.shapes, marqueeBox);
           if (matchedIds.length > 0) {
             selectMultiple(matchedIds);
           } else {
