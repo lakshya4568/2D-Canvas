@@ -526,3 +526,20 @@ not new design decisions. Each carries the evidence that established it.
 - **Root Cause**: In `lib/parametric/model.ts` (`syncModel`), rectangles without an exact shape-scoped variable fell back to global un-scoped `"W"`, `"Width"` and `"H"`, `"Height"`. For `Inner_Cutout`, its width was overwritten from 340 to 400 and its height from 180 to 240, matching the outer frame's dimensions while offset at `(100 + T, 100 + T) = (130, 130)`.
 - **Decision**: (1) `lib/parametric/model.ts` now distinguishes inner/cutout rectangles (matching `/inner|cutout/i` in name or id) so they bind to `InnerWidth` / `InnerHeight` / `InnerX` / `InnerY` and never fall back to outer `Width` / `Height`. (2) `lib/parametric/templates.ts` (`parametric_frame_cutout`) now explicitly provides shape-scoped variables (`Inner_Cutout.width`, `Inner_Cutout.height`, `Inner_Cutout.x`, `Inner_Cutout.y`, `Outer_Frame.width`, `Outer_Frame.height`). Verified by test assertions in `tests/parametric.test.ts`.
 
+### DEC-068: AutoCAD DXF Import Engine Architecture (DXFIN)
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §2.10, §17, §68, §84, §86
+- **Finding**: While UPCE possessed an AutoCAD R2010 DXF exporter (`dxfExporter.ts`), it lacked an import parser (`DXFIN`) to bring existing AutoCAD drawings into the canvas and canonical parametric sketch representation without proprietary or copyleft dependencies.
+- **Decision**:
+  1. Adopted `dxf-parser` (MIT license, 0 copyleft violations verified via `license:scan`).
+  2. Implemented `lib/io/dxfImporter.ts` with two conversion paths:
+     - `importDxfToShapes()`: Converts DXF entities (`LINE`, `CIRCLE`, `ARC`, `ELLIPSE`, `LWPOLYLINE`, `POLYLINE`, `SOLID`, `3DFACE`) into canvas `Shape[]`. Arcs are discretized with sagitta bounded by model-space millimeter tolerance `policy.geometry_mm`. 4-vertex orthogonal closed polylines are automatically recognized as `RectangleShape`. ACI colors (1–255) and layer table colors are mapped to CSS hex codes.
+     - `importDxfToSketch()`: Maps DXF entities directly into the canonical schema-compliant `ParametricSketch` structure, welding duplicate vertices within `policy.weld_mm`.
+  3. Integrated import access points throughout the CAD shell:
+     - AutoCAD Red 'A' Application Menu (`Import AutoCAD DXF... (DXFIN)`)
+     - Quick Access Toolbar (`FolderUp` icon)
+     - Ribbon I/O Panel (`Import DXF`)
+     - Command Line (`DXFIN`, `IMPORTDXF`, `OPEN`)
+     - Viewport Drag-and-Drop (dropping any `.dxf` onto the canvas immediately loads shapes).
+
+

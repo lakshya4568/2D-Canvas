@@ -12,6 +12,7 @@ interface CommandLineProps {
   onOpenTemplates?: () => void;
   onOpenHelp?: () => void;
   onNotification?: (msg: { text: string; type: "success" | "error" | "info" }) => void;
+  onImportDxf?: () => void;
 }
 
 interface LogEntry {
@@ -26,6 +27,7 @@ export function CommandLine({
   onOpenTemplates,
   onOpenHelp,
   onNotification,
+  onImportDxf,
 }: CommandLineProps) {
   const {
     state,
@@ -105,6 +107,7 @@ export function CommandLine({
         clearAll,
         openHelp: onOpenHelp,
         openTemplates: onOpenTemplates,
+        openDxfImport: onImportDxf,
         notify: onNotification,
       };
 
@@ -129,7 +132,7 @@ export function CommandLine({
       setInputVal("");
       setCompletions([]);
     },
-    [state.shapes, state.selectedIds, cursorPos, dispatch, setTool, undo, redo, clearAll, onOpenHelp, onOpenTemplates, onNotification, addLog]
+    [state.shapes, state.selectedIds, cursorPos, dispatch, setTool, undo, redo, clearAll, onOpenHelp, onOpenTemplates, onImportDxf, onNotification, addLog]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

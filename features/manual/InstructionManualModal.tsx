@@ -168,23 +168,23 @@ export function InstructionManualModal({ isOpen, onClose }: InstructionManualMod
                 <div className="p-4 rounded-xl border border-(--rule) bg-(--ink-panel) flex flex-col gap-2">
                   <h4 className="font-semibold text-(--fg-primary) flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-blue-500" />
-                    File Export & Interoperability
+                    AutoCAD File I/O & Interoperability
                   </h4>
                   <p className="text-(--fg-secondary) text-[12px]">
-                    Export your drawings directly without loss:
+                    Bidirectional AutoCAD DXF exchange and publishing without loss:
                   </p>
                   <div className="grid grid-cols-3 gap-3 mt-1">
                     <div className="p-2.5 rounded-lg border border-(--rule) bg-(--ink-raised)">
-                      <span className="font-semibold text-[11px] block">AutoCAD DXF (R2010)</span>
-                      <span className="text-[10px] text-(--fg-muted)">Native vector exchange with layer schemes and associative dimensions.</span>
+                      <span className="font-semibold text-[11px] block">AutoCAD DXF Import (DXFIN)</span>
+                      <span className="text-[10px] text-(--fg-muted)">Import industry-standard DXF files via App menu, ribbon, command line, or canvas drag & drop.</span>
+                    </div>
+                    <div className="p-2.5 rounded-lg border border-(--rule) bg-(--ink-raised)">
+                      <span className="font-semibold text-[11px] block">AutoCAD DXF Export (DXFOUT)</span>
+                      <span className="text-[10px] text-(--fg-muted)">Native R2010 AC1024 vector exchange with layer schemes and associative dimensions.</span>
                     </div>
                     <div className="p-2.5 rounded-lg border border-(--rule) bg-(--ink-raised)">
                       <span className="font-semibold text-[11px] block">PDF Drawing Sheet</span>
-                      <span className="text-[10px] text-(--fg-muted)">Formal A3 engineering sheet with title block and scale bar.</span>
-                    </div>
-                    <div className="p-2.5 rounded-lg border border-(--rule) bg-(--ink-raised)">
-                      <span className="font-semibold text-[11px] block">SVG & PNG</span>
-                      <span className="text-[10px] text-(--fg-muted)">Scalable vector graphic and high-resolution 2x raster preview.</span>
+                      <span className="text-[10px] text-(--fg-muted)">Formal ISO 32000-1 A3 engineering sheet with title block and scale bar.</span>
                     </div>
                   </div>
                 </div>

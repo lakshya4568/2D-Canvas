@@ -42,6 +42,7 @@ export interface CadCommandContext {
   clearAll: () => void;
   openHelp?: () => void;
   openTemplates?: () => void;
+  openDxfImport?: () => void;
   notify?: (msg: { text: string; type: "success" | "error" | "info" }) => void;
 }
 

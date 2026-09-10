@@ -534,3 +534,46 @@ $ bun run lint:tolerance      ✓ passed (2 justified exemptions)
 $ bun run license:scan        ✓ passed (0 banned packages)
 ```
 
+---
+
+# AutoCAD DXF Import System (DXFIN) Walkthrough
+
+## 1. Overview
+The AutoCAD DXF Import Engine brings industry-standard AutoCAD `.dxf` files directly into UPCE-MASTER-1.0 without proprietary or copyleft licensing issues. It converts textual DXF representations into native canvas shapes and canonical schema-compliant `ParametricSketch` instances, supporting two-way bidirectional exchange (`DXFIN` / `DXFOUT`).
+
+## 2. Technical Architecture
+
+- **Parser Engine**: Integrated `dxf-parser@1.1.2` (MIT licensed, 0 copyleft violations verified via `scripts/license-scan.ts`).
+- **Core Module (`lib/io/dxfImporter.ts`)**:
+  - `parseDxf(dxfContent: string): IDxf`: Parses raw DXF text into a structured JSON entity tree.
+  - `importDxfToShapes(dxfContent: string, options?: DxfImportOptions): Shape[]`:
+    - `LINE` &rarr; `LineShape` with coordinate normalization.
+    - `CIRCLE` &rarr; `CircleShape` with center $(x, y)$ and radius $r$.
+    - `ARC` &rarr; Discretized into chord line segments with sagitta $\le \text{policy.geometry\_mm}$, sharing an `Arc` group.
+    - `ELLIPSE` &rarr; `EllipseShape` preserving major/minor axes.
+    - `LWPOLYLINE` / `POLYLINE` &rarr; Orthogonal 4-vertex closed boxes automatically recognize as `RectangleShape`, while general polylines convert to connected line segments with bulge arc discretization.
+    - Color mapping: Converts AutoCAD Color Index (ACI 1–255) and layer table colors to CSS hex codes via `aciToHex`.
+  - `importDxfToSketch(dxfContent: string, options?: DxfImportOptions): ParametricSketch`:
+    - Produces a canonical `ParametricSketch` conforming to `schemas/parametric-sketch.schema.json`.
+    - Welds duplicate vertices using spatial hash map within `policy.weld_mm`.
+    - Retains first-class mathematical `arcs`, `circles`, `lines`, `polylines`, and layers.
+
+## 3. UI & Command Integration
+
+1. **AutoCAD Red 'A' Application Menu**: Added `Import AutoCAD DXF... (DXFIN)` menu action with `FolderUp` icon.
+2. **Quick Access Toolbar**: Added quick import button (`FolderUp`) for one-click DXF file selection.
+3. **Ribbon Output Panel**: Re-labeled to `I/O & Export` and added an `Import DXF` button alongside `DXF` and `PDF Sheet`.
+4. **Command Line & Terminal**: Added aliases `DXFIN`, `IMPORTDXF`, and `OPEN` that launch file selection dialog with prompt feedback.
+5. **Canvas Drag & Drop**: Dropping any `.dxf` file directly onto the drawing viewport immediately reads, parses, and loads the shapes into state.
+6. **Instruction Manual (F1)**: Updated the command dictionary and file interoperability sections to document `DXFIN`, `IMPORTDXF`, and supported DXF exchange features.
+
+## 4. Quality & Gate Verification
+
+- **Automated Tests (`tests/unit/dxf_importer.test.ts`)**: 9 test suites covering ACI conversion, syntax errors, entity generation, rectangle recognition, layer filtering, canonical sketch export, and round-trip verification (`exportDxf` &rarr; `importDxfToSketch`).
+- **Test Suite**: 782 passing tests, 0 failures across 83 files (7,481 assertions).
+- **Tolerance Discipline**: `bun run lint:tolerance` passes with 0 violations.
+- **License Integrity**: `bun run license:scan` passes (19 dependencies, 0 copyleft/banned packages).
+- **Type Checking**: `bun x tsc --noEmit` clean with 0 errors.
+- **Production Build**: `bun run build` succeeds cleanly.
+
+

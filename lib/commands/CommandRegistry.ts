@@ -83,6 +83,9 @@ export const COMMAND_ALIASES: CommandAlias[] = [
   { alias: "?", commandName: "HELP", description: "Opens the CAD Instruction Manual & Guide", category: "utility" },
   { alias: "ESC", commandName: "SELECT", description: "Cancels active tool and returns to selection mode", category: "utility" },
   { alias: "SELECT", commandName: "SELECT", description: "Select objects mode", category: "utility" },
+  { alias: "DXFIN", commandName: "IMPORTDXF", description: "Imports geometry from an AutoCAD DXF file", category: "utility" },
+  { alias: "IMPORTDXF", commandName: "IMPORTDXF", description: "Imports geometry from an AutoCAD DXF file", category: "utility" },
+  { alias: "OPEN", commandName: "IMPORTDXF", description: "Opens/Imports an AutoCAD DXF file", category: "utility" },
 
   // Drafting mode toggles
   { alias: "ORTHO", commandName: "ORTHO", description: "Toggles orthogonal lock (F8)", category: "utility" },
@@ -487,6 +490,13 @@ export class CadCommandRegistry {
       case "HELP":
         ctx.openHelp?.();
         return { success: true, message: "Opened Instruction Manual" };
+
+      case "IMPORTDXF":
+        if (ctx.openDxfImport) {
+          ctx.openDxfImport();
+          return { success: true, message: "Opening AutoCAD DXF import..." };
+        }
+        return { success: false, message: "DXF import handler not available" };
 
       case "SELECT":
       default:

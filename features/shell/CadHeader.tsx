@@ -32,22 +32,25 @@ import {
   MousePointer2,
   Hand,
   Slash,
+  FolderUp,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { ModeSwitch } from "./ModeSwitch";
 import { CadCommandRegistry } from "@/lib/commands/CommandRegistry";
 import { exportDxf } from "@/lib/io/dxfExporter";
 import { exportPdfSheet } from "@/lib/io/pdfSheetExporter";
+import { importDxfToShapes } from "@/lib/io/dxfImporter";
 import { shapesToParametricSketch } from "@/lib/serialization/shapesToSketch";
 
 interface CadHeaderProps {
   onOpenTemplates: () => void;
   onOpenHelp: () => void;
+  onImportDxf?: () => void;
 }
 
 type RibbonTab = "home" | "draw" | "modify" | "parametric" | "annotate" | "output";
 
-export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
+export function CadHeader({ onOpenTemplates, onOpenHelp, onImportDxf }: CadHeaderProps) {
   const {
     state,
     dispatch,
@@ -84,6 +87,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
         clearAll,
         openHelp: onOpenHelp,
         openTemplates: onOpenTemplates,
+        openDxfImport: onImportDxf,
       });
       setSearchQuery("");
     }
@@ -157,6 +161,16 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
               </button>
               <button
                 onClick={() => {
+                  onImportDxf?.();
+                  setAppMenuOpen(false);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-(--pen-soft) flex items-center gap-2 text-(--fg-primary)"
+              >
+                <FolderUp className="w-3.5 h-3.5 text-blue-500" />
+                <span>Import AutoCAD DXF... (DXFIN)</span>
+              </button>
+              <button
+                onClick={() => {
                   onOpenTemplates();
                   setAppMenuOpen(false);
                 }}
@@ -205,21 +219,28 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
         <div className="flex items-center gap-0.5 pr-2 border-r border-(--rule)">
           <button
             onClick={clearAll}
-            title="New Drawing"
+            title="New Drawing (Ctrl+N)"
             className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
           >
             <FilePlus className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={onOpenTemplates}
-            title="Open Template"
+            onClick={onImportDxf}
+            title="Open / Import DXF Drawing (DXFIN / OPEN)"
             className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
           >
-            <FolderOpen className="w-3.5 h-3.5" />
+            <FolderUp className="w-3.5 h-3.5 text-blue-500" />
+          </button>
+          <button
+            onClick={onOpenTemplates}
+            title="Open Template Catalog"
+            className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
           </button>
           <button
             onClick={handleExportDxf}
-            title="Save / Export DXF"
+            title="Save / Export DXF (DXFOUT / QSAVE)"
             className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
           >
             <Save className="w-3.5 h-3.5" />
@@ -530,6 +551,14 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
         <div className="flex flex-col items-center justify-between h-[54px]">
           <div className="flex items-center gap-1">
             <button
+              onClick={onImportDxf}
+              className="flex items-center gap-1 h-[32px] px-2.5 rounded bg-(--ink-raised) border border-(--rule) hover:border-(--pen) text-[10.5px] font-medium text-(--fg-primary) transition-colors cursor-pointer"
+              title="Import AutoCAD DXF (DXFIN / OPEN)"
+            >
+              <FolderUp className="w-3.5 h-3.5 text-blue-500" />
+              <span>Import DXF</span>
+            </button>
+            <button
               onClick={handleExportDxf}
               className="flex items-center gap-1 h-[32px] px-2.5 rounded bg-(--ink-raised) border border-(--rule) hover:border-(--pen) text-[10.5px] font-medium text-(--fg-primary) transition-colors cursor-pointer"
               title="Export AutoCAD R2010 DXF (AC1024)"
@@ -546,7 +575,7 @@ export function CadHeader({ onOpenTemplates, onOpenHelp }: CadHeaderProps) {
               <span>PDF Sheet</span>
             </button>
           </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Output</span>
+          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">I/O & Export</span>
         </div>
       </div>
     </header>

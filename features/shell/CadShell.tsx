@@ -10,6 +10,7 @@ import { StatusStrip } from "./StatusStrip";
 import { PersonaDock } from "./PersonaDock";
 import { TemplateModal } from "../parametric/TemplateModal";
 import { InstructionManualModal } from "../manual/InstructionManualModal";
+import { importDxfToShapes } from "@/lib/io/dxfImporter";
 
 /**
  * The application shell.
@@ -41,6 +42,35 @@ export function CadShell() {
   const [templatesOpen, setTemplatesOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const seeded = React.useRef(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleTriggerDxfImport = React.useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleDxfFileSelected = React.useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const text = ev.target?.result as string;
+        if (text) {
+          try {
+            const shapes = importDxfToShapes(text);
+            if (shapes.length > 0) {
+              dispatch({ type: "LOAD_SHAPES", shapes });
+            }
+          } catch (err) {
+            console.error("Failed to import DXF file:", err);
+          }
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    },
+    [dispatch]
+  );
 
   // A drafting tool should open showing what it does, not an empty sheet. Seed a
   // real parametric profile once, on first mount only, so the first look has
@@ -97,9 +127,18 @@ export function CadShell() {
 
   return (
     <div className="w-screen h-screen flex flex-col overflow-hidden bg-(--ink-app)">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".dxf"
+        onChange={handleDxfFileSelected}
+        className="hidden"
+      />
+
       <CadHeader
         onOpenTemplates={() => setTemplatesOpen(true)}
         onOpenHelp={() => setShortcutsOpen(true)}
+        onImportDxf={handleTriggerDxfImport}
       />
 
       <div className="flex-1 min-h-0 flex">
@@ -112,6 +151,7 @@ export function CadShell() {
               cursorPos={cursorPos}
               onOpenTemplates={() => setTemplatesOpen(true)}
               onOpenHelp={() => setShortcutsOpen(true)}
+              onImportDxf={handleTriggerDxfImport}
             />
           </div>
 

@@ -27,6 +27,7 @@ import { ParametricDimensionOverlay } from "./ParametricDimensionOverlay";
 import { BoundaryLimitsOverlay } from "./BoundaryLimitsOverlay";
 import { DynamicInputOverlay } from "./DynamicInputOverlay";
 import { CadViewportOverlays } from "./CadViewportOverlays";
+import { importDxfToShapes } from "@/lib/io/dxfImporter";
 
 interface DrawingCanvasProps {
   onCursorChange?: (pos: Point | null) => void;
@@ -1356,7 +1357,35 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   const { x: panX, y: panY, scale } = state.viewport;
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-[var(--bg-canvas)] touch-none">
+    <div
+      className="w-full h-full relative overflow-hidden bg-[var(--bg-canvas)] touch-none"
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        if (file.name.toLowerCase().endsWith(".dxf")) {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const text = ev.target?.result as string;
+            if (text) {
+              try {
+                const shapes = importDxfToShapes(text);
+                if (shapes.length > 0) {
+                  dispatch({ type: "LOAD_SHAPES", shapes });
+                }
+              } catch (err) {
+                console.error("Failed to parse dropped DXF:", err);
+              }
+            }
+          };
+          reader.readAsText(file);
+        }
+      }}
+    >
       <CadViewportOverlays />
       <svg
         id="drawing-canvas-svg"
