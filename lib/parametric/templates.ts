@@ -103,6 +103,12 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [
         WallThickness: { name: "WallThickness", value: T, unit: "mm" },
         InnerWidth: { name: "InnerWidth", value: innerW, formula: "Width - (WallThickness * 2)", unit: "mm" },
         InnerHeight: { name: "InnerHeight", value: innerH, formula: "Height - (WallThickness * 2)", unit: "mm" },
+        "Outer_Frame.width": { name: "Outer_Frame.width", value: W, formula: "Width", unit: "mm" },
+        "Outer_Frame.height": { name: "Outer_Frame.height", value: H, formula: "Height", unit: "mm" },
+        "Inner_Cutout.width": { name: "Inner_Cutout.width", value: innerW, formula: "InnerWidth", unit: "mm" },
+        "Inner_Cutout.height": { name: "Inner_Cutout.height", value: innerH, formula: "InnerHeight", unit: "mm" },
+        "Inner_Cutout.x": { name: "Inner_Cutout.x", value: 100 + T, formula: "100 + WallThickness", unit: "mm" },
+        "Inner_Cutout.y": { name: "Inner_Cutout.y", value: 100 + T, formula: "100 + WallThickness", unit: "mm" },
       };
 
       return { shapes, variables, constraints: [] };

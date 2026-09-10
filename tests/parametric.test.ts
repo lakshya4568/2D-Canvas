@@ -265,6 +265,26 @@ describe("Parametric Template System", () => {
     expect(inner.width).toBe(420);
     // Inner cutout height: 300 - 40 * 2 = 220
     expect(inner.height).toBe(220);
+
+    // Verify that syncModel preserves the nested inner cutout dimensions and positions
+    const model = new ParametricModel();
+    for (const [k, v] of Object.entries(instance.variables)) {
+      model.setVariable(k, v.formula ?? v.value);
+    }
+    const synced = model.syncModel(instance.shapes);
+    const syncedOuter = synced.updatedShapes[0] as RectangleShape;
+    const syncedInner = synced.updatedShapes[1] as RectangleShape;
+    expect(syncedOuter.width).toBe(500);
+    expect(syncedOuter.height).toBe(300);
+    expect(syncedInner.width).toBe(420);
+    expect(syncedInner.height).toBe(220);
+    expect(syncedInner.x).toBe(140); // 100 + 40
+    expect(syncedInner.y).toBe(140);
+    // Strictly nested inside outer frame (100, 100, 500, 300)
+    expect(syncedInner.x).toBeGreaterThan(syncedOuter.x);
+    expect(syncedInner.y).toBeGreaterThan(syncedOuter.y);
+    expect(syncedInner.x + syncedInner.width).toBeLessThan(syncedOuter.x + syncedOuter.width);
+    expect(syncedInner.y + syncedInner.height).toBeLessThan(syncedOuter.y + syncedOuter.height);
   });
 
   it("instantiates the 8-line Parametric Slab template and evaluates formula dependencies", () => {

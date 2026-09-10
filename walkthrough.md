@@ -505,12 +505,32 @@ The capability could not simply be deleted; §3's corollary is explicit: "Removi
 formulas from the *draftsman's view* is correct. Removing formulas from the
 *system* is not... hidden and curated complexity, not absent complexity."
 
-## 4. Verification
+## 4. Seeded Sample Inner Cutout Resolution (DEC-067)
+
+The seeded sample (`parametric_frame_cutout`, loaded on first mount in `CadShell.tsx`)
+previously rendered its inner cutout offset from the outer rectangle (extending outside to
+bottom-right) rather than nested inside.
+
+**Root cause:** In `syncModel` (`lib/parametric/model.ts`), rectangles without an exact
+shape-scoped variable fell back to global un-scoped `"Width"` (400) and `"Height"` (240).
+For `Inner_Cutout`, its width was overwritten from 340 to 400 and height from 180 to 240,
+matching the outer frame's dimensions while offset at `(130, 130)`.
+
+**Resolution:**
+1. `lib/parametric/model.ts` now distinguishes inner/cutout rectangles (matching `/inner|cutout/i`)
+   so they bind to `InnerWidth` / `InnerHeight` / `InnerX` / `InnerY` and never fall back to outer `Width` / `Height`.
+2. `lib/parametric/templates.ts` (`parametric_frame_cutout`) now explicitly provides shape-scoped
+   variables (`Inner_Cutout.width`, `Inner_Cutout.height`, `Inner_Cutout.x`, `Inner_Cutout.y`, `Outer_Frame.width`, `Outer_Frame.height`).
+3. Added automated unit test in `tests/parametric.test.ts` verifying that `syncModel` preserves nested
+   cutout dimensions and strictly enforces interior bounds (`inner.x > outer.x`, `inner.x + inner.w < outer.x + outer.w`).
+
+## 5. Verification
 
 ```
 $ bun x tsc --noEmit          (no output, exit 0)
-$ bun run build               ✓ Compiled successfully
-$ bun test                    726 pass, 0 fail, 7302 expect() calls, 78 files
+$ bun run build               ✓ Compiled successfully in 727ms
+$ bun test                    726 pass, 0 fail, 7312 expect() calls, 78 files
 $ bun run lint:tolerance      ✓ passed (2 justified exemptions)
 $ bun run license:scan        ✓ passed (0 banned packages)
 ```
+

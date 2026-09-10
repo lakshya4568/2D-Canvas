@@ -396,31 +396,38 @@ export class ParametricModel {
       switch (s.type) {
         case "rectangle": {
           const cleanName = s.name ? s.name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") : "";
+          const isInner = Boolean((s.name && /inner|cutout/i.test(s.name)) || /inner|cutout/i.test(shapeName));
           const boundW = getVarValue(
             `${shapeName}.width`, `${shapeName}_width`, `${shapeName}_Width`,
             s.name ? `${s.name}.width` : "", s.name ? `${s.name}_width` : "", s.name ? `${s.name}_Width` : "",
             cleanName ? `${cleanName}.width` : "", cleanName ? `${cleanName}_width` : "", cleanName ? `${cleanName}_Width` : "",
             `${s.id}.width`, `${s.id}_width`, `${s.id}_Width`,
-            "W", "Width", "width"
+            ...(isInner
+              ? ["InnerWidth", "inner_width", "Inner_Width", "innerWidth"]
+              : ["W", "Width", "width"])
           );
           const boundH = getVarValue(
             `${shapeName}.height`, `${shapeName}_height`, `${shapeName}_Height`,
             s.name ? `${s.name}.height` : "", s.name ? `${s.name}_height` : "", s.name ? `${s.name}_Height` : "",
             cleanName ? `${cleanName}.height` : "", cleanName ? `${cleanName}_height` : "", cleanName ? `${cleanName}_Height` : "",
             `${s.id}.height`, `${s.id}_height`, `${s.id}_Height`,
-            "H", "Height", "height"
+            ...(isInner
+              ? ["InnerHeight", "inner_height", "Inner_Height", "innerHeight"]
+              : ["H", "Height", "height"])
           );
           const boundX = getVarValue(
             `${shapeName}.x`, `${shapeName}_x`, `${shapeName}_X`,
             s.name ? `${s.name}.x` : "", s.name ? `${s.name}_x` : "", s.name ? `${s.name}_X` : "",
             cleanName ? `${cleanName}.x` : "", cleanName ? `${cleanName}_x` : "", cleanName ? `${cleanName}_X` : "",
-            `${s.id}.x`, `${s.id}_x`, `${s.id}_X`
+            `${s.id}.x`, `${s.id}_x`, `${s.id}_X`,
+            ...(isInner ? ["InnerX", "inner_x", "Inner_X", "innerX"] : [])
           );
           const boundY = getVarValue(
             `${shapeName}.y`, `${shapeName}_y`, `${shapeName}_Y`,
             s.name ? `${s.name}.y` : "", s.name ? `${s.name}_y` : "", s.name ? `${s.name}_Y` : "",
             cleanName ? `${cleanName}.y` : "", cleanName ? `${cleanName}_y` : "", cleanName ? `${cleanName}_Y` : "",
-            `${s.id}.y`, `${s.id}_y`, `${s.id}_Y`
+            `${s.id}.y`, `${s.id}_y`, `${s.id}_Y`,
+            ...(isInner ? ["InnerY", "inner_y", "Inner_Y", "innerY"] : [])
           );
 
           if (typeof boundW === "number" && boundW > 0 && Math.abs(boundW - s.width) > 1e-4) {
