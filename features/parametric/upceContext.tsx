@@ -367,8 +367,9 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
 
   const createDerivedParameter = React.useCallback(
     (name: string, expr: string) => {
-      const clean = uniqueParameterName(name, s.sketch.parameters);
-      const check = validateExpression(expr, clean, s.sketch.parameters);
+      const existing = s.sketch.parameters[name];
+      const targetName = existing ? name : uniqueParameterName(name, s.sketch.parameters);
+      const check = validateExpression(expr, targetName, s.sketch.parameters);
       if (!check.ok) {
         push({ notice: { kind: "error", text: check.message ?? "That expression is not valid." } });
         return;
@@ -378,22 +379,24 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
         ...s.sketch,
         parameters: {
           ...s.sketch.parameters,
-          [clean]: {
-            name: clean,
+          [targetName]: {
+            ...(existing ?? {
+              name: targetName,
+              type: "LENGTH",
+              unit: "mm",
+              value: 0,
+              boundConstraints: [],
+              published: false,
+              uiGroup: "Derived",
+            }),
             role: "DERIVED",
-            type: "LENGTH",
-            unit: "mm",
-            value: 0,
             expr,
             dependencies: check.dependencies,
-            provenance: makeProvenance("user", `Written by the author as ${clean} = ${expr}.`),
-            boundConstraints: [],
-            published: false,
-            uiGroup: "Derived",
+            provenance: makeProvenance("user", `Written by the author as ${targetName} = ${expr}.`),
           },
         },
       };
-      commit(next, `Added ${clean}`, before);
+      commit(next, existing ? `Updated ${targetName} = ${expr}` : `Added ${targetName}`, before);
     },
     [s.sketch, commit, push]
   );

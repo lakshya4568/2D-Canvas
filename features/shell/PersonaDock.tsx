@@ -42,9 +42,13 @@ export function PersonaDock({
   onToggleCollapse: () => void;
 }) {
   const { state } = useDrawing();
-  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric">("properties");
+  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric">("parametric");
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    setActiveTab("parametric");
+  }, [state.userMode]);
 
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -115,7 +119,7 @@ export function PersonaDock({
                 : "text-(--fg-muted) hover:text-(--fg-primary)"
             }`}
           >
-            Parametric
+            {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
           </button>
         </div>
 

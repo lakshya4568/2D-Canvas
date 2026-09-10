@@ -314,7 +314,7 @@ function DerivedCard({ candidate }: { candidate: DerivedCandidate }) {
 }
 
 function ParameterRow({ parameter }: { parameter: SketchParameter }) {
-  const { setParameterValue, updateParameter, renameParameter, dependentsFor, sketch } = useUpce();
+  const { setParameterValue, updateParameter, renameParameter, dependentsFor, sketch, createDerivedParameter } = useUpce();
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState(String(parameter.value));
   const [nameDraft, setNameDraft] = React.useState(parameter.name);
@@ -374,7 +374,7 @@ function ParameterRow({ parameter }: { parameter: SketchParameter }) {
                 e.currentTarget.blur();
               }
             }}
-            className="num w-[70px] h-[22px] px-1.5 text-right text-[11.5px] rounded-[4px] bg-(--ink-raised) border border-(--rule) focus:border-(--pen) outline-none text-(--fg-primary)"
+            className="num w-[64px] h-[22px] px-1.5 text-right text-[11.5px] bg-(--ink-raised) border border-(--rule) rounded-[3px] outline-none focus:border-(--pen) text-(--fg-primary)"
           />
         ) : (
           <span className="num text-[11.5px] text-(--fg-muted) inline-flex items-center gap-1">
@@ -392,12 +392,28 @@ function ParameterRow({ parameter }: { parameter: SketchParameter }) {
             {ORIGIN_LABEL[parameter.provenance.origin] ?? parameter.provenance.origin}
           </p>
           <p className="text-(--fg-muted)">{parameter.provenance.detail}</p>
-          {parameter.expr && (
-            <p className="text-(--fg-muted)">
-              <span className="text-(--fg-secondary)">Worked out as </span>
-              <code className="num">{parameter.expr}</code>
-            </p>
-          )}
+          
+          <div className="flex items-center gap-1.5 pt-1">
+            <label className="text-(--fg-muted) shrink-0">Formula</label>
+            <input
+              key={parameter.expr ?? ""}
+              defaultValue={parameter.expr ?? ""}
+              placeholder="e.g. CellCount * CellPitch + 30"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              onBlur={(e) => {
+                const expr = e.target.value.trim();
+                if (expr && expr !== parameter.expr) {
+                  createDerivedParameter(parameter.name, expr);
+                } else if (!expr && parameter.expr) {
+                  updateParameter(parameter.name, { role: "DRIVING", expr: undefined, dependencies: [] });
+                }
+              }}
+              className="num flex-1 h-[22px] px-1.5 text-[10.5px] rounded-[3px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+            />
+          </div>
+
           {drives.length > 0 && (
             <div>
               <p className="text-(--fg-secondary)">Changing it moves:</p>
@@ -413,39 +429,37 @@ function ParameterRow({ parameter }: { parameter: SketchParameter }) {
           {dependents.length > 0 && (
             <p className="text-(--fg-muted)">Other values that follow it: {dependents.join(", ")}</p>
           )}
-          {parameter.role === "DRIVING" && (
-            <div className="flex items-center gap-2 pt-1">
-              <label className="text-(--fg-muted)">Range</label>
+          <div className="flex items-center gap-2 pt-1">
+            <label className="text-(--fg-muted)">Range</label>
+            <input
+              defaultValue={parameter.min ?? ""}
+              placeholder="min"
+              onBlur={(e) =>
+                updateParameter(parameter.name, {
+                  min: e.target.value === "" ? undefined : Number(e.target.value),
+                })
+              }
+              className="num w-[52px] h-[20px] px-1 text-right text-[10.5px] rounded-[3px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen)"
+            />
+            <input
+              defaultValue={parameter.max ?? ""}
+              placeholder="max"
+              onBlur={(e) =>
+                updateParameter(parameter.name, {
+                  max: e.target.value === "" ? undefined : Number(e.target.value),
+                })
+              }
+              className="num w-[52px] h-[20px] px-1 text-right text-[10.5px] rounded-[3px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen)"
+            />
+            <label className="ml-auto inline-flex items-center gap-1 cursor-pointer text-(--fg-muted)">
               <input
-                defaultValue={parameter.min ?? ""}
-                placeholder="min"
-                onBlur={(e) =>
-                  updateParameter(parameter.name, {
-                    min: e.target.value === "" ? undefined : Number(e.target.value),
-                  })
-                }
-                className="num w-[52px] h-[20px] px-1 text-right text-[10.5px] rounded-[3px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen)"
+                type="checkbox"
+                checked={parameter.published}
+                onChange={(e) => updateParameter(parameter.name, { published: e.target.checked })}
               />
-              <input
-                defaultValue={parameter.max ?? ""}
-                placeholder="max"
-                onBlur={(e) =>
-                  updateParameter(parameter.name, {
-                    max: e.target.value === "" ? undefined : Number(e.target.value),
-                  })
-                }
-                className="num w-[52px] h-[20px] px-1 text-right text-[10.5px] rounded-[3px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen)"
-              />
-              <label className="ml-auto inline-flex items-center gap-1 cursor-pointer text-(--fg-muted)">
-                <input
-                  type="checkbox"
-                  checked={parameter.published}
-                  onChange={(e) => updateParameter(parameter.name, { published: e.target.checked })}
-                />
-                show to users
-              </label>
-            </div>
-          )}
+              show to users
+            </label>
+          </div>
         </div>
       )}
     </div>
@@ -505,7 +519,7 @@ function ConstraintRow({ id }: { id: string }) {
 // ---------------------------------------------------------------------------
 
 export function AuthorPanel() {
-  const { state } = useDrawing();
+  const { state, dispatch, selectedShapes, selectMultiple } = useDrawing();
   const upce = useUpce();
   const {
     started,
@@ -518,6 +532,7 @@ export function AuthorPanel() {
     manifest,
     busy,
     analyse,
+    acceptCandidate,
     refreshDerived,
     makeComponent,
     makeRepeat,
@@ -542,6 +557,49 @@ export function AuthorPanel() {
   return (
     <PanelBody>
       <NoticeBar />
+
+      {/* Selected Entity Inspector Banner in Author Mode */}
+      {selectedShapes.length > 0 && (
+        <div className="rounded-[6px] border border-(--rule) bg-(--ink-raised) p-2.5 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-(--fg-primary) flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-(--pen)" />
+              Selected: {selectedShapes.length === 1 ? selectedShapes[0].type : `${selectedShapes.length} shapes`}
+            </span>
+            {selectedShapes.length === 1 && (
+              <span className="text-[10px] text-(--pen) font-mono bg-(--ink-sunken) px-1.5 py-0.5 rounded border border-(--rule) max-w-[130px] truncate" title={selectedShapes[0].id}>
+                {selectedShapes[0].id}
+              </span>
+            )}
+          </div>
+
+          {selectedShapes.length === 1 ? (
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] font-medium text-(--fg-muted) shrink-0">Name:</label>
+              <input
+                value={selectedShapes[0].name ?? ""}
+                placeholder="Give this shape a name (e.g. Outer_Frame, Cell_Roof)"
+                onChange={(e) =>
+                  dispatch({
+                    type: "UPDATE_SHAPE",
+                    id: selectedShapes[0].id,
+                    updates: { name: e.target.value },
+                  })
+                }
+                className="flex-1 min-w-0 h-[24px] px-2 text-[11.5px] rounded-[4px] bg-(--ink-sunken) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary) font-mono"
+              />
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {selectedShapes.map((s) => (
+                <span key={s.id} className="text-[10px] bg-(--ink-sunken) border border-(--rule) px-1.5 py-0.5 rounded text-(--fg-secondary) font-mono">
+                  {s.name || s.type}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <Section
         title="Step 1 · Read the drawing"
@@ -614,7 +672,24 @@ export function AuthorPanel() {
       )}
 
       {started && candidates.length > 0 && (
-        <Section title="Step 2 · Relationships found" count={candidates.length}>
+        <Section
+          title="Step 2 · Relationships found"
+          count={candidates.length}
+          action={
+            candidates.some((c) => c.admissible) ? (
+              <Button
+                onClick={() => {
+                  candidates.filter((c) => c.admissible).forEach((c) => acceptCandidate(c.id));
+                }}
+                icon={Check}
+                tone="primary"
+                title="Accept all detected relationships"
+              >
+                Accept all ({candidates.filter((c) => c.admissible).length})
+              </Button>
+            ) : undefined
+          }
+        >
           <p className="text-[11px] leading-[1.55] text-(--fg-muted)">
             Detected, not applied. Each card shows what was measured and what accepting it will hold
             true from then on.
@@ -638,7 +713,24 @@ export function AuthorPanel() {
       )}
 
       {started && completion && completion.groups.length + completion.quickFixes.length > 0 && (
-        <Section title="Step 3 · Decide the design" count={completion.groups.length + completion.quickFixes.length}>
+        <Section
+          title="Step 3 · Decide the design"
+          count={completion.groups.length + completion.quickFixes.length}
+          action={
+            completion.quickFixes.length > 0 ? (
+              <Button
+                onClick={() => {
+                  completion.quickFixes.forEach((q) => upce.applyIntent(q));
+                }}
+                icon={Sparkles}
+                tone="primary"
+                title="Apply all suggested quick fixes"
+              >
+                Apply all fixes ({completion.quickFixes.length})
+              </Button>
+            ) : undefined
+          }
+        >
           <p className="text-[11px] leading-[1.55] text-(--fg-muted)">
             Where more than one answer is valid, the system asks instead of choosing. Every figure
             below was measured by applying the change to a copy and re-checking the constraint system.
@@ -770,6 +862,85 @@ export function AuthorPanel() {
               Make unit
             </Button>
           </div>
+
+          {selection.length === 0 ? (
+            <div className="flex flex-col gap-1.5 p-2 rounded bg-(--ink-raised) border border-(--rule)">
+              <p className="text-[10.5px] text-(--fg-muted)">
+                Select shapes on canvas, or click to auto-select inner cell shapes:
+              </p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Button
+                  onClick={() => {
+                    // Filter out the outer enclosing rectangle
+                    const rects = state.shapes.filter((s) => s.type === "rectangle") as { id: string; width?: number; height?: number }[];
+                    let outerId: string | null = null;
+                    if (rects.length > 0) {
+                      const largest = rects.reduce((prev, curr) =>
+                        ((curr.width ?? 0) * (curr.height ?? 0)) > ((prev.width ?? 0) * (prev.height ?? 0)) ? curr : prev
+                      );
+                      outerId = largest.id;
+                    }
+                    const innerShapes = state.shapes.filter((s) => s.id !== outerId);
+                    selectMultiple(innerShapes.map((s) => s.id));
+                  }}
+                  tone="quiet"
+                >
+                  + Select cell shapes ({state.shapes.length > 1 ? state.shapes.length - 1 : state.shapes.length})
+                </Button>
+                <Button
+                  onClick={() => selectMultiple(state.shapes.map((s) => s.id))}
+                  tone="quiet"
+                >
+                  Select all
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between text-[11px] text-(--fg-secondary) bg-(--ink-raised) border border-(--rule) px-2.5 py-1 rounded">
+              <span>{selection.length} shape{selection.length === 1 ? "" : "s"} selected</span>
+              <button
+                onClick={() => selectMultiple([])}
+                className="text-[10px] text-(--fg-muted) hover:text-(--crit) cursor-pointer"
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
+
+          {/* Interactive Shape Checklist */}
+          {state.shapes.length > 0 && (
+            <details className="rounded-[6px] border border-(--rule) overflow-hidden">
+              <summary className="px-2.5 h-[28px] flex items-center justify-between text-[11px] text-(--fg-muted) cursor-pointer hover:text-(--fg-primary)">
+                <span>Choose shapes from list</span>
+                <span className="font-mono text-[10px]">{selection.length}/{state.shapes.length}</span>
+              </summary>
+              <div className="px-2.5 py-2 flex flex-col gap-1 max-h-[160px] overflow-y-auto bg-(--ink-app)">
+                {state.shapes.map((s) => {
+                  const isChecked = selection.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className="flex items-center gap-2 text-[10.5px] text-(--fg-secondary) hover:text-(--fg-primary) cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            selectMultiple([...selection, s.id]);
+                          } else {
+                            selectMultiple(selection.filter((id) => id !== s.id));
+                          }
+                        }}
+                      />
+                      <span className="font-mono text-[9.5px] uppercase text-(--pen)">{s.type}</span>
+                      <span className="truncate">{s.name || s.id}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </details>
+          )}
 
           {sketch.components.map((c) => {
             const hasRule = sketch.repeats.some((r) => r.componentId === c.id);

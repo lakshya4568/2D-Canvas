@@ -337,7 +337,7 @@ export function analyseDof(
   }
 
   const { residuals, jacobian } = evaluateSystem(sketch, sys, sys.X);
-  const eps = 1e-9;
+  const eps = policy.singular_value_eps;
   const { q, V } = fullRightSingular(jacobian, n);
   const scale = Math.max(...q, 1);
   const rank = jacobian.length === 0 ? 0 : q.filter((s) => s > eps * scale).length;

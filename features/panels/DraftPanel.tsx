@@ -81,7 +81,7 @@ function measurementsFor(shape: {
 }
 
 export function DraftPanel() {
-  const { state, selectedShape, selectedShapes } = useDrawing();
+  const { state, selectedShape, selectedShapes, dispatch } = useDrawing();
 
   if (selectedShapes.length > 1) {
     return (
@@ -121,10 +121,27 @@ export function DraftPanel() {
   return (
     <PanelBody>
       <section className="flex flex-col gap-1.5">
-        <h3 className="label">Selected</h3>
-        <p className="text-[13px] font-medium text-(--fg-primary) capitalize">
-          {selectedShape.name || selectedShape.type}
-        </p>
+        <div className="flex items-center justify-between">
+          <h3 className="label">Selected</h3>
+          <span className="text-[10px] text-(--pen) font-mono bg-(--pen-soft) px-1.5 py-0.5 rounded truncate max-w-[120px]" title={selectedShape.id}>
+            {selectedShape.id}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-(--fg-muted) uppercase font-mono shrink-0">{selectedShape.type}</span>
+          <input
+            value={selectedShape.name ?? ""}
+            placeholder="Name (e.g. Outer_Frame, Cell_Roof)"
+            onChange={(e) =>
+              dispatch({
+                type: "UPDATE_SHAPE",
+                id: selectedShape.id,
+                updates: { name: e.target.value },
+              })
+            }
+            className="flex-1 min-w-0 h-[24px] px-2 text-[11.5px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary) font-mono"
+          />
+        </div>
       </section>
 
       <section className="flex flex-col gap-2">

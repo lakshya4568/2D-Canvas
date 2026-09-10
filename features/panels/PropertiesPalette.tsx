@@ -18,6 +18,17 @@ export function PropertiesPalette() {
     });
   };
 
+  const handleUpdateString = (field: string, val: string) => {
+    if (!selectedShape) return;
+    dispatch({
+      type: "UPDATE_SHAPE",
+      id: selectedShape.id,
+      updates: {
+        [field]: val,
+      },
+    });
+  };
+
   if (!selectedShape && selectedShapes.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto p-3 text-[11px] select-none font-sans">
@@ -81,9 +92,12 @@ export function PropertiesPalette() {
   return (
     <div className="flex-1 overflow-y-auto p-3 text-[11px] select-none font-sans">
       {/* Header with Shape Classification */}
-      <div className="mb-3 pb-2 border-b border-(--rule) flex items-center justify-between">
-        <span className="font-semibold text-(--fg-primary)">{shapeTypeCapitalized}</span>
-        <span className="text-[10px] text-(--pen) font-mono bg-(--pen-soft) px-1.5 py-0.5 rounded">{s.id}</span>
+      <div className="mb-3 pb-2 border-b border-(--rule) flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-semibold text-(--fg-primary) shrink-0">{shapeTypeCapitalized}</span>
+          {s.name && <span className="text-[11px] font-mono text-(--pen) truncate">({s.name})</span>}
+        </div>
+        <span className="text-[10px] text-(--pen) font-mono bg-(--pen-soft) px-1.5 py-0.5 rounded truncate max-w-[130px]" title={s.id}>{s.id}</span>
       </div>
 
       {/* General Properties */}
@@ -92,6 +106,15 @@ export function PropertiesPalette() {
           General
         </div>
         <div className="divide-y divide-(--rule) border border-(--rule) rounded overflow-hidden">
+          <div className="flex items-center justify-between px-2.5 py-1 bg-(--ink-panel)">
+            <span className="text-(--fg-muted)">Name</span>
+            <input
+              value={s.name ?? ""}
+              placeholder={s.id}
+              onChange={(e) => handleUpdateString("name", e.target.value)}
+              className="font-mono text-(--fg-primary) bg-(--ink-sunken) text-right outline-none focus:border-(--pen) px-1.5 py-0.5 rounded border border-(--rule) text-[11px] w-[140px]"
+            />
+          </div>
           <div className="flex items-center justify-between px-2.5 py-1 bg-(--ink-panel)">
             <span className="text-(--fg-muted)">Color</span>
             <span className="font-mono text-(--fg-primary) flex items-center gap-1.5">
