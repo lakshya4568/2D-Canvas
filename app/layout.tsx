@@ -3,9 +3,9 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Aagento Drafting Table",
+  title: "AutoCAD Web Studio · UPCE-MASTER-1.0",
   description:
-    "Parametric 2D CAD for civil general arrangement drawings. Draw once, curate design intent, then drive the drawing from named engineering parameters.",
+    "AutoCAD-compatible Parametric 2D CAD Engine for civil engineering and drafting drawings.",
 };
 
 export const viewport: Viewport = {
