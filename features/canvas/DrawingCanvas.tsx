@@ -23,6 +23,7 @@ import { SnapIndicator } from "./SnapIndicator";
 import { ConstraintOverlays } from "./ConstraintOverlays";
 import { ParametricDimensionOverlay } from "./ParametricDimensionOverlay";
 import { BoundaryLimitsOverlay } from "./BoundaryLimitsOverlay";
+import { DynamicInputOverlay } from "./DynamicInputOverlay";
 
 interface DrawingCanvasProps {
   onCursorChange?: (pos: Point | null) => void;
@@ -69,9 +70,16 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [isPanActive, setIsPanActive] = useState(false);
   const [activeCursor, setActiveCursor] = useState<string | null>(null);
-  const [marqueeBox, setMarqueeBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    isCrossing: boolean;
+  } | null>(null);
 
   // AutoCAD Move Tool States
+  const [currentCursorWorld, setCurrentCursorWorld] = useState<Point | null>(null);
   const [moveBasePoint, setMoveBasePoint] = useState<Point | null>(null);
   const [moveDisplacement, setMoveDisplacement] = useState<{ dx: number; dy: number; targetPt: Point } | null>(null);
   const isMoveDraggingRef = useRef(false);
@@ -361,7 +369,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           isResizingRef.current = false;
           isRotatingRef.current = false;
           startWorldPointRef.current = rawWorldPt;
-          setMarqueeBox({ x: rawWorldPt.x, y: rawWorldPt.y, width: 0, height: 0 });
+          setMarqueeBox({ x: rawWorldPt.x, y: rawWorldPt.y, width: 0, height: 0, isCrossing: false });
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
         }
         return;
@@ -568,6 +576,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
     (e: React.PointerEvent<SVGSVGElement>) => {
       const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
       onCursorChange?.(rawWorldPt);
+      setCurrentCursorWorld(rawWorldPt);
 
       // 1. Panning
       if (isPanningRef.current) {
@@ -783,11 +792,12 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }
 
 
-      // 4. Marquee Box Selection
+      // 4. AutoCAD Directional Window vs Crossing Selection
       if (isMarqueeRef.current) {
         const startPt = startWorldPointRef.current;
         const rect = rectFromDrag(startPt, rawWorldPt);
-        setMarqueeBox(rect);
+        const isCrossing = rawWorldPt.x < startPt.x;
+        setMarqueeBox({ ...rect, isCrossing });
         return;
       }
 
@@ -797,6 +807,26 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         const originPt = moveBasePoint || startWorldPointRef.current;
         let rawDx = currentWorldPt.x - originPt.x;
         let rawDy = currentWorldPt.y - originPt.y;
+
+        // Apply AutoCAD Ortho Mode (F8) or Polar Tracking (F10)
+        if (state.orthoEnabled) {
+          if (Math.abs(rawDx) >= Math.abs(rawDy)) {
+            rawDy = 0;
+          } else {
+            rawDx = 0;
+          }
+        } else if (state.polarTrackingEnabled) {
+          const dist = Math.hypot(rawDx, rawDy);
+          if (dist > 5) {
+            const angle = Math.atan2(rawDy, rawDx);
+            const step = Math.PI / 4; // 45° increments
+            const nearestAngle = Math.round(angle / step) * step;
+            if (Math.abs(angle - nearestAngle) < 0.1) {
+              rawDx = dist * Math.cos(nearestAngle);
+              rawDy = dist * Math.sin(nearestAngle);
+            }
+          }
+        }
 
         const selIds = new Set(initialShapesRef.current.map((s) => s.id));
         const unselectedShapes = state.shapes.filter((s) => !selIds.has(s.id));
@@ -868,10 +898,38 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         return;
       }
 
-      // 6. Live Shape Drafting with Smart Magnetic Connection Snapping
+      // 6. Live Shape Drafting with Smart Magnetic Connection Snapping & Ortho/Polar Modes
       if (isDrawingRef.current && state.draft) {
         const startPt = startWorldPointRef.current;
-        const snapResult = applySnapping(rawWorldPt, {
+        let candidatePt = rawWorldPt;
+
+        // Apply AutoCAD Ortho Mode (F8) or Polar Tracking (F10)
+        if (state.orthoEnabled) {
+          const dx = candidatePt.x - startPt.x;
+          const dy = candidatePt.y - startPt.y;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            candidatePt = { x: candidatePt.x, y: startPt.y };
+          } else {
+            candidatePt = { x: startPt.x, y: candidatePt.y };
+          }
+        } else if (state.polarTrackingEnabled) {
+          const dx = candidatePt.x - startPt.x;
+          const dy = candidatePt.y - startPt.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 5) {
+            const angle = Math.atan2(dy, dx);
+            const step = Math.PI / 4; // 45° polar ray
+            const nearestAngle = Math.round(angle / step) * step;
+            if (Math.abs(angle - nearestAngle) < 0.1) {
+              candidatePt = {
+                x: startPt.x + dist * Math.cos(nearestAngle),
+                y: startPt.y + dist * Math.sin(nearestAngle),
+              };
+            }
+          }
+        }
+
+        const snapResult = applySnapping(candidatePt, {
           gridSnapEnabled: state.gridSnapEnabled,
           objectSnapEnabled: state.objectSnapEnabled,
           shapes: state.shapes,
@@ -1035,15 +1093,30 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           const mMaxY = marqueeBox.y + marqueeBox.height;
 
           const matchedIds: string[] = [];
+          const isCrossing = marqueeBox.isCrossing;
+
           for (const shape of state.shapes) {
             const b = computeShapeBounds(shape);
-            const intersects =
-              b.maxX >= mMinX &&
-              b.minX <= mMaxX &&
-              b.maxY >= mMinY &&
-              b.minY <= mMaxY;
-            if (intersects) {
-              matchedIds.push(shape.id);
+            if (isCrossing) {
+              // Crossing (Right-to-Left): any intersection or touch
+              const intersects =
+                b.maxX >= mMinX &&
+                b.minX <= mMaxX &&
+                b.maxY >= mMinY &&
+                b.minY <= mMaxY;
+              if (intersects) {
+                matchedIds.push(shape.id);
+              }
+            } else {
+              // Window (Left-to-Right): strict containment only
+              const strictlyContained =
+                b.minX >= mMinX &&
+                b.maxX <= mMaxX &&
+                b.minY >= mMinY &&
+                b.maxY <= mMaxY;
+              if (strictlyContained) {
+                matchedIds.push(shape.id);
+              }
             }
           }
 
@@ -1351,6 +1424,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         onPointerUp={handlePointerUp}
         onPointerLeave={() => {
           onCursorChange?.(null);
+          setCurrentCursorWorld(null);
         }}
       >
         <g
@@ -1497,20 +1571,28 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           {/* Span Boundary & Limits Warning Badges */}
           <BoundaryLimitsOverlay scale={scale} />
 
+          {/* Floating AutoCAD Dynamic Input HUD */}
+          <DynamicInputOverlay
+            cursorPos={currentCursorWorld}
+            basePoint={moveBasePoint || (state.draft ? startWorldPointRef.current : null)}
+            active={Boolean(state.dynamicInputEnabled && (state.draft || moveBasePoint || isMovingRef.current))}
+            scale={scale}
+          />
+
           {/* Smart Magnetic Connection & Snap Target Indicator */}
           <SnapIndicator snap={state.activeSnap} scale={scale} />
 
-          {/* Figma-Style Marquee Box Selection Overlay */}
+          {/* AutoCAD Directional Marquee Box Selection: Blue Window (L->R) vs Green Crossing (R->L) */}
           {marqueeBox && (
             <rect
               x={marqueeBox.x}
               y={marqueeBox.y}
               width={marqueeBox.width}
               height={marqueeBox.height}
-              fill="rgba(245, 158, 11, 0.12)"
-              stroke="#f59e0b"
+              fill={marqueeBox.isCrossing ? "rgba(34, 197, 94, 0.16)" : "rgba(59, 130, 246, 0.16)"}
+              stroke={marqueeBox.isCrossing ? "#22c55e" : "#3b82f6"}
               strokeWidth={1.2 / scale}
-              strokeDasharray={`${4 / scale}, ${3 / scale}`}
+              strokeDasharray={marqueeBox.isCrossing ? `${5 / scale}, ${3 / scale}` : undefined}
               className="pointer-events-none"
             />
           )}

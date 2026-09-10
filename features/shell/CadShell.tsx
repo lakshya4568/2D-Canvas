@@ -10,7 +10,7 @@ import { ToolRail } from "./ToolRail";
 import { StatusStrip } from "./StatusStrip";
 import { PersonaDock } from "./PersonaDock";
 import { TemplateModal } from "../parametric/TemplateModal";
-import { ShortcutsModal } from "../shortcuts/ShortcutsModal";
+import { InstructionManualModal } from "../manual/InstructionManualModal";
 
 /**
  * The application shell.
@@ -26,7 +26,16 @@ import { ShortcutsModal } from "../shortcuts/ShortcutsModal";
  * disabled. Three roles, three products, one kernel.
  */
 export function CadShell() {
-  const { state, dispatch } = useDrawing();
+  const {
+    state,
+    dispatch,
+    toggleObjectSnap,
+    toggleGrid,
+    toggleOrtho,
+    toggleGridSnap,
+    togglePolarTracking,
+    toggleDynamicInput,
+  } = useDrawing();
   const [cursorPos, setCursorPos] = React.useState<Point | null>(null);
   const [dockWidth, setDockWidth] = React.useState(320);
   const [dockCollapsed, setDockCollapsed] = React.useState(false);
@@ -59,14 +68,33 @@ export function CadShell() {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-      if (e.key === "?") {
+
+      if (e.key === "F1" || e.key === "?") {
         e.preventDefault();
         setShortcutsOpen(true);
+      } else if (e.key === "F3") {
+        e.preventDefault();
+        toggleObjectSnap();
+      } else if (e.key === "F7") {
+        e.preventDefault();
+        toggleGrid();
+      } else if (e.key === "F8") {
+        e.preventDefault();
+        toggleOrtho();
+      } else if (e.key === "F9") {
+        e.preventDefault();
+        toggleGridSnap();
+      } else if (e.key === "F10") {
+        e.preventDefault();
+        togglePolarTracking();
+      } else if (e.key === "F12") {
+        e.preventDefault();
+        toggleDynamicInput();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [toggleObjectSnap, toggleGrid, toggleOrtho, toggleGridSnap, togglePolarTracking, toggleDynamicInput]);
 
   return (
     <div className="w-screen h-screen flex flex-col overflow-hidden bg-(--ink-app)">
@@ -105,7 +133,7 @@ export function CadShell() {
       <StatusStrip cursorPos={cursorPos} />
 
       <TemplateModal isOpen={templatesOpen} onClose={() => setTemplatesOpen(false)} />
-      <ShortcutsModal isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <InstructionManualModal isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }

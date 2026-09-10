@@ -31,6 +31,9 @@ interface DrawingContextType {
   toggleGrid: () => void;
   toggleGridSnap: () => void;
   toggleObjectSnap: () => void;
+  toggleOrtho: () => void;
+  togglePolarTracking: () => void;
+  toggleDynamicInput: () => void;
   toggleDimensions: () => void;
   setThemeMode: (mode: ThemeMode) => void;
   clearAll: () => void;
@@ -77,6 +80,9 @@ export function DrawingProvider({ children }: { children: ReactNode }) {
     toggleGrid: () => dispatch({ type: "TOGGLE_GRID" }),
     toggleGridSnap: () => dispatch({ type: "TOGGLE_GRID_SNAP" }),
     toggleObjectSnap: () => dispatch({ type: "TOGGLE_OBJECT_SNAP" }),
+    toggleOrtho: () => dispatch({ type: "TOGGLE_ORTHO" }),
+    togglePolarTracking: () => dispatch({ type: "TOGGLE_POLAR_TRACKING" }),
+    toggleDynamicInput: () => dispatch({ type: "TOGGLE_DYNAMIC_INPUT" }),
     toggleDimensions: () => dispatch({ type: "TOGGLE_DIMENSIONS" }),
     setThemeMode: (mode: ThemeMode) => dispatch({ type: "SET_THEME_MODE", mode }),
     clearAll: () => dispatch({ type: "CLEAR_ALL" }),

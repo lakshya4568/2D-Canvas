@@ -38,6 +38,9 @@ export interface DrawingState {
   viewport: Viewport;
   gridSnapEnabled: boolean;
   objectSnapEnabled: boolean;
+  orthoEnabled: boolean;
+  polarTrackingEnabled: boolean;
+  dynamicInputEnabled: boolean;
   showGrid: boolean;
   showDimensions: boolean;
   activeSnap: SnapResult | null;
@@ -100,6 +103,9 @@ export type DrawingAction =
   | { type: "TOGGLE_GRID" }
   | { type: "TOGGLE_GRID_SNAP" }
   | { type: "TOGGLE_OBJECT_SNAP" }
+  | { type: "TOGGLE_ORTHO" }
+  | { type: "TOGGLE_POLAR_TRACKING" }
+  | { type: "TOGGLE_DYNAMIC_INPUT" }
   | { type: "TOGGLE_DIMENSIONS" }
   | { type: "SET_THEME_MODE"; mode: ThemeMode }
   | { type: "SET_ACTIVE_SNAP"; snap: SnapResult | null }
@@ -127,6 +133,9 @@ export const initialDrawingState: DrawingState = {
   viewport: { x: 0, y: 0, scale: 1 },
   gridSnapEnabled: false,
   objectSnapEnabled: true,
+  orthoEnabled: false,
+  polarTrackingEnabled: false,
+  dynamicInputEnabled: true,
   showGrid: true,
   showDimensions: false,
   activeSnap: null,
@@ -1037,6 +1046,31 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return {
         ...state,
         objectSnapEnabled: !state.objectSnapEnabled,
+      };
+    }
+
+    case "TOGGLE_ORTHO": {
+      const nextOrtho = !state.orthoEnabled;
+      return {
+        ...state,
+        orthoEnabled: nextOrtho,
+        polarTrackingEnabled: nextOrtho ? false : state.polarTrackingEnabled,
+      };
+    }
+
+    case "TOGGLE_POLAR_TRACKING": {
+      const nextPolar = !state.polarTrackingEnabled;
+      return {
+        ...state,
+        polarTrackingEnabled: nextPolar,
+        orthoEnabled: nextPolar ? false : state.orthoEnabled,
+      };
+    }
+
+    case "TOGGLE_DYNAMIC_INPUT": {
+      return {
+        ...state,
+        dynamicInputEnabled: !state.dynamicInputEnabled,
       };
     }
 
