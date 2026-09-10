@@ -4,6 +4,7 @@ import React from "react";
 import { Lock, Ruler, Layers } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { ConstraintChip } from "../shell/ConstraintStatus";
+import { useUpce } from "../parametric/upceContext";
 
 /**
  * The DRAFTSMAN dock — UPCE-MASTER-1.0 §3.
@@ -82,6 +83,14 @@ function measurementsFor(shape: {
 
 export function DraftPanel() {
   const { state, selectedShape, selectedShapes, dispatch } = useDrawing();
+  const { sketch } = useUpce();
+
+  // Rules the author actually chose. A rectangle's own right angles are part of
+  // what the shape is rather than a decision, so counting them here would make
+  // an untouched drawing look constrained.
+  const rulesInForce = sketch.constraints.filter(
+    (c) => c.strength !== "fact" && c.state !== "suppressed"
+  ).length;
 
   if (selectedShapes.length > 1) {
     return (
@@ -108,7 +117,7 @@ export function DraftPanel() {
           <KeyValue
             rows={[
               { k: "Entities", v: String(state.shapes.filter((s) => s.isVisible !== false).length) },
-              { k: "Applied constraints", v: String(state.constraints.length) },
+              { k: "Rules in force", v: String(rulesInForce) },
             ]}
           />
         </section>

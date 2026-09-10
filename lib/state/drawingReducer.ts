@@ -57,9 +57,6 @@ export interface DrawingState {
   };
   currentStyle: ShapeStyleConfig;
   // Parametric State Slice
-  variables: Record<string, ParametricVariable>;
-  constraints: GeometricConstraint[];
-  parametricErrors: string[];
   boundaryEvaluations: BoundaryLimitEvaluation[];
   /**
    * §3 personas. Three roles, three completely different products sharing one
@@ -119,14 +116,7 @@ export type DrawingAction =
   | { type: "SET_CURRENT_STYLE"; style: Partial<ShapeStyleConfig> }
   | { type: "LOAD_SHAPES"; shapes: Shape[] }
   // Parametric Actions
-  | { type: "SET_VARIABLE"; name: string; valueOrFormula: number | string; description?: string }
-  | { type: "DELETE_VARIABLE"; name: string }
-  | { type: "ADD_CONSTRAINT"; constraint: GeometricConstraint }
-  | { type: "UPDATE_CONSTRAINT"; id: string; updates: Partial<GeometricConstraint> }
-  | { type: "DELETE_CONSTRAINT"; id: string }
-  | { type: "TOGGLE_CONSTRAINT"; id: string }
   | { type: "INSTANTIATE_TEMPLATE"; templateId: string; params?: Record<string, number> }
-  | { type: "SYNC_PARAMETRIC_MODEL" }
   | { type: "APPLY_SOLVED_SHAPES"; shapes: Shape[]; description?: string };
 
 export const initialDrawingState: DrawingState = {
@@ -156,9 +146,6 @@ export const initialDrawingState: DrawingState = {
     fillColor: "transparent",
     opacity: 1,
   },
-  variables: {},
-  constraints: [],
-  parametricErrors: [],
   boundaryEvaluations: [],
   userMode: "draftsman",
 };
@@ -365,28 +352,19 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const committedShape: Shape = { ...state.draft, name: defaultName, isVisible: true };
       const desc = `Draw ${defaultName}`;
 
-      // Register default variable matching the freshly drawn shape's length/dimensions
-      const nextVars = { ...state.variables };
-      if (committedShape.type === "line" || committedShape.type === "arrow") {
-        const len = Math.round(Math.hypot(committedShape.x2 - committedShape.x1, committedShape.y2 - committedShape.y1));
-        nextVars[defaultName] = { name: defaultName, value: len, unit: "mm" };
-      } else if (committedShape.type === "rectangle") {
-        const wVar = `${defaultName}.width`;
-        const hVar = `${defaultName}.height`;
-        nextVars[wVar] = { name: wVar, value: Math.round(committedShape.width), unit: "mm" };
-        nextVars[hVar] = { name: hVar, value: Math.round(committedShape.height), unit: "mm" };
-      } else if (committedShape.type === "circle") {
-        const rVar = `${defaultName}.r`;
-        nextVars[rVar] = { name: rVar, value: Math.round(committedShape.r), unit: "mm" };
-      }
-
+      // Drawing a shape no longer invents parameters for it.
+      //
+      // Every rectangle used to silently register `R1.width` and `R1.height`, and
+      // every line an `L1`. That is where the unexplained entries in the
+      // parameter list came from: values nobody asked for, driving nothing,
+      // sitting next to the ones the author had actually created. A parameter now
+      // exists only because someone decided it should.
       const nextShapes = [...state.shapes, committedShape];
       const boundaryEvals = evaluateAllBoundaryLimits(nextShapes);
 
       return {
         ...state,
         shapes: nextShapes,
-        variables: nextVars,
         boundaryEvaluations: boundaryEvals,
         draft: null,
         selectedId: committedShape.id,
@@ -582,26 +560,10 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const updatedMap = new Map(action.updatedShapes.map((s) => [s.id, s]));
       const nextShapes = state.shapes.map((s) => updatedMap.get(s.id) || s);
 
-      let syncedVars = { ...state.variables };
-      action.updatedShapes.forEach((s) => {
-        const idx = state.shapes.findIndex((orig) => orig.id === s.id);
-        if (idx !== -1) {
-          syncedVars = syncShapeParametersToVariables(s, idx, syncedVars);
-        }
-      });
-
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        nextShapes,
-        syncedVars,
-        state.constraints
-      );
-
       return {
         ...state,
-        shapes: updatedShapes,
-        variables: updatedVariables,
-        parametricErrors: errors,
-        boundaryEvaluations: evaluateAllBoundaryLimits(updatedShapes),
+        shapes: nextShapes,
+        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
       };
     }
 
@@ -730,26 +692,10 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         intermediateShapes[targetIndex] = updatedShape;
       }
 
-      // Synchronize modified shape parameters into state.variables
-      const syncedVars = syncShapeParametersToVariables(
-        intermediateShapes[targetIndex],
-        targetIndex,
-        state.variables
-      );
-
-      // Run parametric sync so bound dependent formulas (e.g. R2_Height) re-evaluate
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        intermediateShapes,
-        syncedVars,
-        state.constraints
-      );
-
       return {
         ...state,
-        shapes: updatedShapes,
-        variables: updatedVariables,
-        parametricErrors: errors,
-        boundaryEvaluations: evaluateAllBoundaryLimits(updatedShapes),
+        shapes: intermediateShapes,
+        boundaryEvaluations: evaluateAllBoundaryLimits(intermediateShapes),
         history: pushHistory(state, `Update ${currentShape.type}`),
       };
     }
@@ -780,22 +726,12 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       const nextShapes = state.shapes.filter((s) => !delSet.has(s.id));
       const count = state.selectedIds.length;
 
-      // Clean up variables belonging to deleted shapes
-      const nextVars = { ...state.variables };
-      for (const s of state.shapes) {
-        if (delSet.has(s.id) && s.name && nextVars[s.name] && !nextVars[s.name].formula) {
-          delete nextVars[s.name];
-          delete nextVars[`${s.name}.length`];
-          delete nextVars[`${s.name}.width`];
-          delete nextVars[`${s.name}.height`];
-          delete nextVars[`${s.name}.r`];
-        }
-      }
-
+      // Rules that referenced the deleted geometry are dropped by the authoring
+      // rebuild, which also reports how many went, rather than being guessed at
+      // here from shape names.
       return {
         ...state,
         shapes: nextShapes,
-        variables: nextVars,
         selectedId: null,
         selectedIds: [],
         history: pushHistory(state, `Delete ${count > 1 ? `${count} Shapes` : "Shape"}`),
@@ -805,19 +741,9 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     case "DELETE_SHAPE_BY_ID": {
       const deletedShape = state.shapes.find((s) => s.id === action.id);
       const nextShapes = state.shapes.filter((s) => s.id !== action.id);
-      const nextVars = { ...state.variables };
-      if (deletedShape?.name && nextVars[deletedShape.name] && !nextVars[deletedShape.name].formula) {
-        delete nextVars[deletedShape.name];
-        delete nextVars[`${deletedShape.name}.length`];
-        delete nextVars[`${deletedShape.name}.width`];
-        delete nextVars[`${deletedShape.name}.height`];
-        delete nextVars[`${deletedShape.name}.r`];
-      }
-
       return {
         ...state,
         shapes: nextShapes,
-        variables: nextVars,
         selectedId: state.selectedId === action.id ? null : state.selectedId,
         selectedIds: state.selectedIds.filter((i) => i !== action.id),
         history: pushHistory(state, "Delete Shape"),
@@ -879,8 +805,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return {
         ...state,
         shapes: [],
-        variables: {},
-        selectedId: null,
+              selectedId: null,
         selectedIds: [],
         draft: null,
         history: pushHistory(state, "Clear Canvas"),
@@ -1109,15 +1034,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     }
 
     case "LOAD_SHAPES": {
-      const nextVars = { ...state.variables };
-      for (const s of action.shapes) {
-        if (s.name) {
-          if (s.type === "line" || s.type === "arrow") {
-            const len = Math.round(Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
-            nextVars[s.name] = { name: s.name, value: len, unit: "mm" };
-          }
-        }
-      }
 
       const boundaryEvals = evaluateAllBoundaryLimits(action.shapes);
       // Imported drawings carry their own coordinate system: a real DXF may sit
@@ -1135,7 +1051,6 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
               state.canvasSize.height
             )
           : state.viewport,
-        variables: nextVars,
         boundaryEvaluations: boundaryEvals,
         selectedId: null,
         selectedIds: [],
@@ -1144,188 +1059,21 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       };
     }
 
-    case "SET_VARIABLE": {
-      let val = 0;
-      let formulaStr: string | undefined = undefined;
-
-      if (typeof action.valueOrFormula === "number") {
-        val = action.valueOrFormula;
-      } else if (typeof action.valueOrFormula === "string") {
-        const trimmed = action.valueOrFormula.trim();
-        const parsedNum = Number(trimmed);
-        if (!isNaN(parsedNum) && trimmed !== "") {
-          val = parsedNum;
-          formulaStr = undefined; // Numeric constant
-        } else {
-          formulaStr = trimmed; // Mathematical formula expression
-          val = state.variables[action.name]?.value ?? 0;
-        }
-      }
-
-      const OCTAGON_TWIN_PAIRS: Record<string, string> = {
-        edge_top: "top_edge_length",
-        top_edge_length: "edge_top",
-        edge_tr: "tr_chamfer_length",
-        tr_chamfer_length: "edge_tr",
-        edge_right: "right_edge_length",
-        right_edge_length: "edge_right",
-        edge_br: "br_chamfer_length",
-        br_chamfer_length: "edge_br",
-        edge_bottom: "bottom_edge_length",
-        bottom_edge_length: "edge_bottom",
-        edge_bl: "bl_chamfer_length",
-        bl_chamfer_length: "edge_bl",
-        edge_left: "left_edge_length",
-        left_edge_length: "edge_left",
-        edge_tl: "tl_chamfer_length",
-        tl_chamfer_length: "edge_tl",
-      };
-
-      const twin = OCTAGON_TWIN_PAIRS[action.name];
-      const nextVars = {
-        ...state.variables,
-        [action.name]: {
-          name: action.name,
-          value: val,
-          formula: formulaStr,
-          description: action.description ?? state.variables[action.name]?.description,
-          unit: state.variables[action.name]?.unit,
-        },
-      };
-
-      if (twin && state.variables[twin]) {
-        nextVars[twin] = {
-          ...state.variables[twin],
-          value: val,
-          formula: formulaStr,
-        };
-      }
-
-      // Synchronize all case and punctuation aliases (e.g. R1_height <-> R1_Height <-> R1.height)
-      const normTarget = action.name.replace(/[._]/g, "").toLowerCase();
-      for (const [k, v] of Object.entries(state.variables)) {
-        if (k.replace(/[._]/g, "").toLowerCase() === normTarget) {
-          nextVars[k] = {
-            ...v,
-            value: val,
-            formula: formulaStr,
-          };
-        }
-      }
-
-      const match = action.name.match(/^([a-zA-Z0-9]+)[._]([a-zA-Z0-9]+)$/);
-      if (match) {
-        const pfx = match[1];
-        const prp = match[2];
-        const cap = prp.charAt(0).toUpperCase() + prp.slice(1).toLowerCase();
-        const low = prp.toLowerCase();
-        for (const alias of [`${pfx}.${low}`, `${pfx}.${cap}`, `${pfx}_${low}`, `${pfx}_${cap}`]) {
-          nextVars[alias] = {
-            name: alias,
-            value: val,
-            formula: formulaStr,
-            description: action.description ?? state.variables[alias]?.description,
-            unit: state.variables[alias]?.unit ?? state.variables[action.name]?.unit,
-          };
-        }
-      }
-
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        nextVars,
-        state.constraints
-      );
-
-      return {
-        ...state,
-        variables: updatedVariables,
-        shapes: updatedShapes,
-        parametricErrors: errors,
-        history: pushHistory(state, `Set Variable ${action.name}`),
-      };
-    }
-
-    case "DELETE_VARIABLE": {
-      const nextVars = { ...state.variables };
-      delete nextVars[action.name];
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        nextVars,
-        state.constraints
-      );
-      return {
-        ...state,
-        variables: updatedVariables,
-        shapes: updatedShapes,
-        parametricErrors: errors,
-        history: pushHistory(state, `Delete Variable ${action.name}`),
-      };
-    }
-
-    case "ADD_CONSTRAINT": {
-      const nextConstraints = [...state.constraints, action.constraint];
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        state.variables,
-        nextConstraints
-      );
-      return {
-        ...state,
-        constraints: nextConstraints,
-        shapes: updatedShapes,
-        variables: updatedVariables,
-        parametricErrors: errors,
-        history: pushHistory(state, `Add Constraint ${action.constraint.type}`),
-      };
-    }
-
-    case "UPDATE_CONSTRAINT": {
-      const nextConstraints = state.constraints.map((c) =>
-        c.id === action.id ? { ...c, ...action.updates } : c
-      );
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        state.variables,
-        nextConstraints
-      );
-      return {
-        ...state,
-        constraints: nextConstraints,
-        shapes: updatedShapes,
-        variables: updatedVariables,
-        parametricErrors: errors,
-        history: pushHistory(state, `Update Constraint`),
-      };
-    }
-
-    case "DELETE_CONSTRAINT": {
-      const nextConstraints = state.constraints.filter((c) => c.id !== action.id);
-      return {
-        ...state,
-        constraints: nextConstraints,
-        history: pushHistory(state, `Delete Constraint`),
-      };
-    }
-
-    case "TOGGLE_CONSTRAINT": {
-      const nextConstraints = state.constraints.map((c) =>
-        c.id === action.id ? { ...c, enabled: !c.enabled } : c
-      );
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        state.variables,
-        nextConstraints
-      );
-      return {
-        ...state,
-        constraints: nextConstraints,
-        shapes: updatedShapes,
-        variables: updatedVariables,
-        parametricErrors: errors,
-        history: pushHistory(state, `Toggle Constraint`),
-      };
-    }
-
+    /**
+     * Loads a catalogue template's GEOMETRY. Nothing else.
+     *
+     * It used to also pour the template's variables into the drafting reducer's
+     * own parameter bag and run a string-matching resolver over the result, with
+     * a literal `if (isCulvert)` branch deciding which shape ids to clear first.
+     * That was the second, hidden parametric engine — the one that made a
+     * template "work" without any constraints in it, and the reason changing a
+     * value moved the wrong geometry.
+     *
+     * A template is now a drawing like any other. Its parametric behaviour comes
+     * from the authoring workflow in `lib/upce`, through exactly the same steps a
+     * draftsman uses on geometry they drew themselves, which is what makes the
+     * catalogue evidence that the engine is general rather than a special case.
+     */
     case "INSTANTIATE_TEMPLATE": {
       const template = BUILTIN_TEMPLATES.find((t) => t.id === action.templateId);
       if (!template) return state;
@@ -1334,54 +1082,21 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       template.parameters.forEach((p) => {
         defaultParams[p.name] = p.defaultValue;
       });
-      const finalParams = { ...defaultParams, ...(action.params || {}) };
 
-      const instance = template.generator(finalParams);
+      const instance = template.generator({ ...defaultParams, ...(action.params || {}) });
       const incomingIds = new Set(instance.shapes.map((s) => s.id));
-      const isCulvert = action.templateId.includes("culvert");
-      const culvertPrefixes = ["culvert_", "two_span_", "b1_", "b2_"];
-
-      const filteredShapes = state.shapes.filter((s) => {
-        if (incomingIds.has(s.id)) return false;
-        if (isCulvert && culvertPrefixes.some((prefix) => s.id.startsWith(prefix))) {
-          return false;
-        }
-        return true;
-      });
-
-      const nextShapes = [...filteredShapes, ...instance.shapes];
-      const nextVars = { ...state.variables, ...instance.variables };
-      const nextConstraints = [...state.constraints, ...instance.constraints];
-
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        nextShapes,
-        nextVars,
-        nextConstraints
-      );
+      const nextShapes = [
+        ...state.shapes.filter((s) => !incomingIds.has(s.id)),
+        ...instance.shapes,
+      ];
 
       return {
         ...state,
-        shapes: updatedShapes,
-        variables: updatedVariables,
-        constraints: nextConstraints,
-        parametricErrors: errors,
+        shapes: nextShapes,
+        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
         selectedIds: [],
         selectedId: null,
-        history: pushHistory(state, `Instantiate Template: ${template.name}`),
-      };
-    }
-
-    case "SYNC_PARAMETRIC_MODEL": {
-      const { updatedShapes, updatedVariables, errors } = runParametricSync(
-        state.shapes,
-        state.variables,
-        state.constraints
-      );
-      return {
-        ...state,
-        shapes: updatedShapes,
-        variables: updatedVariables,
-        parametricErrors: errors,
+        history: pushHistory(state, `Insert ${template.name}`),
       };
     }
 

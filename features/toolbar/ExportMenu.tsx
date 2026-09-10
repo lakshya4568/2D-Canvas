@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useEffect } from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
+import { useUpce } from "../parametric/upceContext";
 import { exportJson } from "@/lib/serialization/exportJson";
 import { importJsonFile } from "@/lib/serialization/importJson";
 import { exportPng } from "@/lib/serialization/exportPng";
@@ -29,6 +30,24 @@ interface ExportMenuProps {
 
 export function ExportMenu({ direction = "up", onNotification }: ExportMenuProps) {
   const { state, dispatch, clearAll } = useDrawing();
+  const { sketch } = useUpce();
+
+  /**
+   * Named values to stamp into an export, taken from the authoring sketch.
+   *
+   * This used to read the drafting reducer's `variables` bag, which no longer
+   * holds anything: the parametric model moved to `lib/upce` and that bag was
+   * the string-matched one it replaced. Left as it was, every DXF and PDF would
+   * have exported with an empty parameter table and nobody would have noticed
+   * until a drawing reached site.
+   */
+  const exportParameters = React.useMemo(
+    () =>
+      Object.fromEntries(
+        Object.values(sketch.parameters).map((p) => [p.name, p.value])
+      ),
+    [sketch.parameters]
+  );
   const [isOpen, setIsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -96,7 +115,7 @@ export function ExportMenu({ direction = "up", onNotification }: ExportMenuProps
 
   const handleExportDxf = () => {
     try {
-      const sketch = shapesToParametricSketch(state.shapes, state.variables);
+      const sketch = shapesToParametricSketch(state.shapes, exportParameters);
       const dxfContent = exportDxf(sketch, { version: "R2010" });
       const blob = new Blob([dxfContent], { type: "application/dxf" });
       const url = URL.createObjectURL(blob);
@@ -117,7 +136,7 @@ export function ExportMenu({ direction = "up", onNotification }: ExportMenuProps
 
   const handleExportPdf = () => {
     try {
-      const sketch = shapesToParametricSketch(state.shapes, state.variables);
+      const sketch = shapesToParametricSketch(state.shapes, exportParameters);
       const pdfBytes = exportPdfSheet(sketch, {
         size: "A3",
         titleBlock: {

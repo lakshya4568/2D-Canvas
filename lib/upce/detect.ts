@@ -22,7 +22,7 @@
  */
 
 import { DEFAULT_TOLERANCE_POLICY, TolerancePolicy } from "../geometry/tolerance";
-import { evaluateCandidateAdmissibility } from "../inference/admissibilityFilter";
+import { isRowIndependent } from "./admissibility";
 import { AuthoringSketch, ConstraintCandidate, SketchConstraint, Provenance } from "./types";
 import { buildSystem, evaluateSystem, evaluateConstraint } from "./residuals";
 
@@ -55,6 +55,11 @@ function views(sketch: AuthoringSketch, shapeIds?: string[]): SegView[] {
   for (const seg of Object.values(sketch.segments)) {
     if (want && !want.has(seg.shapeId)) continue;
     if (sketch.circles[`${seg.shapeId}:c`]) continue; // circle radius handle, not an edge
+    // Construction geometry (§36) is drawn and can be constrained TO, but it is
+    // never a source of proposals: a bridge centreline is annotation, and
+    // offering "this wall is parallel to that centreline" as a discovery buries
+    // the relationships that describe the structure.
+    if (seg.construction) continue;
     const a = sketch.points[seg.p1];
     const b = sketch.points[seg.p2];
     if (!a || !b) continue;
@@ -291,6 +296,53 @@ export function detectCandidates(
     }
   }
 
+  // ---- P7: a corner sitting on another edge --------------------------------
+  // One of the most common relationships in a real drawing and one of the
+  // easiest to lose: a post standing ON a deck, a rib meeting a web, a corner
+  // landing on a centreline. Without it the assistant runs out of questions
+  // while the geometry can still slide along the edge it is visibly touching.
+  for (const carrier of segs) {
+    for (const s of segs) {
+      if (s.shapeId === carrier.shapeId) continue;
+      for (const pid of [s.p1, s.p2]) {
+        const pt = sketch.points[pid];
+        if (!pt) continue;
+        // A point that is already an endpoint of the carrier is welded to it,
+        // which is topology rather than a relationship to propose.
+        if (pid === carrier.p1 || pid === carrier.p2) continue;
+
+        const perp = Math.abs(normalOffset(carrier, pt.x, pt.y));
+        if (perp > geoTol) continue;
+        // The foot has to land on the edge itself, not on its extension.
+        const t = ((pt.x - carrier.ax) * carrier.dx + (pt.y - carrier.ay) * carrier.dy) / (carrier.len * carrier.len);
+        if (t < -1e-6 || t > 1 + 1e-6) continue;
+
+        push(raw, existing, {
+          kind: "point_on_line",
+          points: [pid],
+          segments: [carrier.id],
+          strength: "soft",
+          driving: true,
+          state: "active",
+          label: `${label(sketch, names, s.id)} stays on ${label(sketch, names, carrier.id)}`,
+          provenance: prov(
+            "Detected: a corner lies on another edge.",
+            "P7",
+            [`${perp.toFixed(3)} mm off the line`],
+            0.9
+          ),
+        }, {
+          headline: `A corner of ${names[s.shapeId] ?? s.shapeId} sits on ${label(sketch, names, carrier.id)}`,
+          evidence: [`Measured ${perp.toFixed(3)} mm off the line, ${(t * 100).toFixed(0)}% along it`],
+          deviation: `${perp.toFixed(3)} mm`,
+          preserves: "The corner stays on that edge however either one is later resized.",
+          confidence: 0.9,
+          affectedShapeIds: [s.shapeId, carrier.shapeId],
+        });
+      }
+    }
+  }
+
   // ---- P6: concentric circles ---------------------------------------------
   const circles = Object.values(sketch.circles);
   for (let i = 0; i < circles.length; i++) {
@@ -345,12 +397,7 @@ export function detectCandidates(
     let worstResidual = 0;
     let independentRows = 0;
     for (let r = 0; r < evaluation.jacobian.length; r++) {
-      const verdict = evaluateCandidateAdmissibility(
-        jacobian,
-        evaluation.jacobian[r],
-        evaluation.residuals[r],
-        { policy }
-      );
+      const verdict = isRowIndependent(jacobian, evaluation.jacobian[r], evaluation.residuals[r]);
       worstResidual = Math.max(worstResidual, verdict.residual);
       if (verdict.isAdmissible) independentRows++;
     }
@@ -385,7 +432,7 @@ export function detectCandidates(
   for (const s of survivors) {
     let adds = 0;
     for (const row of s.rows) {
-      const verdict = evaluateCandidateAdmissibility(running, Array.from(row), 0, { policy });
+      const verdict = isRowIndependent(running, row);
       if (verdict.isAdmissible) adds++;
     }
     if (adds === 0) {

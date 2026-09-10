@@ -18,6 +18,17 @@ export interface BaseShape {
   opacity?: number;
   strokeDasharray?: string;
   rotation?: number; // In degrees, 0 to 360
+  /**
+   * Construction geometry: centrelines, axes, datums (§36).
+   *
+   * Drawn and snapped to, but not part of the structure. It still takes part in
+   * the solve — the whole point of a centreline is that things can be held to
+   * it — but it is never a SOURCE of detected relationships and never forms a
+   * profile of its own. Treating a bridge centreline as a structural edge was
+   * enough to have the detector propose relationships between annotation and
+   * concrete.
+   */
+  isReference?: boolean;
 }
 
 export interface LineShape extends BaseShape {

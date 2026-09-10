@@ -397,12 +397,31 @@ export function solveSketch(input: AuthoringSketch, options: SolveOptions = {}):
   }
 
   // 3. The gate. Any of these means the edit did not do what the author asked.
-  const brokenInvariants = invariants.filter((i) => !i.ok);
   let rejection: string | undefined;
 
-  if (!result.converged) {
-    rejection =
-      "The geometry could not be resolved with those values — the requirements cannot all hold at once. Nothing was changed.";
+  // What decides whether an edit is acceptable is the INVARIANT REPORT, not the
+  // solver's own convergence flag (§5).
+  //
+  // Those are different questions. "Converged" asks whether the residual fell
+  // below a numerical threshold; "correct" asks whether every relationship the
+  // author declared still holds, in millimetres. On a ten-metre drawing with
+  // thirty degrees of freedom the solver can settle thirteen micrometres away
+  // from perfect and stay there — which satisfies every declared relationship a
+  // thousand times over, and which the old rule threw away with "the
+  // requirements cannot all hold at once". That message was also simply untrue:
+  // nothing conflicted.
+  //
+  // So a failure to converge is only a refusal when something real is broken
+  // with it. When it is, the message names what.
+  const brokenNow = invariants
+    .filter((i) => !i.ok)
+    .sort((a, b) => b.error - a.error);
+
+  if (!result.converged && brokenNow.length > 0) {
+    rejection = `Those values cannot all hold at once. The requirements that disagree are: ${brokenNow
+      .slice(0, 3)
+      .map((i) => `${i.label} (out by ${i.error.toFixed(1)})`)
+      .join("; ")}. Nothing was changed.`;
   } else if (!topology.ok) {
     if (topology.invertedShapeIds.length > 0) {
       rejection = `That value turns ${topology.invertedShapeIds.length === 1 ? "a shape" : "shapes"} inside out. Nothing was changed.`;
@@ -411,8 +430,8 @@ export function solveSketch(input: AuthoringSketch, options: SolveOptions = {}):
     } else {
       rejection = "That value makes edges cross themselves. Nothing was changed.";
     }
-  } else if (brokenInvariants.length > 0) {
-    rejection = `The drawing would no longer honour: ${brokenInvariants
+  } else if (brokenNow.length > 0) {
+    rejection = `The drawing would no longer honour: ${brokenNow
       .slice(0, 3)
       .map((i) => i.label)
       .join("; ")}. Nothing was changed.`;

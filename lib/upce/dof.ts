@@ -13,7 +13,7 @@
  * from the number of shapes on the sheet.
  */
 
-import { svd } from "../solver/matrix/svd";
+import { svd, transpose } from "../solver/matrix/svd";
 import { DEFAULT_TOLERANCE_POLICY, TolerancePolicy } from "../geometry/tolerance";
 import { AuthoringSketch, SketchConstraint } from "./types";
 import {
@@ -310,6 +310,23 @@ function describeFreedom(
 }
 
 /**
+ * How much freedom is left, and nothing else.
+ *
+ * The full report runs a dependency test per constraint, which means one SVD per
+ * constraint. That is the right price for a diagnosis a person is going to read,
+ * and quite the wrong one for the completion assistant, which asks "what would
+ * this option change?" for every option of every question and only ever looks at
+ * the number. Measuring twenty options was costing twenty full diagnoses.
+ */
+export function countDof(sketch: AuthoringSketch): number {
+  const sys = buildSystem(sketch);
+  const n = sys.X.length;
+  if (n === 0) return 0;
+  const { jacobian } = evaluateSystem(sketch, sys, sys.X);
+  return n - rankOf(jacobian, n, 1e-9);
+}
+
+/**
  * Full analysis. `shapeNames` lets the caller supply human labels; without it,
  * shape ids are used and the wording still works.
  */
@@ -375,9 +392,19 @@ export function analyseDof(
 
 
 /**
- * Per-constraint dependency test. A row set is dependent when dropping the
- * constraint leaves the rank unchanged; the residual then separates a harmless
- * duplicate from a real contradiction (§7.3).
+ * Per-constraint dependency test, in one decomposition rather than one per row.
+ *
+ * The textbook test is "drop this constraint and see whether the rank falls",
+ * which costs an SVD per constraint and made the completion assistant crawl on
+ * anything with fifty rules in it.
+ *
+ * The same information is in the LEFT null space. A vector c with cJ = 0 is a
+ * linear dependency among the rows, and the rows it involves are exactly the
+ * ones with a non-zero entry in c. So one decomposition of J-transpose names
+ * every dependent row at once.
+ *
+ * The residual is what then separates a harmless duplicate from a real
+ * contradiction (§7.3) — never the count.
  */
 function diagnose(
   sketch: AuthoringSketch,
@@ -392,7 +419,6 @@ function diagnose(
   const out: ConstraintDiagnosis[] = [];
   const rows = jacobian.length;
 
-  // Row offsets per constraint.
   const offsets: Record<string, [number, number]> = {};
   let cursor = 0;
   for (const c of sys.active) {
@@ -401,25 +427,47 @@ function diagnose(
     cursor += k;
   }
 
-  const anyDependent = rows > rank;
+  const tol = Math.max(policy.geometry_mm, 1e-6);
+  const worstResidual = (id: string) => {
+    const [start, end] = offsets[id];
+    let res = 0;
+    for (let i = start; i < end; i++) res = Math.max(res, Math.abs(residuals[i]));
+    return res;
+  };
+
+  if (rows <= rank) {
+    for (const c of sys.active) {
+      out.push({ constraintId: c.id, label: c.label, status: "active", residual: worstResidual(c.id) });
+    }
+    return out;
+  }
+
+  // Rows are normalised first so "involved in a dependency" is a ratio rather
+  // than a comparison against whatever units the row happens to carry.
+  const unit = jacobian.map((row) => {
+    let sumSq = 0;
+    for (const v of row) sumSq += v * v;
+    const norm = Math.sqrt(sumSq) || 1;
+    return Array.from(row, (v) => v / norm);
+  });
+
+  const { V } = fullRightSingular(transpose(unit), rows);
+  const participation = new Array<number>(rows).fill(0);
+  for (let col = rank; col < rows; col++) {
+    for (let i = 0; i < rows; i++) participation[i] += V[i][col] * V[i][col];
+  }
+
+  const PARTICIPATION_EPS = 1e-8;
 
   for (const c of sys.active) {
     const [start, end] = offsets[c.id];
-    let res = 0;
-    for (let i = start; i < end; i++) res = Math.max(res, Math.abs(residuals[i]));
+    const res = worstResidual(c.id);
+    let involved = 0;
+    for (let i = start; i < end; i++) involved = Math.max(involved, participation[i]);
 
-    if (!anyDependent) {
+    if (involved <= PARTICIPATION_EPS) {
       out.push({ constraintId: c.id, label: c.label, status: "active", residual: res });
-      continue;
-    }
-
-    const reduced = jacobian.filter((_, i) => i < start || i >= end);
-    const reducedRank = rankOf(reduced, n, eps);
-    const dependent = reducedRank === rank;
-
-    if (!dependent) {
-      out.push({ constraintId: c.id, label: c.label, status: "active", residual: res });
-    } else if (res <= Math.max(policy.geometry_mm, 1e-6)) {
+    } else if (res <= tol) {
       out.push({
         constraintId: c.id,
         label: c.label,
@@ -439,6 +487,8 @@ function diagnose(
   }
 
   void sketch;
+  void eps;
+  void n;
   return out;
 }
 

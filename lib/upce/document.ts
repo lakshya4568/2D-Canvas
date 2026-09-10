@@ -64,8 +64,19 @@ export function regenerate(
   const policy = options.policy ?? DEFAULT_TOLERANCE_POLICY;
   const names = options.shapeNames ?? namesOf(authoredShapes);
 
-  // 1. Topology first.
-  const expansion = expandRepeats(authoredShapes, previous);
+  // 1. Topology first — but from the unit AS IT NOW IS.
+  //
+  // `authoredShapes` still holds the coordinates the draftsman originally drew.
+  // Expanding from those stamps out copies of a stale shape, and the solver then
+  // has to drag each one into place from the wrong starting point. On a profile
+  // with any freedom in it — a haunch whose angle is implied rather than stated —
+  // that is enough for a copy to settle on the MIRRORED solution: congruent, and
+  // visibly wrong, with one cell's chamfers leaning the other way (§31.2).
+  //
+  // Lifting the previous solve back onto the shapes first means every copy starts
+  // as an exact translation of the current unit and stays on its branch.
+  const current = liftSketchToShapes(previous, authoredShapes, policy).shapes;
+  const expansion = expandRepeats(current, previous);
 
   // 2. Lower the drawing into primitives, carrying the previous intent forward.
   const { sketch: rebuilt, droppedConstraintIds } = rebuildSketch(expansion.shapes, previous, policy);
@@ -151,7 +162,7 @@ export function addConstraint(
 export function removeConstraint(
   sketch: AuthoringSketch,
   id: string
-): { sketch: AuthoringSketch; refused?: string } {
+): { sketch: AuthoringSketch; refused?: string; removedParameters?: string[] } {
   const target = sketch.constraints.find((c) => c.id === id);
   if (!target) return { sketch };
   if (target.strength === "fact") {
@@ -161,13 +172,31 @@ export function removeConstraint(
         "That is part of what the shape is, not a rule added on top. Explode the shape into separate lines if you need its corners to move freely.",
     };
   }
+  const constraints = sketch.constraints.filter((c) => c.id !== id);
   const parameters = { ...sketch.parameters };
+  const removed: string[] = [];
+
   for (const [name, p] of Object.entries(parameters)) {
-    if (p.boundConstraints.includes(id)) {
-      parameters[name] = { ...p, boundConstraints: p.boundConstraints.filter((c) => c !== id) };
+    if (!p.boundConstraints.includes(id)) continue;
+    const remaining = p.boundConstraints.filter((c) => c !== id);
+    // A driving value that no longer drives anything is exactly the kind of
+    // unexplained entry the inspector is supposed to make impossible. If nothing
+    // else reads it either, it goes with the rule it belonged to.
+    const readByFormula = Object.values(parameters).some(
+      (other) => other.name !== name && other.role === "DERIVED" && (other.expr ?? "").includes(name)
+    );
+    const usedByRepeat = sketch.repeats.some(
+      (r) => r.countParam === name || r.spacingParam === name
+    );
+    if (remaining.length === 0 && !readByFormula && !usedByRepeat) {
+      delete parameters[name];
+      removed.push(name);
+    } else {
+      parameters[name] = { ...p, boundConstraints: remaining };
     }
   }
-  return { sketch: { ...sketch, constraints: sketch.constraints.filter((c) => c.id !== id), parameters } };
+
+  return { sketch: { ...sketch, constraints, parameters }, removedParameters: removed };
 }
 
 /** Shapes the author actually drew, with repeat-generated copies filtered out. */

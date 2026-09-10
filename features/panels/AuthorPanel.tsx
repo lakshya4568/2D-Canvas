@@ -247,9 +247,13 @@ function IntentOption({ option }: { option: IntentAction }) {
           <span className="block text-[10px] text-(--fg-muted) mt-0.5">
             {option.isDeliberateFreedom
               ? "leaves it free on purpose"
-              : `removes ${option.dofRemoved} degree${option.dofRemoved === 1 ? "" : "s"} of freedom`}
+              : option.convertToDerived
+                ? `${option.convertToDerived.name} stops being typed and starts being worked out`
+                : `removes ${option.dofRemoved} degree${option.dofRemoved === 1 ? "" : "s"} of freedom`}
             {option.createsParameters.length > 0 &&
               ` · creates ${option.createsParameters.map((p) => p.name).join(", ")}`}
+            {option.suppressConstraints && option.suppressConstraints.length > 0 &&
+              ` · switches off ${option.suppressConstraints.length} rule${option.suppressConstraints.length === 1 ? "" : "s"} it makes redundant`}
           </span>
         </span>
       </button>

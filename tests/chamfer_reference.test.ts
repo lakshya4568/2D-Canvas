@@ -41,9 +41,10 @@ describe("Default Variable Naming (L1, L2, R1, C1)", () => {
     expect(state.shapes.length).toBe(1);
     expect(state.shapes[0].name).toBe("L1");
 
-    // Must have registered default variable L1 = 300
-    expect(state.variables["L1"]).toBeDefined();
-    expect(state.variables["L1"].value).toBe(300);
+    // Drawing a line does NOT invent a parameter for it. It used to register
+    // `L1 = 300` automatically, which is where the unexplained entries in the
+    // parameter list came from. A parameter now exists only because someone
+    // decided it should, in the authoring workflow.
 
     // Commit second draft line
     state = drawingReducer(state, {
@@ -61,8 +62,6 @@ describe("Default Variable Naming (L1, L2, R1, C1)", () => {
 
     expect(state.shapes.length).toBe(2);
     expect(state.shapes[1].name).toBe("L2");
-    expect(state.variables["L2"]).toBeDefined();
-    expect(state.variables["L2"].value).toBe(150);
   });
 });
 

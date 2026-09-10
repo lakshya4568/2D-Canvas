@@ -58,6 +58,7 @@ interface RawPoint {
   x: number;
   y: number;
   owner: string;
+  construction?: boolean;
 }
 
 function rectCorners(r: RectangleShape): Point[] {
@@ -106,10 +107,10 @@ export function rebuildSketch(
       const l = s as LineShape;
       const a = `${l.id}:v0`;
       const b = `${l.id}:v1`;
-      rawPoints.push({ id: a, x: l.x1, y: l.y1, owner: l.id });
-      rawPoints.push({ id: b, x: l.x2, y: l.y2, owner: l.id });
+      rawPoints.push({ id: a, x: l.x1, y: l.y1, owner: l.id, construction: l.isReference });
+      rawPoints.push({ id: b, x: l.x2, y: l.y2, owner: l.id, construction: l.isReference });
       const segId = `${l.id}:e0`;
-      rawSegments.push({ id: segId, shapeId: l.id, edgeIndex: 0 });
+      rawSegments.push({ id: segId, shapeId: l.id, edgeIndex: 0, construction: l.isReference });
       segEnds[segId] = [a, b];
       continue;
     }
@@ -197,7 +198,7 @@ export function rebuildSketch(
       if (!merged[hostId].owners.includes(rp.owner)) merged[hostId].owners.push(rp.owner);
     } else {
       alias.set(rp.id, rp.id);
-      merged[rp.id] = { id: rp.id, x: rp.x, y: rp.y, owners: [rp.owner] };
+      merged[rp.id] = { id: rp.id, x: rp.x, y: rp.y, owners: [rp.owner], construction: rp.construction };
       order.push(rp.id);
     }
   }
@@ -228,6 +229,13 @@ export function rebuildSketch(
   if (previous) {
     for (const c of previous.constraints) {
       if (c.strength === "fact") continue; // facts are re-derived above
+      // Repeat copies are regenerated from the rule on every rebuild (§23.4).
+      // Carrying them forward as well made them accumulate: each regenerate
+      // added another identical set, so a drawing that had been re-solved a few
+      // times was carrying dozens of duplicate rows. They are harmless to the
+      // answer — a duplicate row is redundant, not contradictory — but they
+      // bloat the solve and fill the diagnosis list with noise.
+      if (c.provenance.origin === "component") continue;
       const remapped: SketchConstraint = {
         ...c,
         points: c.points.map((p) => alias.get(p) ?? p),
@@ -240,10 +248,15 @@ export function rebuildSketch(
     sketch.repeats = [...previous.repeats];
     sketch.meta = { ...previous.meta };
 
-    // A parameter may not claim constraints that no longer exist.
+    // A parameter may not claim constraints that no longer exist. The list is
+    // rebuilt rather than mutated so a parameter that arrived from a serialised
+    // template without one is repaired rather than crashing the rebuild.
     const liveIds = new Set(sketch.constraints.map((c) => c.id));
-    for (const p of Object.values(sketch.parameters)) {
-      p.boundConstraints = p.boundConstraints.filter((id) => liveIds.has(id));
+    for (const [name, p] of Object.entries(sketch.parameters)) {
+      sketch.parameters[name] = {
+        ...p,
+        boundConstraints: (p.boundConstraints ?? []).filter((id) => liveIds.has(id)),
+      };
     }
   }
 

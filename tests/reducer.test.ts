@@ -193,16 +193,10 @@ describe("Drawing Reducer & History Stack", () => {
     expect(rotL1.y2).toBeCloseTo(rotL2.y1);
   });
 
-  it("preserves manual line drag coordinates and clears stale variables on delete/clear", () => {
-    // 1. Suppose a stale variable L1 was previously 308
-    let state: DrawingState = {
-      ...initialDrawingState,
-      variables: {
-        L1: { name: "L1", value: 308, unit: "mm" },
-      },
-    };
+  it("draws exactly what was dragged, and invents no parameters while doing it", () => {
+    let state: DrawingState = { ...initialDrawingState };
 
-    // 2. User draws a brand new line by dragging to 150px
+    // A line dragged to 150 px.
     const lineDraft: Shape = {
       id: "new_line",
       type: "line",
@@ -215,27 +209,21 @@ describe("Drawing Reducer & History Stack", () => {
     state = drawingReducer(state, { type: "START_DRAFT", shape: lineDraft });
     state = drawingReducer(state, { type: "COMMIT_DRAFT" });
 
-    // Verify it stays 150px and DOES NOT adjust to 308!
     const committed = state.shapes[0] as LineShape;
-    const len = Math.hypot(committed.x2 - committed.x1, committed.y2 - committed.y1);
-    expect(len).toBe(150);
-    expect(state.variables["L1"].value).toBe(150);
+    expect(Math.hypot(committed.x2 - committed.x1, committed.y2 - committed.y1)).toBe(150);
 
-    // 3. User deletes the shape
+    // The drafting reducer holds geometry and nothing else. There is no second
+    // parameter store here for a stale value to be resurrected from: the
+    // parametric model lives in `lib/upce` and is the only one.
+    expect("variables" in state).toBe(false);
+    expect("constraints" in state).toBe(false);
+
     state = drawingReducer(state, { type: "DELETE_SELECTED" });
     expect(state.shapes).toHaveLength(0);
-    // Variable L1 must be deleted!
-    expect(state.variables["L1"]).toBeUndefined();
 
-    // 4. CLEAR_ALL clears variables too
-    state = {
-      ...state,
-      variables: { L2: { name: "L2", value: 308, unit: "mm" } },
-      shapes: [{ id: "temp", type: "line", x1: 0, y1: 0, x2: 10, y2: 0 }],
-    };
+    state = { ...state, shapes: [{ id: "temp", type: "line", x1: 0, y1: 0, x2: 10, y2: 0 }] };
     state = drawingReducer(state, { type: "CLEAR_ALL" });
     expect(state.shapes).toHaveLength(0);
-    expect(Object.keys(state.variables)).toHaveLength(0);
   });
 
   it("handles AutoCAD Move tool selection and displacement offset", () => {

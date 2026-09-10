@@ -27,7 +27,7 @@ import {
   ParameterRole,
   emptySketch,
 } from "@/lib/upce/types";
-import { startAuthoring, regenerate, namesOf, addConstraint, removeConstraint } from "@/lib/upce/document";
+import { regenerate, namesOf, addConstraint, removeConstraint } from "@/lib/upce/document";
 import { detectCandidates } from "@/lib/upce/detect";
 import { suggestCompletion, applyAction, CompletionReport, IntentAction } from "@/lib/upce/completion";
 import { proposeDerived, acceptDerived } from "@/lib/upce/derive";
@@ -186,9 +186,15 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const analyse = React.useCallback(() => {
-    const base = s.started ? s.sketch : startAuthoring(authored).sketch;
-    const result = regenerate(authored, base, { shapeNames: names });
-    const working = result.rejection ? base : result.sketch;
+    // Always carry the current sketch forward, even on the first run.
+    //
+    // Starting fresh here used to throw away anything the author had already
+    // done before pressing Analyse — most visibly a component they had just
+    // grouped and named, which then reverted to "Profile A" in every sentence
+    // the panel produced. `rebuildSketch` merges an empty sketch to nothing, so
+    // there is no case that needs the fresh start.
+    const result = regenerate(authored, s.sketch, { shapeNames: names });
+    const working = result.rejection ? s.sketch : result.sketch;
 
     const candidates = detectCandidates(working, { shapeNames: names }).filter(
       (c) => !s.dismissed.includes(c.id)
@@ -327,15 +333,24 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
 
   const updateParameter = React.useCallback(
     (name: string, patch: Partial<SketchParameter>) => {
-      const p = s.sketch.parameters[name];
-      if (!p) return;
-      const next: AuthoringSketch = {
-        ...s.sketch,
-        parameters: { ...s.sketch.parameters, [name]: { ...p, ...patch } },
-      };
-      setS((prev) => ({ ...prev, sketch: next, readiness: null }));
+      // Built from the LATEST state, not from the sketch captured when this
+      // callback was created. Two edits in quick succession — setting a min and
+      // then a max, or ticking two "show to users" boxes — would otherwise both
+      // start from the same snapshot and the first would be silently lost.
+      setS((prev) => {
+        const p = prev.sketch.parameters[name];
+        if (!p) return prev;
+        return {
+          ...prev,
+          sketch: {
+            ...prev.sketch,
+            parameters: { ...prev.sketch.parameters, [name]: { ...p, ...patch } },
+          },
+          readiness: null,
+        };
+      });
     },
-    [s.sketch]
+    []
   );
 
   const renameParameter = React.useCallback(
@@ -403,12 +418,16 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
 
   const deleteConstraint = React.useCallback(
     (id: string) => {
-      const { sketch: next, refused } = removeConstraint(s.sketch, id);
+      const { sketch: next, refused, removedParameters } = removeConstraint(s.sketch, id);
       if (refused) {
         push({ notice: { kind: "error", text: refused } });
         return;
       }
-      if (commit(next, "Removed a rule", s.sketch)) reanalyse(next);
+      const description =
+        removedParameters && removedParameters.length > 0
+          ? `Removed a rule, and ${removedParameters.join(", ")} with it`
+          : "Removed a rule";
+      if (commit(next, description, s.sketch)) reanalyse(next);
     },
     [s.sketch, commit, push, reanalyse]
   );
