@@ -4,7 +4,7 @@ import React from "react";
 import { Point } from "@/lib/geometry/types";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { DrawingCanvas } from "../canvas/DrawingCanvas";
-import { CommandBar } from "./CommandBar";
+import { CadHeader } from "./CadHeader";
 import { CommandLine } from "./CommandLine";
 import { ToolRail } from "./ToolRail";
 import { StatusStrip } from "./StatusStrip";
@@ -98,7 +98,10 @@ export function CadShell() {
 
   return (
     <div className="w-screen h-screen flex flex-col overflow-hidden bg-(--ink-app)">
-      <CommandBar onOpenTemplates={() => setTemplatesOpen(true)} />
+      <CadHeader
+        onOpenTemplates={() => setTemplatesOpen(true)}
+        onOpenHelp={() => setShortcutsOpen(true)}
+      />
 
       <div className="flex-1 min-h-0 flex">
         <ToolRail />
@@ -106,10 +109,19 @@ export function CadShell() {
         <main className="flex-1 min-w-0 relative bg-(--paper)">
           <DrawingCanvas onCursorChange={setCursorPos} />
 
+          {/* Floating AutoCAD Command Line centered over canvas */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[700px] max-w-[92%] z-30 pointer-events-auto">
+            <CommandLine
+              cursorPos={cursorPos}
+              onOpenTemplates={() => setTemplatesOpen(true)}
+              onOpenHelp={() => setShortcutsOpen(true)}
+            />
+          </div>
+
           {/* Sheet identity, bottom-left of the drawing area — the drafting
               equivalent of a sheet stamp. Sits over the canvas without
               intercepting the pointer. */}
-          <div className="absolute left-3 bottom-3 pointer-events-none select-none">
+          <div className="absolute left-16 bottom-3 pointer-events-none select-none z-10">
             <p className="label !text-[8.5px] opacity-60">
               {state.userMode === "user" ? "Read-only" : "Model space"} · mm
             </p>
@@ -123,12 +135,6 @@ export function CadShell() {
           onToggleCollapse={() => setDockCollapsed((v) => !v)}
         />
       </div>
-
-      <CommandLine
-        cursorPos={cursorPos}
-        onOpenTemplates={() => setTemplatesOpen(true)}
-        onOpenHelp={() => setShortcutsOpen(true)}
-      />
 
       <StatusStrip cursorPos={cursorPos} />
 

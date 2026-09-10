@@ -26,6 +26,7 @@ import { ConstraintOverlays } from "./ConstraintOverlays";
 import { ParametricDimensionOverlay } from "./ParametricDimensionOverlay";
 import { BoundaryLimitsOverlay } from "./BoundaryLimitsOverlay";
 import { DynamicInputOverlay } from "./DynamicInputOverlay";
+import { CadViewportOverlays } from "./CadViewportOverlays";
 
 interface DrawingCanvasProps {
   onCursorChange?: (pos: Point | null) => void;
@@ -1356,6 +1357,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
   return (
     <div className="w-full h-full relative overflow-hidden bg-[var(--bg-canvas)] touch-none">
+      <CadViewportOverlays />
       <svg
         id="drawing-canvas-svg"
         ref={svgRef}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Terminal, ChevronRight, CornerDownLeft, Sparkles, X } from "lucide-react";
+import { Terminal, ChevronRight, CornerDownLeft, Sparkles, X, GripVertical } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { Point } from "@/lib/geometry/types";
 import { CadCommandRegistry } from "@/lib/commands/CommandRegistry";
@@ -46,7 +46,7 @@ export function CommandLine({
   const [logs, setLogs] = useState<LogEntry[]>([
     {
       id: "init",
-      text: "UPCE CAD Command Terminal initialized. Type 'L' for Line, 'REC' for Rectangle, or 'HELP' for guide.",
+      text: "AutoCAD Command Line active. Type 'L' for Line, 'REC' for Rectangle, 'C' for Circle, or 'HELP' for guide.",
       type: "output",
       timestamp: Date.now(),
     },
@@ -199,10 +199,10 @@ export function CommandLine({
   }, []);
 
   return (
-    <div className="w-full bg-(--ink-raised) border-t border-(--rule) flex flex-col transition-all duration-150 z-20 select-none">
+    <div className="w-full bg-(--ink-panel)/95 border border-(--rule-strong) rounded-lg shadow-2xl backdrop-blur-md flex flex-col overflow-visible transition-all duration-150 z-30 select-none">
       {/* Expandable History Log Drawer */}
       {isExpanded && (
-        <div className="h-32 px-3 py-1.5 overflow-y-auto font-mono text-[11px] flex flex-col gap-0.5 bg-(--ink-sunken) border-b border-(--rule)">
+        <div className="h-32 px-3 py-1.5 overflow-y-auto font-mono text-[11px] flex flex-col gap-0.5 bg-(--ink-sunken)/90 border-b border-(--rule) rounded-t-lg">
           {logs.map((log) => (
             <div
               key={log.id}
@@ -223,12 +223,12 @@ export function CommandLine({
 
       {/* Autocomplete Popup */}
       {completions.length > 0 && (
-        <div className="absolute bottom-10 left-3 bg-(--ink-panel) border border-(--rule) rounded-md shadow-2xl overflow-hidden z-50 min-w-[280px] max-w-sm backdrop-blur-md">
-          <div className="px-2 py-1 text-[9.5px] uppercase tracking-wider text-(--fg-muted) border-b border-(--rule) flex items-center gap-1 font-mono">
+        <div className="absolute bottom-full mb-2 left-6 bg-(--ink-panel) border border-(--rule-strong) rounded-md shadow-2xl overflow-hidden z-50 min-w-[300px] max-w-md backdrop-blur-md">
+          <div className="px-2.5 py-1 text-[9.5px] uppercase tracking-wider text-(--fg-muted) border-b border-(--rule) flex items-center gap-1 font-mono bg-(--ink-app)/50">
             <Sparkles className="w-2.5 h-2.5 text-(--pen)" />
             <span>Command Suggestions</span>
           </div>
-          <div className="flex flex-col py-1">
+          <div className="flex flex-col py-1 max-h-48 overflow-y-auto">
             {completions.map((c, i) => (
               <button
                 key={c.commandName}
@@ -240,10 +240,10 @@ export function CommandLine({
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-(--fg-primary)">{c.alias}</span>
+                  <span className="text-(--fg-primary) font-semibold">{c.alias}</span>
                   <span className="text-[10px] text-(--fg-muted)">({c.commandName})</span>
                 </div>
-                <span className="text-[10px] text-(--fg-muted) font-sans truncate max-w-[140px]">
+                <span className="text-[10px] text-(--fg-muted) font-sans truncate max-w-[150px]">
                   {c.description}
                 </span>
               </button>
@@ -253,7 +253,10 @@ export function CommandLine({
       )}
 
       {/* Primary Input Bar */}
-      <div className="h-[30px] px-3 flex items-center gap-2 text-xs font-mono">
+      <div className="h-[34px] px-2.5 flex items-center gap-2 text-xs font-mono">
+        <div className="cursor-grab text-(--fg-muted) hover:text-(--fg-primary) flex items-center pl-0.5" title="AutoCAD Floating Command Window">
+          <GripVertical className="w-3.5 h-3.5 opacity-60" />
+        </div>
         <button
           onClick={() => setIsExpanded((v) => !v)}
           title="Toggle Command Log Drawer"
@@ -262,7 +265,7 @@ export function CommandLine({
           <Terminal className="w-3.5 h-3.5" />
         </button>
 
-        <span className="text-[11.5px] font-medium text-(--fg-secondary) shrink-0 flex items-center gap-0.5">
+        <span className="text-[12px] font-bold text-(--pen) shrink-0 flex items-center gap-0.5">
           {prompt}
         </span>
 
@@ -272,7 +275,7 @@ export function CommandLine({
           value={inputVal}
           onChange={(e) => setInputVal(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type command, alias (L, C, REC), or coordinates (@dX,dY, Dist<Angle)..."
+          placeholder="Type command (L, C, REC), alias, or coordinates (@dX,dY, Dist<Angle)..."
           className="flex-1 bg-transparent border-none outline-none text-(--fg-primary) text-[11.5px] placeholder-(--fg-muted)/60 font-mono tracking-wide"
           spellCheck={false}
           autoCapitalize="none"

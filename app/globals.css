@@ -191,3 +191,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Suppress Next.js dev tools overlay from blocking CAD drafting workspace */
+nextjs-portal,
+[data-nextjs-toast],
+#__next-build-watcher,
+[data-nextjs-dev-tools-button],
+div[data-nextjs-dialog-overlay] {
+  display: none !important;
+}

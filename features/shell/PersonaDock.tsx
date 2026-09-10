@@ -6,14 +6,10 @@ import { useDrawing } from "@/lib/state/drawingContext";
 import { DraftPanel } from "../panels/DraftPanel";
 import { AuthorPanel } from "../panels/AuthorPanel";
 import { RunPanel } from "../panels/RunPanel";
+import { PropertiesPalette } from "../panels/PropertiesPalette";
 
 /**
- * The right dock. Its ENTIRE contents are a function of the active persona —
- * this is the §3 boundary made structural rather than conditional-per-widget.
- *
- * A resizable dock, because dimension names in civil work are long
- * ("BottomSlabThickness", "IntermediateWebThickness") and a fixed narrow column
- * would truncate exactly the information the panel exists to show.
+ * The right dock. Supports both AutoCAD Properties Inspector and UPCE Persona Views.
  */
 
 const HEADINGS: Record<string, { title: string; sub: string }> = {
@@ -46,6 +42,7 @@ export function PersonaDock({
   onToggleCollapse: () => void;
 }) {
   const { state } = useDrawing();
+  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric">("properties");
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
 
@@ -83,7 +80,7 @@ export function PersonaDock({
   return (
     <aside
       style={{ width }}
-      className="shrink-0 h-full bg-(--ink-panel) border-l border-(--rule) flex flex-col relative z-20"
+      className="shrink-0 h-full bg-(--ink-panel) border-l border-(--rule) flex flex-col relative z-20 shadow-lg"
     >
       {/* Drag handle */}
       <div
@@ -97,26 +94,57 @@ export function PersonaDock({
         className="absolute left-[-3px] top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-(--pen-line) transition-colors duration-100 z-10"
       />
 
-      <div className="px-3.5 pt-3 pb-2.5 border-b border-(--rule) flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-[12.5px] font-semibold text-(--fg-primary)">{heading.title}</h2>
-          <p className="text-[11px] leading-snug text-(--fg-muted) mt-0.5 max-w-[34ch]">
-            {heading.sub}
-          </p>
+      {/* Dock Mode Tabs: AutoCAD Properties vs Parametric Intent */}
+      <div className="h-[30px] border-b border-(--rule) bg-(--ink-app)/60 flex items-center justify-between px-2 text-[11px]">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setActiveTab("properties")}
+            className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+              activeTab === "properties"
+                ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
+                : "text-(--fg-muted) hover:text-(--fg-primary)"
+            }`}
+          >
+            Properties
+          </button>
+          <button
+            onClick={() => setActiveTab("parametric")}
+            className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+              activeTab === "parametric"
+                ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
+                : "text-(--fg-muted) hover:text-(--fg-primary)"
+            }`}
+          >
+            Parametric
+          </button>
         </div>
+
         <button
           onClick={onToggleCollapse}
           title="Hide panel"
           aria-label="Hide panel"
-          className="w-[24px] h-[24px] rounded-[4px] grid place-items-center text-(--fg-muted) hover:bg-(--ink-raised) hover:text-(--fg-primary) shrink-0 cursor-pointer"
+          className="w-[22px] h-[22px] rounded grid place-items-center text-(--fg-muted) hover:bg-(--ink-raised) hover:text-(--fg-primary) shrink-0 cursor-pointer"
         >
           <PanelRightClose className="w-[13px] h-[13px]" strokeWidth={1.9} />
         </button>
       </div>
 
-      {state.userMode === "draftsman" && <DraftPanel />}
-      {state.userMode === "author" && <AuthorPanel />}
-      {state.userMode === "user" && <RunPanel />}
+      {activeTab === "properties" ? (
+        <PropertiesPalette />
+      ) : (
+        <>
+          <div className="px-3.5 pt-2.5 pb-2 border-b border-(--rule)">
+            <h2 className="text-[12px] font-semibold text-(--fg-primary)">{heading.title}</h2>
+            <p className="text-[10.5px] leading-snug text-(--fg-muted) mt-0.5 max-w-[34ch]">
+              {heading.sub}
+            </p>
+          </div>
+
+          {state.userMode === "draftsman" && <DraftPanel />}
+          {state.userMode === "author" && <AuthorPanel />}
+          {state.userMode === "user" && <RunPanel />}
+        </>
+      )}
     </aside>
   );
 }
