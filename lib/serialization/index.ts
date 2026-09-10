@@ -5,3 +5,4 @@ export * from "./exportSvg";
 export * from "./exportPng";
 export * from "./sketchSerializer";
 export * from "./conformanceReporter";
+export * from "./shapesToSketch";

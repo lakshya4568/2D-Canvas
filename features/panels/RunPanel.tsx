@@ -4,7 +4,7 @@ import React from "react";
 import { SlidersHorizontal, Lock, TriangleAlert } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { PanelBody, Empty } from "./DraftPanel";
-import type { ParametricVariable } from "@/lib/parametric/model";
+import type { ParametricVariable } from "@/lib/parametric/types";
 
 /**
  * The PROJECT ENGINEER dock — UPCE-MASTER-1.0 §64, §65.

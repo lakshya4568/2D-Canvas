@@ -81,6 +81,15 @@ export interface StarShape extends BaseShape {
   fillColor?: string;
 }
 
+export interface ArcShape extends BaseShape {
+  type: "arc";
+  cx: number;
+  cy: number;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+}
+
 export type Shape =
   | LineShape
   | ArrowShape
@@ -97,14 +106,24 @@ export type ToolId =
   | "move"
   | "line"
   | "polyline"
+  | "arc"
   | "arrow"
   | "rectangle"
   | "circle"
   | "ellipse"
   | "polygon"
   | "chamfer"
+  | "fillet"
+  | "trim"
+  | "extend"
+  | "offset"
+  | "mirror"
+  | "array"
   | "construction"
   | "dimension"
+  | "measure"
+  | "rotate"
+  | "scale"
   | "star"
   | "pan";
 

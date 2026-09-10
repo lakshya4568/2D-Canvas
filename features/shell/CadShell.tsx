@@ -5,6 +5,7 @@ import { Point } from "@/lib/geometry/types";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { DrawingCanvas } from "../canvas/DrawingCanvas";
 import { CommandBar } from "./CommandBar";
+import { CommandLine } from "./CommandLine";
 import { ToolRail } from "./ToolRail";
 import { StatusStrip } from "./StatusStrip";
 import { PersonaDock } from "./PersonaDock";
@@ -94,6 +95,12 @@ export function CadShell() {
           onToggleCollapse={() => setDockCollapsed((v) => !v)}
         />
       </div>
+
+      <CommandLine
+        cursorPos={cursorPos}
+        onOpenTemplates={() => setTemplatesOpen(true)}
+        onOpenHelp={() => setShortcutsOpen(true)}
+      />
 
       <StatusStrip cursorPos={cursorPos} />
 
