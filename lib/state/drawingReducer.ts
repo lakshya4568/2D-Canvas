@@ -26,6 +26,9 @@ export interface HistoryItem {
   shapes: Shape[];
 }
 
+/** §3 personas. */
+export type UserMode = "draftsman" | "author" | "user";
+
 export interface DrawingState {
   shapes: Shape[];
   tool: ToolId;
@@ -50,12 +53,19 @@ export interface DrawingState {
   parametricErrors: string[];
   inferredFormulas: InferredFormula[];
   boundaryEvaluations: BoundaryLimitEvaluation[];
-  userMode: "draftsman" | "author";
+  /**
+   * §3 personas. Three roles, three completely different products sharing one
+   * kernel: "Mixing them is the single most common design error in this space."
+   *   draftsman - draws geometry, drags grips, edits dimension badges. ZERO formulas.
+   *   author    - curates inferred relationships, defines ports, repeats, standards.
+   *   user      - enters site conditions into a form. Read-only geometry.
+   */
+  userMode: UserMode;
 }
 
 export type DrawingAction =
   | { type: "SET_TOOL"; tool: ToolId }
-  | { type: "SET_USER_MODE"; mode: "draftsman" | "author" }
+  | { type: "SET_USER_MODE"; mode: UserMode }
   | { type: "START_DRAFT"; shape: Shape }
   | { type: "UPDATE_DRAFT"; shape: Shape }
   | { type: "COMMIT_DRAFT" }

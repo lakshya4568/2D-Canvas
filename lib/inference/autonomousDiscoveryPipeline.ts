@@ -31,6 +31,7 @@ import {
 } from "./blueprintClassifier";
 import {
   filterCandidatesWithPriorityAndDM,
+  equationCountFor,
   RedundancyFilterResult,
   RedundancyFilterOptions,
 } from "./redundancyFilter";
@@ -179,6 +180,19 @@ function buildSolverModel(
         const heA = dcel.halfEdges.get(edgeA.halfEdge);
         const heB = dcel.halfEdges.get(edgeB.halfEdge);
         if (heA && heB) {
+          // §22 compilation table says an `offset` is "not native — compiles to
+          // Parallel + equal perpendicular distance", and only the distance half
+          // is emitted here. That is a KNOWN, MEASURED GAP (DEC-057): it is why
+          // the discovered system retains free DOF.
+          //
+          // Both §22-correct formulations were tried and BOTH diverge against the
+          // current PlaneGCS client mapping:
+          //   - adding a `parallel` primitive (l1_id/l2_id): residual 1.0, no convergence
+          //   - pinning both endpoints of edge B to line A: residual 21, no convergence
+          // The likely cause is that `p2l_distance` is unsigned here, so a second
+          // incident constraint admits a sign flip. Fixing that mapping — a signed
+          // point-to-line residual, or a native offset primitive — is the specific
+          // next task, and it must not be guessed at.
           constraints.push({
             id: c.id,
             type: "p2l_distance",
@@ -267,10 +281,35 @@ export function synthesizeAutonomousCAD(
   }
 
   // 4. Priority-Ordered Redundancy & Conflict Suppression with SVD & DM
+  // §18 anchor rule. Without a datum the component floats and the DOF report
+  // charges it three spurious rigid-body degrees of freedom: "Without it, DOF
+  // analysis mis-reports three spurious degrees of freedom on every sketch and
+  // every diagnosis downstream is wrong."
+  //
+  // The anchor is the edge whose midpoint is nearest the origin, with the id as a
+  // deterministic tie-break, so the choice does not depend on map iteration order.
+  let anchorEdgeId: string | null = null;
+  let anchorDistance = Infinity;
+  for (const edge of dcel.edges.values()) {
+    const he = dcel.halfEdges.get(edge.halfEdge);
+    if (!he) continue;
+    const a = dcel.vertices.get(he.origin);
+    const b = dcel.vertices.get(he.target);
+    if (!a || !b) continue;
+    const mx = (a.point.x + b.point.x) / 2;
+    const my = (a.point.y + b.point.y) / 2;
+    const d = Math.hypot(mx, my);
+    if (d < anchorDistance || (d === anchorDistance && (anchorEdgeId === null || edge.id < anchorEdgeId))) {
+      anchorDistance = d;
+      anchorEdgeId = edge.id;
+    }
+  }
+
   const filterResult = filterCandidatesWithPriorityAndDM(rawCandidates, {
     policy,
     discardRedundant: true,
     enableSelfHealing: true,
+    anchorEntityId: anchorEdgeId ?? undefined,
   });
 
   // 5. Cluster admissible candidates into Merged Parameter Cards
@@ -279,10 +318,9 @@ export function synthesizeAutonomousCAD(
   // 6. Construct Bipartite Graph
   const bipartiteGraph = new BipartiteConstraintGraph();
   for (const cand of filterResult.admissibleCandidates) {
-    const eqCount =
-      cand.predicate === "P8_COINCIDENCE" ? 2 : cand.predicate === "P2_PERPENDICULAR" ? 1 : 1;
-    bipartiteGraph.addConstraint(cand.id, cand.entityIds, eqCount);
+    bipartiteGraph.addConstraint(cand.id, cand.entityIds, equationCountFor(cand));
   }
+  if (anchorEdgeId) bipartiteGraph.setAnchor(anchorEdgeId);
 
   // 7. Construct Solver Model
   const solverInput = buildSolverModel(
@@ -340,46 +378,39 @@ export function synthesizeAutonomousCAD(
         }
       }
 
-      // Execute anisotropic geometry update
+      // The GAD heuristic, demoted to a WARM-START PREDICTOR only (§81 KEEP):
+      // it supplies a fast X₀ and never commits; the solver produces the answer.
+      //
+      // §31.5 homotopy sub-stepping was trialled here and made the result WORSE,
+      // because re-running the predictor per sub-step re-derives its midline from
+      // already-moved geometry and compounds. Continuation belongs on a solve
+      // whose constraint system is complete; see the DEC-057 note above.
       if (blueprint.topologyType === "single_cell_culvert") {
         if (parameterName === "ClearSpan" && Math.abs(delta) > 1e-4) {
-          // Deform culvert points horizontally by delta
-          // Find right-side points (x >= midX) and shift by delta
           const minX = Math.min(...solverInput.points.map((p) => p.x));
           const maxX = Math.max(...solverInput.points.map((p) => p.x));
           const midX = (minX + maxX) / 2.0;
-
           for (const p of solverInput.points) {
-            if (p.x > midX) {
-              p.x += delta;
-            }
+            if (p.x > midX) p.x += delta;
           }
         } else if (parameterName === "ClearHeight" && Math.abs(delta) > 1e-4) {
           const minY = Math.min(...solverInput.points.map((p) => p.y));
           const maxY = Math.max(...solverInput.points.map((p) => p.y));
           const midY = (minY + maxY) / 2.0;
-
           for (const p of solverInput.points) {
-            if (p.y > midY) {
-              p.y += delta;
-            }
+            if (p.y > midY) p.y += delta;
           }
         }
       } else if (blueprint.topologyType === "multi_cell_culvert") {
         if ((parameterName === "ClearSpan" || parameterName === "Bay1Span") && Math.abs(delta) > 1e-4) {
-          // Multi-cell expansion: expanding Bay 1 shifts subsequent bays rigidly along X
           const minX = Math.min(...solverInput.points.map((p) => p.x));
           const firstVoidMaxX = minX + (blueprint.features.wallThicknesses[0] || 300) + oldValue;
-
           for (const p of solverInput.points) {
-            if (p.x >= firstVoidMaxX - 10) {
-              p.x += delta;
-            }
+            if (p.x >= firstVoidMaxX - 10) p.x += delta;
           }
         }
       }
 
-      // Solve variationally
       const result = await client.solve(solverInput);
 
       const resolvedPoints = new Map<string, { x: number; y: number }>();

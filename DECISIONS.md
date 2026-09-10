@@ -347,3 +347,174 @@ This document records every architectural and implementation choice not fully se
 - **Finding**: The autonomous discovery pipeline generates constraint systems where PlaneGCS reports `Sketcher Redundant solving: 1 redundants`. While the solver converges ($\|F\| \le 10^{-8}$ mm), the redundant constraint introduces geometric drift of up to ~1.5% on spatial assertions (e.g., 61.96mm on 4100mm total width, 213mm on 2100mm height). This is inherent to PlaneGCS's redundant-solving algorithm, not a logic error.
 - **Decision**: Relaxed Gate G8 Criteria 7 and 8 spatial assertions from `toBeCloseTo(val, 1)` (precision < 0.05mm) to range checks with ±100mm tolerance, still catching gross errors while accommodating known redundant-solving behavior. The root cause (redundant constraint generation in the discovery pipeline) is tracked for optimization in Phase 10.
 
+
+---
+
+## Phase 8–9 Adjudications — Roadmap completion (§26, §31, §49–§51, §66–§69, §53–§57)
+
+### DEC-049: Branch control as guards around the solve, not inside it
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §31.1–§31.6, §87
+- **Decision**: `lib/solver/branchControl.ts` implements homotopy sub-stepping (ΔL ≤ 500 mm), the chirality and degeneracy logarithmic barriers, Bentley–Ottmann self-intersection detection, and κ(J) > 1e8 λ-clamping as **pure functions applied around** `solveDogleg`/`solveLevenbergMarquardt`, never inside them. `solveWithHomotopy` takes the step solver as a parameter, so branch control never hard-codes an algorithm and the same guards serve the analytical layer and PlaneGCS alike.
+- **Consequence**: adding a solver does not require re-implementing branch control.
+
+### DEC-050: Self-intersection is classified, and only crossings/overlaps are faults
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §31.4
+- **Finding**: Running an unclassified all-pairs intersection test over a regenerated multi-cell assembly reports every legitimate T-junction as a fault. §31.4 targets "edge crossing or loop self-intersection", not geometry that legitimately meets.
+- **Decision**: `detectSelfIntersections` returns an `IntersectionKind` of `crossing` | `overlap` | `touching`, and reports only `crossing` and `overlap` by default. `touching` is available via `{ includeTouching: true }`. A T-junction is resolved into a shared vertex by planar arrangement and is therefore not a topological error.
+
+### DEC-051: The single-void bay axis is declared, never guessed
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §48.3, §63, §80, Clause 6
+- **Finding**: With ≥2 voids the stacking axis is unambiguous (the principal axis of the void-centroid scatter). With exactly ONE void it is genuinely ambiguous: a lone void inside an envelope is simultaneously a horizontal wall stack and a vertical slab stack.
+- **Decision**: `clusterBays` accepts an explicit `axis` option and sets `axisAmbiguous: true` when it had to assume one. §63 resolves this class of ambiguity by the author's declared role, so the engine surfaces it rather than choosing silently. The assumed default is the void's own principal extent axis — geometry-derived and rotation-invariant, never a bounding box.
+
+### DEC-052: A formula with no perturbation evidence is inadmissible, not merely unranked
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §49.4 gate 3
+- **Decision**: `generateFormulaCandidates` records the perturbation gate as **failed** when no synthetic re-solve samples are supplied, rather than skipping it. §49.4 calls perturbation survival "the single most effective control on false positives", so it is never silently assumed. Inadmissible candidates are still returned (in a separate `rejected` array) so the review UI can explain *why* a relation was withheld.
+
+### DEC-053: PSLQ extracts its relation from B, not A
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §49.2
+- **Finding**: The initial PSLQ implementation returned row `i` of the bookkeeping matrix `A` when `y_i` collapsed, which produced non-relations (e.g. `[3,1,0]` for `[4300,1700,300]`, residual 14600).
+- **Decision**: The invariant maintained through reduction and swapping is `y = x·B`, so a vanishing `y_j` means **column j of B** is the integer relation. Corrected, and covered by a test that verifies the returned vector actually has near-zero residual against the input — not merely that something was returned.
+
+### DEC-054: The LLM's zero geometric authority is enforced by reconstruction, not by trust
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §56 ("Enforced by the type of the apply function, not by convention")
+- **Decision**: `validateNamingResponse` rebuilds each `NamingPatch` **field by field** rather than spreading the model's object. A hallucinated `value`, `x`, `y`, `coordinates`, `constraints` or `topology` key is therefore structurally incapable of surviving validation, and a test asserts the exact resulting key set. `NamingPatch` itself carries only `name`, `semanticTag`, `uiGroup` and `explanation` as writable fields, and `applyNamingPatches` requires explicit author approval by default.
+
+### DEC-055: Exporters are dependency-free and read the canonical model directly
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §69, §73, §84
+- **Decision**: DXF (R2010/R12), PDF sheets (A1–A4) and canonical SVG are written in dependency-free TypeScript under `lib/io/`, each reading `ParametricSketch` directly. No exporter is chained through another (§69's rule), and no AGPL dependency (PyMuPDF) is introduced. `ezdxf`/ReportLab remain the optional server-side path; the client must be able to export offline (§88). A test asserts every import in `lib/io/*Exporter.ts` is repo-relative.
+- **Note**: `lib/serialization/exportSvg.ts` (canvas `Shape[]`) and `lib/io/svgExporter.ts` (canonical model) are deliberately separate and neither derives from the other.
+
+### DEC-056: One render path serves the client, the CLI and the REST API
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §69 ("the server render path reuses the SAME solver and exporter code as the client")
+- **Decision**: `RenderService` + `TemplateRenderHost` are the single implementation. `scripts/gad-render.ts` and the `app/api/v1/**` route handlers are thin adapters over them, and `lib/io/restHandlers.ts` takes and returns plain values so the contract is testable without an HTTP server.
+
+---
+
+## Code-Quality Audit Findings (2026-09-10)
+
+These are defects found by auditing the existing implementation against the spec,
+not new design decisions. Each carries the evidence that established it.
+
+### DEC-057 (CORRECTION to DEC-048): the drift is UNDER-constraint, not redundancy
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §5, §18, §29.4, §30.6, §48
+- **Supersedes**: the diagnosis in DEC-048 (the mitigation it applied to Gate G8 stands for now; its stated cause does not).
+- **DEC-048 claimed**: "the redundant constraint introduces geometric drift... This is inherent to PlaneGCS's redundant-solving algorithm, not a logic error."
+- **Measured evidence** (single-cell culvert, ClearSpan 2000 → 3500, wall 300, haunch 150):
+  ```
+  before    width 2600.000   height 2100.000
+  after     width 4161.960   height 2313.054
+  expected  width 4100.000   height 2100.000
+  error     width   +61.960  height  +213.054   (height must not move at all)
+  converged = true,  maxResidual = 9.09e-13
+  ```
+- **The model's own Dulmage–Mendelsohn analysis**:
+  ```
+  status           "under_constrained"
+  overConstrained  { variables: [], constraints: [], conflictingConstraints: [] }
+  component        variableCount 24, rank 14, dof 7, isAnchored false, dAnchor 3
+  solverInput      14 constraints: p2l_distance x6, equal_length x4, perpendicular x4
+  ```
+- **Finding**: `overConstrained` is **empty** — there is no redundant or conflicting block by the analysis §30.6 designates authoritative ("PlaneGCS's own diagnostics are used as guidance, not gospel... our own DM + SVD analysis... is the authoritative localisation"). PlaneGCS's "1 redundants" message is real but incidental. The system is **under-constrained by 7 DOF**, and the drift is the solver taking an arbitrary point in that null space. The residual is tiny because every constraint supplied *is* satisfied; the ones that would hold the height were never generated. This is §5's caveat exactly: "A sketch can solve cleanly, report DOF = 0, and still encode the wrong intent."
+- **Root causes** (three logic gaps, none of them solver behaviour):
+  1. **§48** — the discovery pipeline emits 14 constraints for 24 variables, and its vocabulary (`p2l_distance`, `equal_length`, `perpendicular`) contains nothing that pins the slab thickness, so the height is free.
+  2. **§18** — the anchor rule is not applied (`isAnchored: false`), leaving the 3 global rigid-body DOF in play. The spec: "Without it, DOF analysis mis-reports three spurious degrees of freedom on every sketch and every diagnosis downstream is wrong."
+  3. **§29.4** — no minimum-norm projection on this path, so the remaining free DOF absorb arbitrary motion instead of staying put.
+- **Action taken**: `tests/unit/autonomous_pipeline_dof_regression.test.ts` PINS the current numbers (7 DOF, `isAnchored: false`, 14 constraints, ~213 mm height error) so the defect stays visible and any improvement is detected. The Gate G8 ±100 mm windows are left in place but are now documented as masking this defect rather than accommodating solver behaviour.
+- **Not fixed here**: deciding which constraints §48 should additionally generate is design work with product consequences, and belongs to a human.
+
+### DEC-058: conformal scaling is live on the solve path (§8 violation)
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §8, §29.4, §81 change 8; implementation brief non-negotiable 3 and forbidden-list item 3
+- **Finding**: `lib/parametric/connectedComponentSolver.ts` computes `singleScale = edge.targetLen / edge.origLen` and applies it to every vertex of the connected component. That is literally the `k = L_target / L_original` formula §8 calls "provably wrong" for engineering geometry and requires be "removed from the solve path entirely". It is reached from `lib/parametric/model.ts:788`, so it is LIVE. It also contradicts §29.4: scaling every edge is the maximum-change response to an edit where the spec requires the minimum-change one.
+- **Secondary issues in the same branch**: `const TOLERANCE = 15.0; // Connection tolerance in world px` is a vertex-weld tolerance **in pixels** (§17 forbids pixels and per-module tolerance constants); `.toFixed(2)` and `Math.round()` write rounded values into coordinates and parameters (§81 change 3).
+- **Blocking factor**: `tests/closed_geometry.test.ts` → "scales rectangle with internal diagonal brace when diagonal changes from 300 to 150" **asserts the scaled result as correct** ("Horizontal edges scaled to ~131", "Vertical edges scaled to ~73"). Removing the behaviour fails that test by design.
+- **Action taken**: the violation is documented in full at the top of the file, with the spec citations and the replacement path (route the component through the variational solver with the edited length as a driving constraint, the joint coincidences as hard constraints, and a minimum-norm update). The lint carries it as a **tracked violation**, not a true exemption.
+- **Not removed here**: it changes live product behaviour and invalidates a test a human may have deliberately accepted. That call is the repo owner's.
+
+### DEC-059: the tolerance lint now fails the build
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §17; implementation brief non-negotiable 4 ("Add a lint rule that fails the build on a locally-defined tolerance constant")
+- **Finding**: `scripts/lint-tolerance.ts` ended with `process.exit(0)` on violations, under the comment "During Phase 0, report violations". Phase 0 is long past, so the guardrail was decorative: 4 violations were reported and the build stayed green.
+- **Decision**: the script now `process.exit(1)` on any unexempted violation. A narrow `EXEMPTIONS` list carries the two legitimate numerical-algorithm constants (SVD machine epsilon; finite-difference step — neither is a model-space tolerance) plus the tracked DEC-058 pixel tolerance. **Every exemption must carry a written reason**, and exemptions are keyed on file + exact source line so they cannot drift onto a different constant. `tests/unit/lint_guardrails.test.ts` asserts all of this.
+
+### DEC-060: two accuracy corrections to existing code
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §17, §28, §82
+- **`lib/parametric/variationalKernel.ts`**: the comment read "Analytical Jacobians with high-precision numerical derivative fallback for robust stability". The implementation is 100% forward finite differences with no analytical path at all. §82 already recorded this ("the variational kernel uses finite differences"), but the comment claimed the opposite. Corrected to state what the code does, and to record that this kernel is a test-only oracle (its sole consumer is `tests/unit/variational_kernel.test.ts`), so forward differences are acceptable there and nowhere else.
+- **`lib/parametric/boundaryLimits.ts`**: `const eps = 0.5` is a model-space geometric tolerance and now reads from `DEFAULT_TOLERANCE_POLICY.geometry_mm`. Same numeric value, so no behaviour change — it removes a §17 violation, not a bug.
+
+### DEC-061: redundant shared-edge collapse between adjoining repeat instances
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §68, §23.4
+- **Finding**: §68 requires that a count change "collapse redundant coincident edges between adjoining cells". That step was not implemented. Measured on the 3-cell culvert: instances are placed at stride 330 while each is 360 wide (span 300 + 2×wall 30), so adjoining cells overlap by 30 mm and each pair emits duplicated collinear runs. `detectSelfIntersections` reports **4 genuine `overlap` faults** in the raw assembly.
+- **Decision**: `lib/parametric/component/sharedEdgeCollapse.ts` merges collinear runs that overlap or abut into their union, keyed on a rotation-invariant carrier test (parallel within `angle_rad` AND equal perpendicular offset within `geometry_mm`) — no bounding box, no axis assumption (Clause 6). Restricted to segments from **different** repeat instances by default, so a template's own deliberately collinear geometry is never silently merged. After the collapse: **0 faults**, envelope unchanged, 36 → 28 lines at N=3.
+- **Not applied by default inside `CompositeAssemblyEngine.assemble`**: that would change the geometry every existing consumer receives. It is exported as an explicit pass and used by the count-change tests.
+
+---
+
+## UI Rebuild and Audit Resolution (2026-09-10)
+
+### DEC-062: conformal scaling removed from the solve path
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §8, §18, §28.1, §29.4, §81 change 8
+- **Resolves**: DEC-058, which had documented the violation and deferred the removal.
+- **Decision**: `connectedComponentSolver.ts` is rewritten as a variational solve. Shared endpoints weld into single topological vertices (§12), each edge with a declared target contributes one squared-distance residual with exact analytical partials (§28.1), one vertex per component is anchored (§18), and Powell's Dogleg with SVD pseudo-inverse produces the minimum-norm update from a warm start (§29.4, §29.6). There is no scale factor anywhere in the file.
+- **Behaviour change, measured**:
+
+  | Case | Old (conformal) | New (variational) |
+  |---|---|---|
+  | Triangle 3-4-5, drive L1 300 → 450 | L2 → 600, L3 → 750 (all ×1.5) | L1 = 450, **L2 = 400, L3 = 500 unchanged** |
+  | Right triangle, drive L1 240 → 300 | whole figure scaled | L1 = 300, L2 = 200 held, anchor vertex fixed |
+  | Rect + brace, drive diagonal 300 → 150 | every member halved (262→131, 146→73) | **all four members held**; frame racks into a parallelogram |
+
+  The new answers are what a real CAD kernel returns, and they are what makes a wall stay 300 mm when a span grows.
+- **Tests**: the three `closed_geometry.test.ts` cases that asserted the scaled results were rewritten to assert the preserved ones, each carrying the spec citation for the change. `lint_guardrails.test.ts` now asserts the banned formula is absent and that the solver uses Dogleg with analytical partials and an anchor.
+- **Also removed**: the pixel-denominated weld tolerance (`const TOLERANCE = 15.0 // world px`) — the weld radius now comes from `policy.weld_mm` — and the `.toFixed(2)` / `Math.round()` calls that were writing rounded values into coordinates and parameters (§81 change 3). The lint's tracked-violation exemption is deleted with them.
+
+### DEC-063: §18 anchor rule reaches the DOF analysis — and the honest number is worse
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §18, §30
+- **Partially resolves**: DEC-057.
+- **Decision**: `BipartiteConstraintGraph` gains `setAnchor()` / `hasAnchor()` and an `isFixed` flag on `EntityNode`; `filterCandidatesWithPriorityAndDM` accepts an `anchorEntityId`; the autonomous pipeline selects the anchor deterministically (the edge whose midpoint is nearest the origin, id as tie-break) and passes it to both the filter's graph and its own.
+- **Consequence, and it is not a flattering one**: the reported DOF for a single-cell culvert went **7 → 10**. The unanchored report had been silently discounting three rigid-body DOF the sketch did not actually have free. §18 warned about exactly this: "Without it, DOF analysis mis-reports three spurious degrees of freedom on every sketch and every diagnosis downstream is wrong." The report now tells the truth.
+
+### DEC-064: the §22 offset compilation is the remaining defect, and was NOT guessed at
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §22, §48
+- **Finding**: §22's compilation table states that an `offset` is "not native — compiles to **Parallel + equal perpendicular distance**". The pipeline emits only the distance half, so each of the six P3 offsets contributes one equation where it should contribute two, leaving the two edges free to rotate relative to each other. This is the primary remaining cause of the drift in DEC-057.
+- **Both §22-correct formulations were implemented and measured. Both diverge** against the current PlaneGCS client mapping:
+  - emitting a `parallel` primitive (`l1_id`/`l2_id`) → residual 1.0, no convergence
+  - pinning both endpoints of edge B to line A → residual 21, no convergence
+  - §31.5 homotopy sub-stepping on `applyParameterChange` made the drift **worse** (height error 213 mm → 374 mm), because re-running the procedural predictor per sub-step re-derives its midline from already-moved geometry and compounds.
+- **Decision**: all three reverted. A non-converging solver is worse than a drifting one, and shipping a change that breaks convergence to satisfy a spec clause is not a fix. The likely root cause is that `p2l_distance` is unsigned in this mapping, so a second incident constraint admits a sign flip. **The specific next task is a signed point-to-line residual (or a native offset primitive) in `planegcsClient.ts`**, and `equationCountFor` should be raised to 2 for P3 in that same change, not before.
+- Every measurement above is reproduced by `tests/unit/autonomous_pipeline_dof_regression.test.ts`, which pins the current numbers so any improvement is detected.
+
+### DEC-065: the UI is rebuilt around the three personas, not around the geometry
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §3, §59, §62, §64
+- **Decision**: the entire UI shell is replaced. The old tree — `DrawingApp`, `PropertyInspector`, `MainToolbar`, `CanvasRibbon`, `SidebarTools`, `ViewportControls`, `StatusBar`, `ThemeToggle` — is deleted; the canvas and its overlays are kept, because they are working geometry code, not chrome.
+- **The load-bearing structural choice**: the right dock's contents swap **wholesale** with the persona, rather than one panel with widgets disabled. §3: "Three roles, three completely different products sharing one kernel. Mixing them is the single most common design error in this space." A third persona (`user`) was added to `DrawingState`, which previously had only two.
+- **What each persona may see**:
+  - **Draft** — dimensions of the selection, editable by typing. **No expression string is rendered anywhere in this panel.** A derived row is locked and explains itself by naming its drivers (§12), never by showing its formula.
+  - **Author** — candidate cards carrying measured evidence, provenance and confidence, with Accept / Reject. The expression appears here and *only* here. Full DM partition in Constraint Health.
+  - **Run** — DRIVING-only inputs grouped by role, DERIVED rows read-only showing the result and never the expression (§64), amber advisories citing the clause for standards deviations (§26).
+- **Design**: a drafting-table palette — technical-pen cyan on cool graphite (dark) or warm vellum (light), with neutrals carrying a deliberate blue bias toward the accent. Semantic status (ok/warn/critical) is kept strictly separate from the accent so the invariant chip never competes with the drawing. Archivo for UI, JetBrains Mono with tabular figures for every dimension — a functional choice, since every number in this application is a measurement that must align in a column. Dimension-badge states follow §61's instruction to adopt the FreeCAD/Abaqus red-for-conflict convention "rather than reinvent" it.
+- **The app opens with geometry loaded**, not an empty sheet, so the first screen shows what the tool does.
+
+### DEC-066: the AutoFormula tab is kept as a capability and removed as a surface
+- **Date**: 2026-09-10
+- **Derived From**: UPCE-MASTER-1.0 §3, §46, §47, §50, §62
+- **Question**: the previous UI had a persistent bottom AutoFormula bar. Is it still needed?
+- **Decision**: the *capability* is essential and stays; the *surface* was in the wrong place and is removed. §3 forbids a formula bar to the draftsman in the strongest terms — "Formula exposure: **strictly zero**. No formula bar, no expression syntax, no dependency graph, no synthetic names like `R1_Width`" — and §64 forbids it to the project engineer too. A bar docked across the bottom of the app was visible to all three personas.
+- **Where it went**: into the Author dock as a candidate review surface (§62), which is what the spec actually specifies. Each card carries its measured evidence, provenance and confidence, because §47 requires that "every proposal is explainable", and nothing is applied until the author presses Accept, because §46 requires that "inference produces **candidates**, never silent commitments".
+- **Why the capability must not be dropped**: §3's corollary is explicit — "removing formulas from the *draftsman's view* is correct. Removing formulas from the *system* is not... The goal is **hidden and curated complexity, not absent complexity**." Derived relationships, template bindings, validation bounds and repeat rules all still need an internal representation and an author who curates them. §50 also routes the live drag-invariance signal into this same panel.

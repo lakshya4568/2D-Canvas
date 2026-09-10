@@ -441,11 +441,20 @@ export function solveVariationalGAD(
     },
 
     evaluateJacobian(X: number[]): number[][] {
-      // Analytical Jacobians with high-precision numerical derivative fallback for robust stability
+      // NOTE (accuracy correction): this computes the FULL Jacobian by forward
+      // finite differences. There is no analytical path here, despite what an
+      // earlier version of this comment claimed. §28 requires exact partials on
+      // the production solve path; the analytical registry lives in
+      // `lib/solver/jacobians/analyticalJacobians.ts` and is used by
+      // `planegcsClient.ts`. This kernel is a reference/oracle implementation
+      // exercised only by `tests/unit/variational_kernel.test.ts`, so forward
+      // differences are acceptable HERE and nowhere else.
       const baseF = this.evaluateResiduals(X);
       const m = baseF.length;
       const totalVars = 2 * n;
       const J = createMatrix(m, totalVars);
+      // Forward-difference step. Not a model-space tolerance (§17): it is a
+      // numerical differentiation step size in state-vector units.
       const eps = 1e-6;
 
       for (let j = 0; j < totalVars; j++) {

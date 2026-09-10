@@ -153,11 +153,24 @@ describe("Mathematical Closed Shape & Polygon Engine", () => {
     expect(comp2.compositeCenterOfMass.y).toBeCloseTo(5, 3);
   });
 
-  it("preserves triangle shape and autocalculates other sides when one side changes without formulas", () => {
+  it("lengthens one triangle side and PRESERVES the other two (§8, §29.4)", () => {
     // 3 lines forming a right-angled 3-4-5 triangle:
     // L1 (base): (0, 0) -> (300, 0) [length 300]
     // L2 (height): (300, 0) -> (300, 400) [length 400]
     // L3 (hypotenuse): (300, 400) -> (0, 0) [length 500]
+    //
+    // BEHAVIOUR CHANGE (2026-09-10, DEC-062): this test previously asserted that
+    // driving L1 to 450 SCALED L2 to 600 and L3 to 750 — a conformal similarity
+    // factor of 1.5 applied to the whole figure. §8 rejects that outright:
+    //
+    //   "The instinctive implementation of 'make it bigger' is a conformal scale
+    //    factor k = L_target / L_original applied to all coordinates. For
+    //    engineering geometry this is provably wrong."
+    //
+    // §29.4 requires the MINIMUM-norm update instead: "geometry not mechanically
+    // coupled to the edited dimension does not move." So L2 and L3 keep their
+    // lengths and the triangle re-closes around the longer base. 450/400/500 is
+    // a perfectly valid triangle, and it is the one a real CAD kernel returns.
     const l1: Shape = { id: "t1", name: "L1", type: "line", x1: 0, y1: 0, x2: 300, y2: 0 };
     const l2: Shape = { id: "t2", name: "L2", type: "line", x1: 300, y1: 0, x2: 300, y2: 400 };
     const l3: Shape = { id: "t3", name: "L3", type: "line", x1: 300, y1: 400, x2: 0, y2: 0 };
@@ -167,7 +180,6 @@ describe("Mathematical Closed Shape & Polygon Engine", () => {
     model.setVariable("L2", 400);
     model.setVariable("L3", 500);
 
-    // Change L1 from 300 to 450 (scale factor = 1.5)
     model.setVariable("L1", 450);
 
     const { updatedShapes } = model.syncModel([l1, l2, l3]);
@@ -176,24 +188,33 @@ describe("Mathematical Closed Shape & Polygon Engine", () => {
     const s2 = updatedShapes.find((s) => s.name === "L2") as any;
     const s3 = updatedShapes.find((s) => s.name === "L3") as any;
 
-    // L1 should be 450
-    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(450, 1);
-    // L2 should autocalculate to 400 * 1.5 = 600
-    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(600, 1);
-    // L3 should autocalculate to 500 * 1.5 = 750
-    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(750, 1);
+    // The driven dimension is honoured exactly.
+    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(450, 3);
 
-    // Check that variable values were autocalculated!
-    expect(model.variables.get("L2")?.value).toBe(600);
-    expect(model.variables.get("L3")?.value).toBe(750);
+    // The undriven dimensions are PRESERVED. This is the whole point: a span
+    // change must not drag unrelated members along with it.
+    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(400, 3);
+    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(500, 3);
 
-    // Closed loop remains fully closed!
-    expect(s1.x2).toBeCloseTo(s2.x1, 1);
-    expect(s1.y2).toBeCloseTo(s2.y1, 1);
-    expect(s2.x2).toBeCloseTo(s3.x1, 1);
-    expect(s2.y2).toBeCloseTo(s3.y1, 1);
-    expect(s3.x2).toBeCloseTo(s1.x1, 1);
-    expect(s3.y2).toBeCloseTo(s1.y1, 1);
+    // Measured values are reported back, unrounded.
+    expect(model.variables.get("L2")?.value).toBeCloseTo(400, 3);
+    expect(model.variables.get("L3")?.value).toBeCloseTo(500, 3);
+
+    // The loop stays closed — joints are shared vertices, not nearby coordinates.
+    expect(s1.x2).toBeCloseTo(s2.x1, 6);
+    expect(s1.y2).toBeCloseTo(s2.y1, 6);
+    expect(s2.x2).toBeCloseTo(s3.x1, 6);
+    expect(s2.y2).toBeCloseTo(s3.y1, 6);
+    expect(s3.x2).toBeCloseTo(s1.x1, 6);
+    expect(s3.y2).toBeCloseTo(s1.y1, 6);
+
+    // And there is no global scale factor: the figure did not grow by 1.5x.
+    const perimeter =
+      Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1) +
+      Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1) +
+      Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1);
+    expect(perimeter).toBeCloseTo(450 + 400 + 500, 3);
+    expect(perimeter).not.toBeCloseTo(1.5 * (300 + 400 + 500), 1);
   });
 
   it("enforces 100% joint closure and self-correction for user-drawn 8-line polygon with custom dimensions", () => {
@@ -229,45 +250,55 @@ describe("Mathematical Closed Shape & Polygon Engine", () => {
     }
   });
 
-  it("scales user right triangle proportionally without warping or tilting when L1 changes from 240 to 300", () => {
-    // User's exact right triangle: L1 horizontal (240), L2 vertical (185.5), L3 hypotenuse (302.8)
-    const l1: Shape = { id: "l1", name: "L1", type: "line", x1: 440, y1: 116, x2: 680, y2: 116 };
-    const l2: Shape = { id: "l2", name: "L2", type: "line", x1: 440, y1: 116, x2: 440, y2: 301.5 };
-    const l3: Shape = { id: "l3", name: "L3", type: "line", x1: 440, y1: 301.5, x2: 680, y2: 116 };
+  it("drives one leg of a right triangle and holds the other members (§29.4)", () => {
+    // BEHAVIOUR CHANGE (DEC-062): previously asserted proportional scaling of
+    // the whole triangle. Now the driven leg changes and the others hold.
+    const l1: Shape = { id: "r1", name: "L1", type: "line", x1: 100, y1: 400, x2: 340, y2: 400 };
+    const l2: Shape = { id: "r2", name: "L2", type: "line", x1: 100, y1: 400, x2: 100, y2: 200 };
+    const l3: Shape = { id: "r3", name: "L3", type: "line", x1: 100, y1: 200, x2: 340, y2: 400 };
 
     const model = new ParametricModel();
     model.setVariable("L1", 240);
-    model.setVariable("L2", 186);
-    model.setVariable("L3", 303);
+    model.setVariable("L2", 200);
+    model.setVariable("L3", 312);
 
-    // User changes L1 from 240 to 300
     model.setVariable("L1", 300);
 
     const { updatedShapes } = model.syncModel([l1, l2, l3]);
-
     const s1 = updatedShapes.find((s) => s.name === "L1") as any;
     const s2 = updatedShapes.find((s) => s.name === "L2") as any;
     const s3 = updatedShapes.find((s) => s.name === "L3") as any;
 
-    // L1 remains strictly horizontal with length 300
-    expect(s1.y1).toBe(s1.y2);
-    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(300, 1);
+    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(300, 3);
+    // Undriven members hold their declared lengths.
+    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(200, 3);
+    // The fixture DECLARES L3 = 312, but the drawn hypotenuse actually measures
+    // hypot(240, 200) = 312.41. The 0.41 mm difference is inside ε_geometry, so
+    // it is a rounded label rather than a driving edit — and the solver correctly
+    // holds the real measured length instead of snapping to the rounded one.
+    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(Math.hypot(240, 200), 3);
 
-    // L2 remains strictly vertical with autocalculated length ~232
-    expect(s2.x1).toBe(s2.x2);
-    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(231.9, 1);
+    // §18 anchor rule: the driven edge's start vertex is the anchor and does not
+    // move, so the edit grows away from the joint the user did not touch.
+    expect(s1.x1).toBeCloseTo(100, 6);
+    expect(s1.y1).toBeCloseTo(400, 6);
 
-    // L3 hypotenuse autocalculated to ~379
-    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(379.2, 1);
-
-    // All joints closed with 0 gap
-    expect(Math.hypot(s1.x1 - s2.x1, s1.y1 - s2.y1)).toBeLessThan(0.01);
-    expect(Math.hypot(s2.x2 - s3.x1, s2.y2 - s3.y1)).toBeLessThan(0.01);
-    expect(Math.hypot(s3.x2 - s1.x2, s3.y2 - s1.y2)).toBeLessThan(0.01);
+    // Joints stay welded.
+    expect(Math.hypot(s1.x1 - s2.x1, s1.y1 - s2.y1)).toBeLessThan(1e-6);
+    expect(Math.hypot(s2.x2 - s3.x1, s2.y2 - s3.y1)).toBeLessThan(1e-6);
+    expect(Math.hypot(s3.x2 - s1.x2, s3.y2 - s1.y2)).toBeLessThan(1e-6);
   });
 
-  it("scales rectangle with internal diagonal brace without any line detaching when diagonal changes from 300 to 150", () => {
-    // User's exact rectangle with diagonal: L1 top (262), L2 left (146), L4 bottom (262), L3 right (147), L5 diagonal (300)
+  it("shortens a diagonal brace and racks the frame instead of shrinking it (§8)", () => {
+    // The user's rectangle with a diagonal brace:
+    // L1 top (262), L2 left (146), L4 bottom (262), L3 right (147), L5 diagonal (300)
+    //
+    // BEHAVIOUR CHANGE (DEC-062): this test previously asserted that driving the
+    // diagonal 300 -> 150 halved every member ("Horizontal edges scaled to ~131",
+    // "Vertical edges scaled to ~73"). That is conformal scaling, which §8
+    // prohibits. The correct answer holds all four member lengths and lets the
+    // frame RACK into a parallelogram — which is what physically happens when
+    // you shorten a brace in a pin-jointed frame, and what a real CAD returns.
     const l1: Shape = { id: "l1", name: "L1", type: "line", x1: 375, y1: 142, x2: 637, y2: 142 };
     const l2: Shape = { id: "l2", name: "L2", type: "line", x1: 375, y1: 142, x2: 375, y2: 288 };
     const l4: Shape = { id: "l4", name: "L4", type: "line", x1: 375, y1: 288, x2: 637, y2: 288 };
@@ -281,7 +312,6 @@ describe("Mathematical Closed Shape & Polygon Engine", () => {
     model.setVariable("L3", 147);
     model.setVariable("L5", 300);
 
-    // User changes diagonal L5 to 150
     model.setVariable("L5", 150);
 
     const { updatedShapes } = model.syncModel([l1, l2, l4, l3, l5]);
@@ -292,27 +322,25 @@ describe("Mathematical Closed Shape & Polygon Engine", () => {
     const s3 = updatedShapes.find((s) => s.name === "L3") as any;
     const s5 = updatedShapes.find((s) => s.name === "L5") as any;
 
-    // Diagonal scaled to 150
-    expect(Math.hypot(s5.x2 - s5.x1, s5.y2 - s5.y1)).toBeCloseTo(150, 1);
+    // The driven brace is honoured exactly.
+    expect(Math.hypot(s5.x2 - s5.x1, s5.y2 - s5.y1)).toBeCloseTo(150, 3);
 
-    // Horizontal edges scaled to ~131
-    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(131, 1);
-    expect(Math.hypot(s4.x2 - s4.x1, s4.y2 - s4.y1)).toBeCloseTo(131, 1);
+    // Every member length is PRESERVED — no member was scaled.
+    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).toBeCloseTo(262, 3);
+    expect(Math.hypot(s4.x2 - s4.x1, s4.y2 - s4.y1)).toBeCloseTo(262, 3);
+    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(146, 3);
+    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(147, 3);
 
-    // Vertical edges scaled to ~73
-    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).toBeCloseTo(73, 1);
-    expect(Math.hypot(s3.x2 - s3.x1, s3.y2 - s3.y1)).toBeCloseTo(73, 1);
+    // Explicitly NOT the old scaled answer.
+    expect(Math.hypot(s1.x2 - s1.x1, s1.y2 - s1.y1)).not.toBeCloseTo(131, 0);
+    expect(Math.hypot(s2.x2 - s2.x1, s2.y2 - s2.y1)).not.toBeCloseTo(73, 0);
 
-    // All joints STRICTLY coincident: 0 gap!
-    // Top-left: s1.start touches s2.start
-    expect(Math.hypot(s1.x1 - s2.x1, s1.y1 - s2.y1)).toBeLessThan(0.01);
-    // Bottom-left: s2.end, s4.start, and s5.start all meet at the same point
-    expect(Math.hypot(s2.x2 - s5.x1, s2.y2 - s5.y1)).toBeLessThan(0.01);
-    expect(Math.hypot(s4.x1 - s5.x1, s4.y1 - s5.y1)).toBeLessThan(0.01);
-    // Top-right: s1.end, s3.end, and s5.end all meet at the same point
-    expect(Math.hypot(s1.x2 - s5.x2, s1.y2 - s5.y2)).toBeLessThan(0.01);
-    expect(Math.hypot(s3.x2 - s5.x2, s3.y2 - s5.y2)).toBeLessThan(0.01);
-    // Bottom-right: s4.end touches s3.start
-    expect(Math.hypot(s4.x2 - s3.x1, s4.y2 - s3.y1)).toBeLessThan(0.01);
+    // All joints STRICTLY coincident: 0 gap.
+    expect(Math.hypot(s1.x1 - s2.x1, s1.y1 - s2.y1)).toBeLessThan(1e-6);
+    expect(Math.hypot(s2.x2 - s5.x1, s2.y2 - s5.y1)).toBeLessThan(1e-6);
+    expect(Math.hypot(s4.x1 - s5.x1, s4.y1 - s5.y1)).toBeLessThan(1e-6);
+    expect(Math.hypot(s1.x2 - s5.x2, s1.y2 - s5.y2)).toBeLessThan(1e-6);
+    expect(Math.hypot(s3.x2 - s5.x2, s3.y2 - s5.y2)).toBeLessThan(1e-6);
+    expect(Math.hypot(s4.x2 - s3.x1, s4.y2 - s3.y1)).toBeLessThan(1e-6);
   });
 });

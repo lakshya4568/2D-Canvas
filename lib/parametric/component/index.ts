@@ -7,3 +7,4 @@ export * from "./portSolver";
 export * from "./portMatingSolver";
 export * from "./repeatExpander";
 export * from "./compositeAssemblyEngine";
+export * from "./sharedEdgeCollapse";

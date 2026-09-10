@@ -1,9 +1,5 @@
-import { DrawingApp } from "@/features/canvas/DrawingApp";
+import { CadShell } from "@/features/shell/CadShell";
 
 export default function Page() {
-  return (
-    <main className="w-full h-full flex flex-col relative overflow-hidden">
-      <DrawingApp />
-    </main>
-  );
+  return <CadShell />;
 }

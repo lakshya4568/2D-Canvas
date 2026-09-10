@@ -3,6 +3,13 @@ import { DulmageMendelsohnSolver, DMResult } from "./dulmageMendelsohn";
 export interface EntityNode {
   id: string;
   degreesOfFreedom: number;
+  /**
+   * §18 anchor rule: "every ParametricSketch MUST fix at least one entity (or one
+   * LCS origin) to remove the three global rigid-body DOF. Without it, DOF
+   * analysis mis-reports three spurious degrees of freedom on every sketch and
+   * every diagnosis downstream is wrong."
+   */
+  isFixed?: boolean;
 }
 
 export interface ConstraintNode {
@@ -18,10 +25,35 @@ export class BipartiteConstraintGraph {
   public constraintToEntities = new Map<string, Set<string>>();
 
   public addEntity(id: string, degreesOfFreedom: number = 2): void {
-    this.entities.set(id, { id, degreesOfFreedom });
+    const existing = this.entities.get(id);
+    this.entities.set(id, {
+      id,
+      degreesOfFreedom,
+      isFixed: existing?.isFixed ?? false,
+    });
     if (!this.entityToConstraints.has(id)) {
       this.entityToConstraints.set(id, new Set());
     }
+  }
+
+  /**
+   * §18 anchor rule. Marks one entity as the datum that removes the component's
+   * three global rigid-body degrees of freedom. Idempotent, and safe to call
+   * before the entity exists (it is created on demand).
+   */
+  public setAnchor(id: string): void {
+    if (!this.entities.has(id)) this.addEntity(id, 2);
+    const node = this.entities.get(id)!;
+    this.entities.set(id, { ...node, isFixed: true });
+    if (!this.entityToConstraints.has(id)) {
+      this.entityToConstraints.set(id, new Set());
+    }
+  }
+
+  /** Whether any entity has been anchored (§18). */
+  public hasAnchor(): boolean {
+    for (const e of this.entities.values()) if (e.isFixed) return true;
+    return false;
   }
 
   public addConstraint(

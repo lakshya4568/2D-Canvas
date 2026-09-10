@@ -1,60 +1,133 @@
 @import "tailwindcss";
 
+/* ===========================================================================
+   UPCE — Drafting Table
+   ---------------------------------------------------------------------------
+   A palette taken from the subject's own world: technical-pen ink on drafting
+   vellum. The neutrals carry a deliberate cool blue bias toward the pen accent
+   rather than sitting on a pure grey, and the light theme is warm paper rather
+   than white, because that is what a drawing sheet actually is.
+
+   Semantic status (ok / warn / critical) is kept strictly separate from the
+   pen accent, so the invariant chip never competes with the drawing.
+
+   Dimension-badge states follow §61: driving reads as ink, derived is muted and
+   locked, conflicting is red — "the FreeCAD/Abaqus industry convention, adopted
+   rather than reinvented".
+   ======================================================================== */
+
 @layer base {
-  :root,
-  .dark {
-    --bg-app: #0d0e11;
-    --bg-canvas: #121316;
-    --bg-panel: #1a1c23;
-    --bg-panel-subtle: #1d1f26;
-    --border-subtle: #2b2f3e;
-    --border-strong: #424656;
-    --fg-primary: #f2f4f8;
-    --fg-secondary: #c2c6d8;
-    --fg-muted: #8c90a1;
-    
-    --accent-select: #f59e0b;
-    --accent-draw: #10b981;
-    --accent-snap: #f97316;
-    --accent-danger: #ef4444;
+  /* ---- LIGHT is the base palette: a drawing sheet under lamp light. ------ */
+  :root {
+    --ink-app: #e8ebef;
+    --ink-panel: #f7f6f3;
+    --ink-raised: #ffffff;
+    --ink-sunken: #dfe3e8;
+    --paper: #fcfbf8;
 
-    --grid-dot: rgba(140, 144, 161, 0.25);
-    --grid-line: rgba(43, 47, 62, 0.4);
+    --rule: #cbd2da;
+    --rule-strong: #9aa5b1;
 
-    --surface-base: #1a1c23;
-    --surface-sunken: #0d0e11;
-    --border-default: #2b2f3e;
-    --text-primary: #f2f4f8;
-    --text-secondary: #c2c6d8;
-    --text-muted: #8c90a1;
+    --fg-primary: #14181f;
+    --fg-secondary: #4a5361;
+    --fg-muted: #78828f;
+
+    /* Technical-pen cyan — the single accent, spent sparingly. */
+    --pen: #1d7ea8;
+    --pen-soft: rgba(29, 126, 168, 0.12);
+    --pen-line: rgba(29, 126, 168, 0.34);
+
+    /* Dimension badge states (§61). */
+    --dim-driving: #14181f;
+    --dim-derived: #78828f;
+    --dim-conflict: #c1282d;
+
+    /* Drafting semantics. */
+    --geom-line: #1a1f28;
+    --geom-construction: #b0453f;
+    --geom-selected: #1d7ea8;
+    --geom-snap: #b8730f;
+
+    /* Status — separate from the accent by design. */
+    --ok: #1a7f4b;
+    --warn: #9a6700;
+    --crit: #c1282d;
+    --ok-soft: rgba(26, 127, 75, 0.12);
+    --warn-soft: rgba(154, 103, 0, 0.12);
+    --crit-soft: rgba(193, 40, 45, 0.1);
+
+    --grid-minor: rgba(20, 24, 31, 0.06);
+    --grid-major: rgba(20, 24, 31, 0.13);
+
+    --shadow-dock: 0 0 0 1px rgba(20, 24, 31, 0.06), -8px 0 24px rgba(20, 24, 31, 0.05);
+    --shadow-pop: 0 8px 28px rgba(20, 24, 31, 0.16);
+
+    --font-ui: "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-num: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    /* Legacy aliases kept so existing components keep rendering during the
+       transition. New code uses the tokens above. */
+    --bg-app: var(--ink-app);
+    --bg-canvas: var(--paper);
+    --bg-panel: var(--ink-panel);
+    --bg-panel-subtle: var(--ink-sunken);
+    --border-subtle: var(--rule);
+    --border-strong: var(--rule-strong);
+    --accent-select: var(--geom-selected);
+    --accent-draw: var(--ok);
+    --accent-snap: var(--geom-snap);
+    --accent-danger: var(--crit);
+    --grid-dot: var(--grid-major);
+    --grid-line: var(--grid-minor);
+    --surface-base: var(--ink-panel);
+    --surface-sunken: var(--ink-sunken);
+    --border-default: var(--rule);
+    --text-primary: var(--fg-primary);
+    --text-secondary: var(--fg-secondary);
+    --text-muted: var(--fg-muted);
   }
 
-  :root.light,
-  .light {
-    --bg-app: #f1f5f9;
-    --bg-canvas: #ffffff;
-    --bg-panel: #ffffff;
-    --bg-panel-subtle: #f8fafc;
-    --border-subtle: #cbd5e1;
-    --border-strong: #94a3b8;
-    --fg-primary: #0f172a;
-    --fg-secondary: #475569;
-    --fg-muted: #64748b;
+  /* ---- DARK: the same drawing on a backlit table. ------------------------ */
+  :root.dark,
+  .dark {
+    --ink-app: #0b0e13;
+    --ink-panel: #12161d;
+    --ink-raised: #1a1f28;
+    --ink-sunken: #080a0e;
+    --paper: #0e1218;
 
-    --accent-select: #d97706;
-    --accent-draw: #059669;
-    --accent-snap: #ea580c;
-    --accent-danger: #dc2626;
+    --rule: #252c38;
+    --rule-strong: #3c4657;
 
-    --grid-dot: rgba(15, 23, 42, 0.18);
-    --grid-line: rgba(15, 23, 42, 0.08);
+    --fg-primary: #eef1f5;
+    --fg-secondary: #a8b2c1;
+    --fg-muted: #6f7a8a;
 
-    --surface-base: #ffffff;
-    --surface-sunken: #f1f5f9;
-    --border-default: #cbd5e1;
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #64748b;
+    --pen: #4aa8d8;
+    --pen-soft: rgba(74, 168, 216, 0.14);
+    --pen-line: rgba(74, 168, 216, 0.4);
+
+    --dim-driving: #eef1f5;
+    --dim-derived: #6f7a8a;
+    --dim-conflict: #f0666b;
+
+    --geom-line: #d8dee7;
+    --geom-construction: #e0736d;
+    --geom-selected: #4aa8d8;
+    --geom-snap: #e0a030;
+
+    --ok: #3fb950;
+    --warn: #d29922;
+    --crit: #f0666b;
+    --ok-soft: rgba(63, 185, 80, 0.14);
+    --warn-soft: rgba(210, 153, 34, 0.14);
+    --crit-soft: rgba(240, 102, 107, 0.12);
+
+    --grid-minor: rgba(168, 178, 193, 0.06);
+    --grid-major: rgba(168, 178, 193, 0.14);
+
+    --shadow-dock: 0 0 0 1px rgba(0, 0, 0, 0.5), -8px 0 24px rgba(0, 0, 0, 0.35);
+    --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.55);
   }
 
   * {
@@ -64,23 +137,57 @@
   }
 
   body {
-    background-color: var(--bg-app);
+    background-color: var(--ink-app);
     color: var(--fg-primary);
     overflow: hidden;
     user-select: none;
-    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    font-family: var(--font-ui);
+    font-feature-settings: "cv05", "ss01";
+  }
+
+  /* Every digit in this application is a dimension. They must align. */
+  .num {
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Uppercase section labels — drafting-sheet convention. */
+  .label {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--pen);
+    outline-offset: 1px;
   }
 }
 
-/* Custom scrollbars */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
+  background: var(--rule-strong);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

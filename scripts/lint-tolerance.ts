@@ -17,6 +17,42 @@ const BANNED_TOLERANCE_PATTERNS = [
 
 const SHAPE_BRANCH_PATTERN = /if\s*\(\s*(?:shape|s|child|cand)\.type\s*===\s*['"`](?:rectangle|circle|polygon|arc)['"`]\s*\)/;
 
+/**
+ * Narrow, justified exemptions.
+ *
+ * §17 governs MODEL-SPACE tolerances — distances and angles compared against
+ * real-world geometry. It does not govern numerical-algorithm constants such as
+ * a machine epsilon or a finite-difference step, which are dimensionless
+ * properties of the arithmetic, not of the drawing.
+ *
+ * Every entry MUST carry a reason. An exemption without one is itself a failure.
+ */
+const EXEMPTIONS: { file: string; snippet: string; reason: string }[] = [
+  {
+    file: "lib/solver/matrix/svd.ts",
+    snippet: "const eps = 1e-15;",
+    reason:
+      "Machine epsilon for the implicit-QR bidiagonal convergence test, scaled " +
+      "by ‖A‖. A property of double-precision arithmetic, not a model tolerance.",
+  },
+  {
+    file: "lib/parametric/variationalKernel.ts",
+    snippet: "const eps = 1e-6;",
+    reason:
+      "Forward-difference step size in state-vector units for the reference " +
+      "variational kernel (test-only oracle). Not a model-space tolerance.",
+  },
+];
+
+/**
+ * Matched on file + exact trimmed source line, so an exemption cannot drift onto
+ * a different constant when the file is edited above it.
+ */
+function isExempt(file: string, snippet: string): boolean {
+  const normalized = file.replace(/\\/g, "/");
+  return EXEMPTIONS.some((e) => e.file === normalized && e.snippet === snippet.trim());
+}
+
 function scanDirectory(dir: string, fileList: string[] = []): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
@@ -56,7 +92,7 @@ export function runLint(): LintViolation[] {
       if (!line.trim().startsWith("//") && !line.trim().startsWith("/*")) {
         for (const pattern of BANNED_TOLERANCE_PATTERNS) {
           if (pattern.test(line)) {
-            // Check if it's not a legacy exception or test
+            if (isExempt(relPath, line)) break;
             violations.push({
               file: relPath,
               line: i + 1,
@@ -92,15 +128,24 @@ if (require.main === module || (typeof Bun !== "undefined" && Bun.main === impor
 
   if (violations.length === 0) {
     console.log("✓ Lint passed: No locally defined tolerance constants or illegal shape-type branching found.");
-    process.exit(0);
-  } else {
-    console.warn(`Found ${violations.length} lint warnings/violations:`);
-    for (const v of violations) {
-      console.warn(`  [${v.rule}] ${v.file}:${v.line} - ${v.message}`);
-      console.warn(`    --> ${v.snippet}`);
+    if (EXEMPTIONS.length > 0) {
+      console.log(`  (${EXEMPTIONS.length} justified exemption(s) on file — see EXEMPTIONS in this script.)`);
     }
-    // During Phase 0, report violations
-    console.log(`Phase 0 Tolerance Lint completed with ${violations.length} logged items.`);
     process.exit(0);
   }
+
+  console.error(`✗ Lint FAILED with ${violations.length} violation(s):`);
+  for (const v of violations) {
+    console.error(`  [${v.rule}] ${v.file}:${v.line} - ${v.message}`);
+    console.error(`    --> ${v.snippet}`);
+  }
+  console.error(
+    "\nTolerances MUST come from the single injected TolerancePolicy " +
+      "(lib/geometry/tolerance.ts). If a constant is a numerical-algorithm " +
+      "epsilon rather than a model-space tolerance, add a JUSTIFIED entry to " +
+      "EXEMPTIONS in scripts/lint-tolerance.ts."
+  );
+  // The implementation brief requires this rule to FAIL the build (§17,
+  // non-negotiable constraint 4). It previously exited 0 and only logged.
+  process.exit(1);
 }

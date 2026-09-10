@@ -312,3 +312,205 @@ Phase 8 establishes the Full-Pipeline Autonomous Relationship Extraction, Redund
 
 
 
+
+---
+
+# Phase 10: Roadmap Completion (spec Phases 8–9) + Code-Quality Audit — COMPLETE ✅
+
+**Date:** 2026-09-10
+
+## 0. Phase-numbering correction
+
+The earlier walkthrough's "Phase 9" was *Direct Manipulation & Hysteresis*. The
+spec's own roadmap (§86) numbers its phases differently, and its **Phase 8**
+(user mode & validation), **Phase 9** (LLM naming, exports, hardening) and
+**Phase 10** (ingestion) had not been reached. This phase closes 8 and 9.
+Phase 10 (GAD ingestion) remains deliberately unstarted — §71 marks it optional
+and nothing in Parts I–X depends on it.
+
+## 1. What was verified before building
+
+| Earlier claim | Verdict |
+|---|---|
+| 400 tests / 0 failures, `tsc` clean | **True.** Re-run and confirmed. |
+| Fixture library (§74) complete | **True.** 36 fixtures across basic/civil/difficult. |
+| DCEL, P1–P9, Hopcroft–Karp DM, SVD admissibility, PlaneGCS client, ports/repeats, templates | **True and substantive**, not stubs. |
+| Euler-characteristic validation "missing" | **My error, corrected.** It already existed in `dcel.ts:540` and `conformanceReporter.ts`; an early grep of mine used `\|` under `-E`, which matches a literal pipe. It was, however, only asserted indirectly on two fixtures. |
+
+## 2. What was genuinely missing, and is now built
+
+| Spec | Module | Tests |
+|---|---|---|
+| §31 branch control | `lib/solver/branchControl.ts` | `branch_control.test.ts` (19) |
+| §49.2 integer relations | `lib/inference/integerRelation.ts` | `integer_relation.test.ts` (14) |
+| §80 bay clustering | `lib/inference/bayClusterer.ts` | `bay_clustering.test.ts` (15) |
+| §49.1/.3/.4 formula gates | `lib/inference/formulaCandidateGenerator.ts` | `formula_gates.test.ts` (16) |
+| §50 drag invariance | `lib/inference/dragInvarianceDetector.ts` | `drag_invariance.test.ts` (12) |
+| §51 solver-as-verifier, §75.7 sweeps | `lib/inference/solverVerifier.ts` | `solver_verifier.test.ts` (15) |
+| §5/§67 invariant report | `lib/validation/invariantChecker.ts` | `invariant_checker.test.ts` (15) |
+| §26 standards profiles | `lib/validation/standardsProfile.ts` | `standards_profile.test.ts` (21) |
+| §66 edit pipeline + rollback | `lib/runtime/editPipeline.ts` | `edit_pipeline.test.ts` (21) |
+| §53–57 AI layer | `lib/ai/{types,prompts,fallbackNamer,llmAdapter}.ts` | `ai_layer.test.ts` (28) |
+| §69 DXF / PDF / SVG / REST / CLI | `lib/io/*`, `scripts/gad-render.ts`, `app/api/v1/**` | `exporters.test.ts` (38) |
+| §68 shared-edge collapse | `lib/parametric/component/sharedEdgeCollapse.ts` | `shared_edge_collapse.test.ts` (14) |
+
+Plus the two coverage gaps the brief called out by name:
+
+- **Euler characteristic on every DCEL build** — `dcel_euler_sweep.test.ts` (44 tests)
+  sweeps all 36 fixtures for `V − E + F = 1 + C`, twin pairing, cycle continuity,
+  zero disconnected joints and face closure.
+- **`CellCount: 3 → 4` with measured invariants** — `cell_count_invariants.test.ts`
+  (15 tests), the gap §82 recorded as not closed.
+
+And `gate_g10.test.ts` (22 tests) as the acceptance gate for spec Phases 8–9.
+
+## 3. Code-quality audit findings
+
+Four defects found in existing code. Two fixed, two documented for the owner's decision.
+
+| # | Finding | Action |
+|---|---|---|
+| 1 | **`connectedComponentSolver.ts` applies conformal similarity scaling** (`k = L_target/L_orig` on every vertex) on the **live** solve path — the one thing §8 prohibits outright. Also carries a **pixel** weld tolerance and rounds coordinates. `tests/closed_geometry.test.ts` asserts the scaled result as *correct*, so removal is a behaviour change. | **Documented in full in the file header** with spec citations and the replacement path. **Not removed** — owner's call (DEC-058). |
+| 2 | **DEC-048 misdiagnosed a real defect.** It attributed ~1.5% geometric drift to "PlaneGCS's redundant-solving algorithm, not a logic error", and Gate G8 was relaxed to ±100 mm windows. Measured: a purely horizontal edit drifts the **height** by **213 mm** (10%) at residual 9e-13. The model's own DM analysis reports `overConstrained: {}` (empty) and **`dof: 7, isAnchored: false`** — under-constrained, not redundant. | **Corrected in DEC-057**, with a regression test pinning 7 DOF, `isAnchored: false`, 14 constraints and the ~213 mm error, so the defect stays visible. **Root cause not fixed** — choosing which §48 constraints to add is design work. |
+| 3 | **The tolerance lint did not fail the build.** `process.exit(0)` on violations, under a "During Phase 0" comment. 4 violations were logged and CI stayed green. | **Fixed.** Now `exit(1)`, with a narrow allowlist where **every exemption must carry a written reason**, keyed on source line so it cannot drift. Guarded by `lint_guardrails.test.ts`. |
+| 4 | **A misleading comment.** `variationalKernel.ts` claimed "Analytical Jacobians with high-precision numerical derivative fallback"; the code is 100% forward finite differences. `boundaryLimits.ts` hard-coded `eps = 0.5` instead of reading the policy. | **Both fixed.** Comment corrected to state what the code does; the epsilon now reads from `DEFAULT_TOLERANCE_POLICY.geometry_mm` (same value, no behaviour change). |
+
+Also fixed: a **real bug in my own PSLQ implementation** — it extracted the relation
+from row `i` of `A` instead of column `j` of `B`, returning non-relations. Caught
+because the test asserts the returned vector actually has near-zero residual
+against the input, rather than merely that something was returned (DEC-053).
+
+CI additionally gained a **typecheck** step and a **generated-type drift** check;
+neither was present.
+
+## 4. Verification
+
+```
+$ bun x tsc --noEmit
+(no output, exit 0)
+
+$ bun test
+ 723 pass
+ 0 fail
+ 7291 expect() calls
+Ran 723 tests across 78 files. [654.00ms]
+
+$ bun run lint:tolerance
+✓ Lint passed: No locally defined tolerance constants or illegal shape-type branching found.
+  (3 justified exemption(s) on file — see EXEMPTIONS in this script.)
+
+$ bun run license:scan
+Scanned 24 declared dependencies.
+✓ License scan passed: 0 banned GPL/AGPL packages found.
+```
+
+Test count: **400 → 723** (+323). Files: **61 → 78**.
+
+## 5. Cumulative gate status
+
+| Phase | Gate | Status |
+|-------|------|--------|
+| 0–9 (earlier walkthrough) | G0–G9 | ✅ COMPLETE |
+| **Spec Phases 8–9** | **G10** | ✅ **COMPLETE (22/22)** |
+| Spec Phase 10 (GAD ingestion) | — | ⬜ Not started (optional, §71) |
+
+## 6. Open, and owner's call
+
+1. Remove the conformal-scaling path (§8 / §81 change 8) and rewrite
+   `tests/closed_geometry.test.ts`'s diagonal-brace expectation.
+2. Fix the 7-DOF under-constraint in the discovery pipeline: generate slab
+   constraints (§48), apply the anchor rule (§18), and take the minimum-norm
+   step (§29.4). Then tighten Gate G8's ±100 mm windows back to `toBeCloseTo(v, 1)`.
+3. Confirm the IRC/RDSO clause values and flip `verified: true` on the shipped
+   standards profiles (DEC-004).
+4. Merge `upce_master_init_foundation` → `main`.
+
+---
+
+# Phase 11: Audit Resolution + UI Rebuild — COMPLETE ✅
+
+**Date:** 2026-09-10
+
+## 1. Both audit findings resolved
+
+### Finding 1 — conformal scaling on the live solve path: **FIXED**
+
+`connectedComponentSolver.ts` computed `k = targetLen / origLen` and multiplied
+every vertex by it. §8 names that exact formula and rejects it. It is now a
+variational solve: welded vertices, squared-distance residuals with analytical
+partials (§28.1), a §18 anchor, and Dogleg + SVD giving the minimum-norm update
+(§29.4) from a warm start.
+
+Measured behaviour change:
+
+| Case | Old (conformal) | New (variational) |
+|---|---|---|
+| Triangle, drive L1 300 → 450 | L2 → 600, L3 → 750 | L1 = 450, **L2 = 400, L3 = 500 held** |
+| Rect + brace, drive diagonal 300 → 150 | every member halved | **all four members held**, frame racks |
+
+Three tests that asserted the scaled results were rewritten to assert the
+preserved ones. The pixel weld tolerance and the coordinate rounding in the same
+branch went with it.
+
+### Finding 2 — the 213 mm drift: **root cause located, partially fixed**
+
+- **Fixed:** the §18 anchor rule now reaches the DOF analysis. Honest consequence:
+  reported DOF rose **7 → 10**, because the unanchored report had been discounting
+  three rigid-body DOF the sketch never had free.
+- **Located:** §22 says an `offset` compiles to `Parallel` + equal perpendicular
+  distance; only the distance half is emitted, so each P3 gives one equation
+  instead of two.
+- **Not shipped, deliberately:** both §22-correct formulations were implemented
+  and measured, and **both diverge** (residual 1.0 and 21). Homotopy sub-stepping
+  made the drift *worse* (213 mm → 374 mm). All reverted — a non-converging solver
+  is worse than a drifting one. Next task is specific: a **signed** point-to-line
+  residual in `planegcsClient.ts`.
+
+## 2. The UI, rebuilt
+
+The whole shell is new. `DrawingApp`, `PropertyInspector`, `MainToolbar`,
+`CanvasRibbon`, `SidebarTools`, `ViewportControls`, `StatusBar`, `ThemeToggle`,
+`BottomFormulaBar`, `FormulaEditor`, `VariablesPanel` and `ConstraintsPanel` are
+deleted. The canvas and its overlays are kept — working geometry code, not chrome.
+
+| New | Role |
+|---|---|
+| `features/shell/CadShell.tsx` | Shell: command bar · tool rail · sheet · persona dock · status strip |
+| `features/shell/CommandBar.tsx` | Commands, snap toggles reading live state |
+| `features/shell/ToolRail.tsx` | Vertical tool strip, grouped by what each tool produces |
+| `features/shell/ModeSwitch.tsx` | The §3 persona boundary |
+| `features/shell/PersonaDock.tsx` | Right dock — contents swap **wholesale** by persona |
+| `features/shell/StatusStrip.tsx` | Coordinates, units + weld tolerance, constraint chip |
+| `features/shell/ConstraintStatus.tsx` | §62's two readings: plain chip / full DM partition |
+| `features/panels/DraftPanel.tsx` | Draftsman — **zero formulas rendered** |
+| `features/panels/AuthorPanel.tsx` | Author — candidate cards with evidence |
+| `features/panels/RunPanel.tsx` | Project engineer — DRIVING form, DERIVED read-only |
+
+A third persona (`user`) was added to `DrawingState`, which had only two.
+
+**Design**: a drafting-table palette — technical-pen cyan on cool graphite or warm
+vellum, neutrals biased toward the accent, semantic status kept separate from it.
+Archivo for UI, JetBrains Mono with tabular figures for every dimension, because
+every number here is a measurement that must align in a column. The app opens with
+geometry loaded rather than an empty sheet.
+
+## 3. AutoFormula: kept as capability, removed as a surface
+
+The old persistent bottom bar was visible to all three personas, and §3 forbids a
+formula bar to the draftsman while §64 forbids it to the project engineer. It is
+now the Author dock's candidate review surface (§62) — evidence, provenance,
+confidence, Accept/Reject, nothing applied until accepted (§46, §47).
+
+The capability could not simply be deleted; §3's corollary is explicit: "Removing
+formulas from the *draftsman's view* is correct. Removing formulas from the
+*system* is not... hidden and curated complexity, not absent complexity."
+
+## 4. Verification
+
+```
+$ bun x tsc --noEmit          (no output, exit 0)
+$ bun run build               ✓ Compiled successfully
+$ bun test                    726 pass, 0 fail, 7302 expect() calls, 78 files
+$ bun run lint:tolerance      ✓ passed (2 justified exemptions)
+$ bun run license:scan        ✓ passed (0 banned packages)
+```

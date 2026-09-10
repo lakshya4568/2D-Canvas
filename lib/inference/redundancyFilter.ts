@@ -40,6 +40,12 @@ export interface RedundancyFilterOptions {
   vertexIndexMap?: Map<string, number>;
   initialCandidates?: ConstraintCandidate[]; // Pre-existing active constraints from session
   preserveOrder?: boolean; // If true, stream in given candidate order rather than pre-sorting
+  /**
+   * §18 anchor rule: the entity that fixes the datum and removes the component's
+   * three global rigid-body DOF. Without it the DM report charges every sketch
+   * three spurious degrees of freedom.
+   */
+  anchorEntityId?: string;
 }
 
 export interface RedundancyFilterResult {
@@ -74,6 +80,31 @@ const PRIMARY_STRUCTURAL_NAMES = new Set([
  * Tier 2: Hard Invariants
  * Tier 3: Secondary Incidental Alignments
  */
+/**
+ * Equations contributed by one candidate.
+ *
+ * §22's compilation table is the authority: an `offset` is "not native — compiles
+ * to Parallel + equal perpendicular distance", so P3 contributes TWO equations.
+ * Counting it as one made the DOF report disagree with the system actually handed
+ * to the solver (DEC-057).
+ */
+export function equationCountFor(candidate: ConstraintCandidate): number {
+  switch (candidate.predicate) {
+    case "P8_COINCIDENCE":
+      return 2;
+    case "P3_PARALLEL_OFFSET":
+      // §22 says an offset is Parallel + equal perpendicular distance — TWO
+      // equations. Only the distance half is currently compiled into the solver
+      // (see the DEC-057 note in autonomousDiscoveryPipeline.ts), so counting 2
+      // here would make the DOF report claim a system tighter than the one the
+      // solver actually receives. Raise this to 2 in the same change that fixes
+      // the compilation, not before.
+      return 1;
+    default:
+      return 1;
+  }
+}
+
 export function getCandidatePriorityTier(candidate: ConstraintCandidate): ConstraintPriorityTier {
   // User constraints always take highest priority
   if (candidate.confidence === "UserConstraint") {
@@ -269,13 +300,18 @@ export function filterCandidatesWithPriorityAndDM(
   }
 
   // 3. Dulmage-Mendelsohn (DM) Decomposition & BTF Gating
-  const graph = new BipartiteConstraintGraph();
-  for (const cand of activeCandidates) {
-    const eqCount =
-      cand.predicate === "P8_COINCIDENCE" ? 2 : cand.predicate === "P2_PERPENDICULAR" ? 1 : 1;
-    graph.addConstraint(cand.id, cand.entityIds, eqCount);
-  }
+  const buildGraph = (cands: ConstraintCandidate[]): BipartiteConstraintGraph => {
+    const g = new BipartiteConstraintGraph();
+    for (const cand of cands) {
+      g.addConstraint(cand.id, cand.entityIds, equationCountFor(cand));
+    }
+    // §18: anchor the datum so the DOF report is not inflated by rigid-body
+    // freedom the sketch does not actually have.
+    if (options.anchorEntityId) g.setAnchor(options.anchorEntityId);
+    return g;
+  };
 
+  const graph = buildGraph(activeCandidates);
   let dmResult = graph.decomposeDM();
 
   // If DM reports over-constrained equations, check if any remaining secondary constraints cause it
@@ -294,13 +330,7 @@ export function filterCandidatesWithPriorityAndDM(
     }
 
     // Re-decompose with cleaned graph
-    const cleanedGraph = new BipartiteConstraintGraph();
-    for (const cand of activeCandidates) {
-      const eqCount =
-        cand.predicate === "P8_COINCIDENCE" ? 2 : cand.predicate === "P2_PERPENDICULAR" ? 1 : 1;
-      cleanedGraph.addConstraint(cand.id, cand.entityIds, eqCount);
-    }
-    dmResult = cleanedGraph.decomposeDM();
+    dmResult = buildGraph(activeCandidates).decomposeDM();
   }
 
   // Calculate final system Jacobian rank

@@ -1,5 +1,6 @@
 import { Shape, RectangleShape, CircleShape, PolygonShape, LineShape } from "../geometry/types";
 import { detectGADAssemblies } from "../geometry/gadAssemblyEngine";
+import { DEFAULT_TOLERANCE_POLICY } from "../geometry/tolerance";
 
 export type BoundaryLimitState = "Safe" | "Approaching Limit" | "At Limit" | "Exceeded" | "Invalid";
 
@@ -218,7 +219,8 @@ export function evaluateBoundaryLimits(
   let state: BoundaryLimitState = "Safe";
   let message = `Safe: ${Math.round(remainingUnits)} units remaining`;
 
-  const eps = 0.5;
+  // §17: one tolerance policy, injected. Never a module-local constant.
+  const eps = DEFAULT_TOLERANCE_POLICY.geometry_mm;
   if (currentSpan <= 0) {
     state = "Invalid";
     message = "Invalid: Span must be greater than zero";

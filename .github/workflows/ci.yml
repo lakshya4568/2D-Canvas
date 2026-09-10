@@ -31,5 +31,19 @@ jobs:
       - name: Verify Schema Type Generation (§5.1, §25)
         run: bun run generate:types
 
+      # §14: "shared TypeScript types are generated from the JSON Schema, never
+      # hand-duplicated." If regeneration changes a committed file, the schema
+      # and the types have drifted and the build must fail.
+      - name: Fail on generated-type drift (§14)
+        run: |
+          if ! git diff --exit-code --stat; then
+            echo "::error::Generated types differ from the committed ones."
+            echo "Run 'bun run generate:types' and commit the result."
+            exit 1
+          fi
+
+      - name: Typecheck (§14 one contract, three languages)
+        run: bun x tsc --noEmit
+
       - name: Run Comprehensive Test Suite & Acceptance Gates (§75, §76)
         run: bun test
