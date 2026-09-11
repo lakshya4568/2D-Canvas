@@ -24,7 +24,7 @@
 import { DEFAULT_TOLERANCE_POLICY, TolerancePolicy } from "../geometry/tolerance";
 import { isRowIndependent } from "./admissibility";
 import { AuthoringSketch, ConstraintCandidate, SketchConstraint, Provenance } from "./types";
-import { buildSystem, evaluateSystem, evaluateConstraint } from "./residuals";
+import { buildSystem, evaluateSystem, evaluateConstraint, rowScale } from "./residuals";
 
 export interface DetectOptions {
   policy?: TolerancePolicy;
@@ -394,10 +394,21 @@ export function detectCandidates(
     } catch {
       continue;
     }
+    // The residual has to be measured in the same units the tolerance is written
+    // in. A perpendicular constraint's raw residual is a dot product — square
+    // millimetres — so on a 230 x 130 corner three THOUSANDTHS of a degree comes
+    // out as 1.6 and sails past a 0.5 mm threshold. That is how a card could read
+    // "Measured: 0.003° away from square" and, one line below, "This contradicts
+    // what is already constrained, by 1.638". Both numbers described the same
+    // corner; only one of them was in units anybody could compare.
+    //
+    // `rowScale` is what `evaluateSystem` divides by, and it turns that dot
+    // product back into the sine of the angle.
+    const scale = rowScale(sketch, asConstraint, sys.X, sys.index);
     let worstResidual = 0;
     let independentRows = 0;
     for (let r = 0; r < evaluation.jacobian.length; r++) {
-      const verdict = isRowIndependent(jacobian, evaluation.jacobian[r], evaluation.residuals[r]);
+      const verdict = isRowIndependent(jacobian, evaluation.jacobian[r], evaluation.residuals[r] / scale);
       worstResidual = Math.max(worstResidual, verdict.residual);
       if (verdict.isAdmissible) independentRows++;
     }

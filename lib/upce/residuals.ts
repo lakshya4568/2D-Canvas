@@ -167,7 +167,7 @@ function equalLengthRow(
  * the edges, which is both better conditioned and a number a tolerance in
  * radians can meaningfully be compared against.
  */
-function rowScale(sketch: AuthoringSketch, c: SketchConstraint, X: number[], I: Record<string, number>): number {
+export function rowScale(sketch: AuthoringSketch, c: SketchConstraint, X: number[], I: Record<string, number>): number {
   const lengthOf = (segId: string): number => {
     const seg = sketch.segments[segId];
     if (!seg) return 1;

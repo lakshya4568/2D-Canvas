@@ -151,7 +151,13 @@ export function assessReadiness(
     conflicting.length === 0
       ? redundant.length === 0
         ? "Every requirement earns its place."
-        : `${redundant.length} requirement(s) are harmlessly repeated by others.`
+        : // Name them. A repeated rule is harmless only while it agrees; the
+          // moment a value changes it is the thing that makes the sweep fail,
+          // so the author needs to know which rules to look at, not how many.
+          `${redundant.length} requirement(s) say something the others already guarantee, so they can never move the geometry — and they are the first thing to remove if a value refuses to change: ${redundant
+            .slice(0, 6)
+            .map((c) => c.label)
+            .join("; ")}`
       : `These cannot all hold at once: ${conflicting.map((c) => c.label).join("; ")}`
   );
 
