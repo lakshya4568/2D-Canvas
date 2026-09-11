@@ -19,6 +19,7 @@ import { rebuildSketch, liftSketchToShapes, constraintIsResolvable, isLowerable 
 import { expandRepeats, isGeneratedShape } from "./repeat";
 import { solveSketch, SolveOutcome, InvariantCheck, TopologyCheck } from "./solve";
 import { analyseDof, DofReport } from "./dof";
+import { refreshMeasured } from "./link";
 
 export interface RegenerateResult {
   shapes: Shape[];
@@ -172,13 +173,14 @@ export function regenerate(
     };
   }
 
-  // 5. Back into the drawing.
+  // 5. Back into the drawing, and re-read anything that only reports a number.
   const lifted = liftSketchToShapes(outcome.sketch, expansion.shapes, policy);
+  const settled = refreshMeasured(outcome.sketch);
 
   return {
     shapes: lifted.shapes,
-    sketch: outcome.sketch,
-    dof: analyseDof(outcome.sketch, names, policy),
+    sketch: settled,
+    dof: analyseDof(settled, names, policy),
     invariants: outcome.invariants,
     topology: outcome.topology,
     converged: outcome.converged,

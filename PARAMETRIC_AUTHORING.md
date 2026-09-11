@@ -294,6 +294,8 @@ Stated plainly, because the brief asks for no fake completeness.
   rather than springing back on release — and the bidirectional half of §12,
   where dragging a parameter-bound edge changes the parameter instead of being
   undone. Editing a dimension badge *does* go through the solver.
+- **Tangency** has no constraint kind at all, let alone a detector, so a drawing
+  that relies on an arc meeting a line smoothly cannot express that.
 - **The in-app manual** still describes the old workflow.
 - **Multi-view drawings** (plan, elevation, section sharing parameters) are not
   implemented; one document is one sketch.

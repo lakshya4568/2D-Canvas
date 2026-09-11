@@ -35,6 +35,7 @@ import { analyseDof, DofReport } from "@/lib/upce/dof";
 import { assessReadiness, publish, buildManifest, ReadinessReport, TemplateManifest } from "@/lib/upce/template";
 import { createComponent, createRepeat, RepeatDraft } from "@/lib/upce/repeat";
 import { dependentsOf, validateExpression, uniqueParameterName, makeProvenance } from "@/lib/upce/parameters";
+import { measurablesIn, nameMeasurement, linkParameter, unlinkParameter, Measurable, MeasureMode } from "@/lib/upce/link";
 import type { InvariantCheck } from "@/lib/upce/solve";
 
 export type AuthoringStage =
@@ -105,6 +106,11 @@ interface UpceContextValue extends UpceState {
   updateParameter: (name: string, patch: Partial<SketchParameter>) => void;
   renameParameter: (from: string, to: string) => void;
   createDerivedParameter: (name: string, expr: string) => void;
+  /** Everything the given shapes can be measured as, for the relationship editor. */
+  measurablesFor: (shapeIds: string[]) => Measurable[];
+  nameMeasurementAs: (target: Measurable, name: string, mode: MeasureMode) => void;
+  linkValue: (name: string, expr: string) => void;
+  unlinkValue: (name: string) => void;
   deleteConstraint: (id: string) => void;
   toggleConstraint: (id: string) => void;
   makeComponent: (name: string, shapeIds: string[]) => void;
@@ -513,6 +519,54 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     [s.sketch, commit, push]
   );
 
+  /**
+   * Step one of a relationship the drawing gives no evidence for: give the
+   * thing a name. Until a measurement is a named value there is nothing an
+   * expression can refer to, which is what made the formula box unusable for
+   * two shapes that share no constraint.
+   */
+  const measurablesFor = React.useCallback(
+    (shapeIds: string[]) => measurablesIn(s.sketch, shapeIds, names),
+    [s.sketch, names]
+  );
+
+  const nameMeasurementAs = React.useCallback(
+    (target: Measurable, name: string, mode: MeasureMode) => {
+      const { sketch: next, refused } = nameMeasurement(s.sketch, target, name, mode);
+      if (refused) {
+        push({ notice: { kind: "error", text: refused } });
+        return;
+      }
+      if (commit(next, `Named ${target.label}`, s.sketch)) reanalyse(next);
+    },
+    [s.sketch, commit, push, reanalyse]
+  );
+
+  /** Step two: make one named value follow the others. */
+  const linkValue = React.useCallback(
+    (name: string, expr: string) => {
+      const { sketch: next, refused } = linkParameter(s.sketch, name, expr);
+      if (refused) {
+        push({ notice: { kind: "error", text: refused } });
+        return;
+      }
+      commit(next, `${name} now follows ${expr}`, s.sketch);
+    },
+    [s.sketch, commit, push]
+  );
+
+  const unlinkValue = React.useCallback(
+    (name: string) => {
+      const { sketch: next, refused } = unlinkParameter(s.sketch, name);
+      if (refused) {
+        push({ notice: { kind: "error", text: refused } });
+        return;
+      }
+      commit(next, `${name} is typed again`, s.sketch);
+    },
+    [s.sketch, commit, push]
+  );
+
   const deleteConstraint = React.useCallback(
     (id: string) => {
       const { sketch: next, refused, removedParameters } = removeConstraint(s.sketch, id);
@@ -671,6 +725,10 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     updateParameter,
     renameParameter,
     createDerivedParameter,
+    measurablesFor,
+    nameMeasurementAs,
+    linkValue,
+    unlinkValue,
     deleteConstraint,
     toggleConstraint,
     makeComponent,

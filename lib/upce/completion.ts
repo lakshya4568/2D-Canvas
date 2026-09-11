@@ -85,6 +85,19 @@ export interface FreedomGroup {
   /** The design question the author has to answer. */
   question: string;
   options: IntentAction[];
+  /**
+   * Set when the question is real but cannot be answered yet, naming the
+   * measurement that has to exist first.
+   *
+   * A question with no answerable options used to be dropped on the floor, and
+   * the one that matters most — "when the count changes, what happens to the
+   * frame?" — needs two named spans before its formula can even be written. An
+   * author who had not named them saw nothing at all, changed the count, watched
+   * the frame stay put, and had no way to find out why. §4 of the repair brief
+   * is explicit that the system must say what is missing rather than leave the
+   * draftsman alone with a number.
+   */
+  blockedBy?: string;
 }
 
 export interface CompletionReport {
@@ -486,7 +499,7 @@ function measureGroups(sketch: AuthoringSketch, groups: FreedomGroup[]): Freedom
         .map(measure)
         .filter((o) => o.dofRemoved > 0 || o.isDeliberateFreedom || o.alwaysOffer),
     }))
-    .filter((g) => g.options.some((o) => o.dofRemoved > 0 || o.alwaysOffer));
+    .filter((g) => g.blockedBy || g.options.some((o) => o.dofRemoved > 0 || o.alwaysOffer));
 }
 
 function withMeasured(sketch: AuthoringSketch, action: IntentAction): IntentAction {
@@ -1411,8 +1424,50 @@ function arrayContainerQuestions(
     }
 
     if (options.length === 0) {
-      // Nothing is named yet on one side or the other; say so rather than
-      // silently offering nothing.
+      // Nothing is named yet on one side or the other. Say which, and stop —
+      // the coupling is arithmetic between named values, so it cannot be offered
+      // until those values exist, but the author has to be told that is the
+      // reason rather than being shown nothing.
+      // Is the missing span still FREE to name, or has something already
+      // decided it?
+      //
+      // This is the difference between a one-click fix and a dead end, and
+      // telling the author the wrong one is worse than saying nothing. Naming a
+      // thickness on both sides of a nested profile determines the outer span
+      // arithmetically, so the size question that would have named it is gone —
+      // and "name it first" then sends the author looking for a button that is
+      // no longer there. Measuring the effect is the only reliable way to know,
+      // because it depends on everything else they have accepted.
+      const missing: string[] = [];
+      const stuck: string[] = [];
+      for (const [profile, present] of [
+        [container, containerSpanParam] as const,
+        [unit, unitSpanParam] as const,
+      ]) {
+        if (present) continue;
+        (spanIsFree(sketch, profile, axis) ? missing : stuck).push(`${profile.label}'s ${word}`);
+      }
+      groups.push({
+        id: `array_${rule.id}`,
+        motion: `${countParam.name} changes how many copies exist, but nothing tells ${container.label} to change ${word}.`,
+        question: `When ${countParam.name} changes, what should happen to ${container.label}?`,
+        options: [],
+        blockedBy:
+          [
+            `The rule that ties them together is ${container.label}'s ${word} = ` +
+              `(${rule.countParam} - 1) x ${rule.spacingParam} + ${unit.label}'s ${word}` +
+              `${endClearanceParams.length > 0 ? ` + ${endClearanceParams.join(" + ")}` : " + the end clearances"}` +
+              `, and every term has to be a named value before the drawing can work it out.`,
+            missing.length > 0
+              ? `Name ${missing.join(" and ")} — the size question above still offers it.`
+              : "",
+            stuck.length > 0
+              ? `${stuck.join(" and ")} cannot be named as it stands: ${endClearanceParams.length > 0 ? endClearanceParams.join(" and ") : "a rule you already accepted"} already decides it, so naming it would be a second answer to one question. Remove that rule from "Rules in force" and the size question comes back — or start the sizes before the thicknesses next time, which leaves both free to name.`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+      });
       continue;
     }
 
@@ -1469,6 +1524,35 @@ function describeSpan(
  * Found by looking for a dimensional constraint between the profile's own
  * extreme points, which is exactly what `sizeQuestions` creates.
  */
+/**
+ * Could a span still be given a name, or is it already decided?
+ *
+ * Answered by measuring, not by reasoning about what the author accepted: a
+ * probe constraint across the profile's extremes either removes freedom or it
+ * does not, and that is the same test `measureGroups` uses to decide whether to
+ * offer the size question at all.
+ */
+function spanIsFree(sketch: AuthoringSketch, profile: Profile, axis: "x" | "y"): boolean {
+  const pts = profile.pointIds.map((id) => ({ id, p: sketch.points[id] })).filter((e) => e.p);
+  if (pts.length < 2) return false;
+  const sorted = [...pts].sort((m, n) => m.p[axis] - n.p[axis] || (m.id < n.id ? -1 : 1));
+  const probe: SketchConstraint = {
+    id: "__span_probe__",
+    kind: axis === "x" ? "distance_x" : "distance_y",
+    points: [sorted[0].id, sorted[sorted.length - 1].id],
+    segments: [],
+    value: sorted[sorted.length - 1].p[axis] - sorted[0].p[axis],
+    strength: "hard",
+    driving: true,
+    state: "active",
+    label: "probe",
+    provenance: makeProvenance("completion-assistant", "Probe"),
+  };
+  const before = countDof(sketch);
+  const after = countDof({ ...sketch, constraints: [...sketch.constraints, probe] });
+  return after < before;
+}
+
 function spanParameterFor(
   sketch: AuthoringSketch,
   profile: Profile,

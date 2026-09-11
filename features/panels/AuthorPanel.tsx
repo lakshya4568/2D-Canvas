@@ -43,12 +43,16 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  Link2,
+  Link2Off,
+  Ruler,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "../parametric/upceContext";
 import { PanelBody, Empty } from "./DraftPanel";
 import type { ConstraintCandidate, DerivedCandidate, SketchParameter } from "@/lib/upce/types";
 import type { IntentAction } from "@/lib/upce/completion";
+import type { Measurable } from "@/lib/upce/link";
 
 const ORIGIN_LABEL: Record<string, string> = {
   "geometric-fact": "Part of the shape",
@@ -65,6 +69,232 @@ const ROLE_TONE: Record<string, string> = {
   FIXED: "bg-(--ink-sunken) text-(--fg-muted)",
   MEASURED: "bg-(--ink-sunken) text-(--fg-muted)",
 };
+
+
+/**
+ * Step 4b - relationships the drawing gives no evidence for.
+ *
+ * Everything above this point is the system proposing and the author choosing.
+ * This is the author asserting: these two things are related because I say so.
+ * It is the only place in the panel where intent comes from nowhere but the
+ * engineer's head, which is exactly §20 of the brief - the normal workflow must
+ * not need it, and an author who wants it must have it.
+ *
+ * Two halves, because a relationship needs both:
+ *
+ *   MEASURE  select geometry, name what it measures. Until a span has a name
+ *            there is nothing an expression can refer to, and the assistant only
+ *            offers to name one when naming it removes freedom - so a value you
+ *            want purely in order to REFER to it was unreachable. "Report only"
+ *            covers that: it records the number without holding the geometry, so
+ *            it can never conflict with anything.
+ *
+ *   LINK     pick a named value and write what it follows. The constraint that
+ *            reads it does not change, so the geometry goes on obeying the same
+ *            rule; only the source of the number moves. That is why this works
+ *            between shapes that share no constraint at all - the link lives in
+ *            the scalar graph, and the geometric graph never learns of it (§9).
+ */
+function RelationshipSection() {
+  const upce = useUpce();
+  const { state } = useDrawing();
+  const { sketch, measurablesFor, nameMeasurementAs, linkValue, unlinkValue } = upce;
+
+  const selection = React.useMemo(
+    () => (state.selectedIds.length > 0 ? state.selectedIds : state.selectedId ? [state.selectedId] : []),
+    [state.selectedIds, state.selectedId]
+  );
+  const measurables = React.useMemo(
+    () => (selection.length > 0 ? measurablesFor(selection) : []),
+    [selection, measurablesFor]
+  );
+
+  const [chosen, setChosen] = React.useState<string>("");
+  const [measureName, setMeasureName] = React.useState("");
+  const [mode, setMode] = React.useState<"driving" | "reference">("driving");
+  const [target, setTarget] = React.useState<string>("");
+  const [expr, setExpr] = React.useState("");
+
+  const active: Measurable | undefined =
+    measurables.find((m) => m.id === chosen) ?? measurables[0];
+
+  React.useEffect(() => {
+    if (active && !measureName) setMeasureName(active.suggestedName);
+  }, [active, measureName]);
+
+  const parameters = Object.values(sketch.parameters);
+  const linkable = parameters.filter((p) => p.role === "DRIVING" || p.role === "DERIVED");
+  const current = target ? sketch.parameters[target] : undefined;
+
+  // Evaluate what the author has typed against the real parameter values, so a
+  // typo shows up here rather than as a refused edit after they press the button.
+  const preview = React.useMemo(() => {
+    if (!expr.trim() || !target) return null;
+    const names: string[] = expr.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+    const builtins: string[] = ["max", "min", "abs", "round", "ceil", "floor", "sqrt"];
+    const unknown = names.filter((n) => !sketch.parameters[n] && !builtins.includes(n));
+    if (unknown.length > 0) return { ok: false as const, text: `No value called ${unknown[0]}.` };
+    if (names.includes(target)) return { ok: false as const, text: `${target} cannot be written in terms of itself.` };
+    return { ok: true as const, text: `${target} stops being typed and follows this instead.` };
+  }, [expr, target, sketch.parameters]);
+
+  return (
+    <Section title="Step 4b · Relationships you assert" count={linkable.filter((p) => p.role === "DERIVED").length}>
+      <p className="text-[10.5px] leading-[1.55] text-(--fg-muted)">
+        For a relationship the drawing shows no evidence for — this abutment follows that pier,
+        this bay repeats a width from elsewhere. Measure a thing, name it, then make one name follow
+        the others. Works on anything that lowers: rectangles, circles, and profiles built from
+        loose lines alike.
+      </p>
+
+      {/* ---- Measure ---- */}
+      <div className="rounded-[6px] border border-(--rule) overflow-hidden">
+        <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
+          <Ruler className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
+          <span className="text-[11px] text-(--fg-secondary)">Measure and name</span>
+        </div>
+        {selection.length === 0 ? (
+          <p className="px-2.5 py-2 text-[10.5px] text-(--fg-muted)">
+            Select geometry on the canvas. Select two things to measure the gap between them.
+          </p>
+        ) : measurables.length === 0 ? (
+          <p className="px-2.5 py-2 text-[10.5px] text-(--fg-muted)">
+            Nothing measurable in that selection — it has no extent the kernel can lower.
+          </p>
+        ) : (
+          <div className="px-2.5 py-2 flex flex-col gap-1.5">
+            <select
+              value={active?.id ?? ""}
+              onChange={(e) => {
+                setChosen(e.target.value);
+                const next = measurables.find((m) => m.id === e.target.value);
+                setMeasureName(next?.suggestedName ?? "");
+              }}
+              className="h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+            >
+              {measurables.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label} — {m.value.toFixed(1)} mm
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1.5">
+              <input
+                value={measureName}
+                onChange={(e) => setMeasureName(e.target.value)}
+                placeholder="Name"
+                className="flex-1 min-w-0 h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+              />
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as "driving" | "reference")}
+                title="A driving value holds the geometry to it. A report-only value records the number and holds nothing."
+                className="h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+              >
+                <option value="driving">drives it</option>
+                <option value="reference">reports only</option>
+              </select>
+            </div>
+            <Button
+              onClick={() => {
+                if (!active) return;
+                nameMeasurementAs(active, measureName || active.suggestedName, mode);
+                setMeasureName("");
+              }}
+              disabled={!active}
+              icon={Ruler}
+            >
+              Name this measurement
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ---- Link ---- */}
+      <div className="rounded-[6px] border border-(--rule) overflow-hidden">
+        <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
+          <Link2 className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
+          <span className="text-[11px] text-(--fg-secondary)">Make one value follow others</span>
+        </div>
+        {linkable.length === 0 ? (
+          <p className="px-2.5 py-2 text-[10.5px] text-(--fg-muted)">
+            No named values yet. Measure something above, or answer a design question.
+          </p>
+        ) : (
+          <div className="px-2.5 py-2 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <select
+                value={target}
+                onChange={(e) => {
+                  setTarget(e.target.value);
+                  setExpr(sketch.parameters[e.target.value]?.expr ?? "");
+                }}
+                className="w-[112px] h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+              >
+                <option value="">Which value…</option>
+                {linkable.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-(--fg-muted) text-[11px]">=</span>
+              <input
+                value={expr}
+                onChange={(e) => setExpr(e.target.value)}
+                placeholder="OtherWidth - 2 * WallThickness"
+                className="num flex-1 min-w-0 h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+              />
+            </div>
+
+            {/* Operands, so nobody has to remember a name or its spelling. */}
+            <div className="flex flex-wrap gap-1">
+              {parameters
+                .filter((p) => p.name !== target)
+                .map((p) => (
+                  <button
+                    key={p.name}
+                    onClick={() => setExpr((e) => (e ? `${e} ${p.name}` : p.name))}
+                    title={`${p.role} · ${p.value.toFixed(2)} ${p.unit}`}
+                    className="px-1.5 h-[20px] rounded-[4px] text-[10px] border border-(--rule) text-(--fg-muted) hover:text-(--fg-primary) hover:border-(--rule-strong) cursor-pointer"
+                  >
+                    {p.name}
+                    <span className="num ml-1 opacity-60">{p.value.toFixed(0)}</span>
+                  </button>
+                ))}
+            </div>
+
+            {preview && (
+              <p className={`text-[10px] ${preview.ok ? "text-(--fg-muted)" : "text-(--danger)"}`}>
+                {preview.text}
+              </p>
+            )}
+
+            <div className="flex items-center gap-1.5">
+              <Button
+                onClick={() => {
+                  linkValue(target, expr);
+                  setExpr("");
+                  setTarget("");
+                }}
+                disabled={!target || !expr.trim() || preview?.ok === false}
+                icon={Link2}
+                tone="primary"
+              >
+                Link it
+              </Button>
+              {current?.role === "DERIVED" && (
+                <Button onClick={() => unlinkValue(current.name)} icon={Link2Off} tone="quiet">
+                  Take back manual control
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
 
 function Section({
   title,
@@ -555,8 +785,6 @@ export function AuthorPanel() {
   const [repeatCount, setRepeatCount] = React.useState(3);
   const [repeatPitch, setRepeatPitch] = React.useState(0);
   const [spacingMode, setSpacingMode] = React.useState<"driven" | "derived">("driven");
-  const [formulaName, setFormulaName] = React.useState("");
-  const [formulaExpr, setFormulaExpr] = React.useState("");
 
   return (
     <PanelBody>
@@ -756,9 +984,13 @@ export function AuthorPanel() {
                 </div>
               </div>
               <div className="flex flex-col gap-1 pl-4">
-                {g.options.map((o) => (
-                  <IntentOption key={o.id} option={o} />
-                ))}
+                {g.blockedBy ? (
+                  <p className="text-[10.5px] leading-[1.55] text-(--fg-muted) rounded-[5px] border border-dashed border-(--rule) px-2 py-1.5">
+                    {g.blockedBy}
+                  </p>
+                ) : (
+                  g.options.map((o) => <IntentOption key={o.id} option={o} />)
+                )}
               </div>
             </div>
           ))}
@@ -796,44 +1028,10 @@ export function AuthorPanel() {
             </div>
           )}
 
-          <details className="rounded-[6px] border border-(--rule) overflow-hidden">
-            <summary className="px-2.5 h-[28px] flex items-center text-[11px] text-(--fg-muted) cursor-pointer">
-              Write a relationship myself
-            </summary>
-            <div className="px-2.5 py-2 flex flex-col gap-1.5">
-              <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
-                For the cases the detectors cannot see. The expression is parsed, its references are
-                checked against real parameters, and a circular definition is refused before it is saved.
-              </p>
-              <div className="flex items-center gap-1.5">
-                <input
-                  value={formulaName}
-                  onChange={(e) => setFormulaName(e.target.value)}
-                  placeholder="Name"
-                  className="w-[86px] h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
-                />
-                <span className="text-(--fg-muted) text-[11px]">=</span>
-                <input
-                  value={formulaExpr}
-                  onChange={(e) => setFormulaExpr(e.target.value)}
-                  placeholder="OuterWidth - 2 * WallThickness"
-                  className="num flex-1 min-w-0 h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
-                />
-              </div>
-              <Button
-                onClick={() => {
-                  upce.createDerivedParameter(formulaName, formulaExpr);
-                  setFormulaName("");
-                  setFormulaExpr("");
-                }}
-                disabled={!formulaName.trim() || !formulaExpr.trim()}
-              >
-                Check and add
-              </Button>
-            </div>
-          </details>
         </Section>
       )}
+
+      {started && <RelationshipSection />}
 
       {started && sketch.constraints.length > 0 && (
         <Section title="Rules in force" count={sketch.constraints.length}>
