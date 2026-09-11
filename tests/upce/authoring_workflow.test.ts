@@ -256,6 +256,10 @@ describe("Scenario B — a repeat authored from ordinary geometry", () => {
 
     s = commit(s, applyAction(s.sketch, grow!));
 
+    // Once applied, the question is resolved and must not be offered again (§3.2).
+    const reportAfter = suggestCompletion(s.sketch, s.names);
+    expect(reportAfter.groups.filter((g) => g.id.startsWith("array_"))).toHaveLength(0);
+
     const widths: number[] = [];
     for (const count of [1, 2, 3, 4]) {
       s = setParameter(s, "CellCount", count);
@@ -489,3 +493,69 @@ describe("Degrees of freedom are measured, never estimated", () => {
     }
   });
 });
+
+describe("Two-sided clearance coupling when both spans are named", () => {
+  it("offers derived coupling when both outer and inner widths are named, and grows dynamically", () => {
+    let s = begin(nestedRectangles());
+    s = acceptAllDetected(s);
+    s = choose(s, "Pin Outer");
+    s = choose(s, "Name Outer's width");
+    s = choose(s, "Name Outer's height");
+    s = choose(s, "Name Opening's width");
+    s = choose(s, "Name Opening's height");
+
+    const report = suggestCompletion(s.sketch, s.names);
+    const horiz = report.groups.find((g) => g.id.includes("horizontal"));
+    expect(horiz).toBeDefined();
+
+    const titles = horiz!.options.map((o) => o.title);
+    expect(titles.some((t) => t.includes("grows to fit"))).toBe(true);
+    expect(titles.some((t) => t.includes("sizes to fit inside"))).toBe(true);
+
+    // Choose Outer grows to fit Opening
+    s = choose(s, "grows to fit");
+    expect(s.sketch.parameters.OuterWidth.role).toBe("DERIVED");
+    expect(s.sketch.parameters.OpeningWidth.role).toBe("DRIVING");
+    expect(s.sketch.parameters.WallThickness.role).toBe("DRIVING");
+
+    // Driving OpeningWidth resizes the outer frame dynamically
+    s = setParameter(s, "OpeningWidth", 5000);
+    const r1 = rect(s, "R1");
+    const r2 = rect(s, "R2");
+    const gaps = gapsAround(s, "R1", "R2");
+
+    expect(r2.width).toBeCloseTo(5000, MM);
+    expect(r1.width).toBeCloseTo(5600, MM);
+    expect(gaps.left).toBeCloseTo(300, MM);
+    expect(gaps.right).toBeCloseTo(300, MM);
+
+    // Driving WallThickness resizes the outer frame to preserve both walls
+    s = setParameter(s, "WallThickness", 500);
+    const r1Thick = rect(s, "R1");
+    const r2Thick = rect(s, "R2");
+    const gapsThick = gapsAround(s, "R1", "R2");
+
+    expect(r2Thick.width).toBeCloseTo(5000, MM);
+    expect(r1Thick.width).toBeCloseTo(6000, MM);
+    expect(gapsThick.left).toBeCloseTo(500, MM);
+    expect(gapsThick.right).toBeCloseTo(500, MM);
+  });
+
+  it("works identically on an 8-line haunched cell inside a frame", () => {
+    let s = begin(haunchedCellInFrame());
+    s = { ...s, sketch: createComponent(s.sketch, s.shapes, HAUNCHED_CELL_SHAPE_IDS, "Cell").sketch };
+    s = acceptAllDetected(s);
+    s = choose(s, "Pin Outer_Frame");
+    s = choose(s, "Name Outer_Frame's width");
+    s = choose(s, "Name Cell's width");
+
+    const report = suggestCompletion(s.sketch, s.names);
+    const horiz = report.groups.find((g) => g.id.includes("horizontal"));
+    expect(horiz).toBeDefined();
+    expect(horiz!.options.some((o) => o.title.includes("Outer_Frame grows to fit Cell"))).toBe(true);
+
+    s = choose(s, "Outer_Frame grows to fit Cell");
+    expect(s.sketch.parameters.Outer_FrameWidth.role).toBe("DERIVED");
+  });
+});
+

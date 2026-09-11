@@ -365,10 +365,14 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
   const applyIntent = React.useCallback(
     (action: IntentAction) => {
       if (action.isDeliberateFreedom) {
+        const nextSketch = applyAction(
+          { ...s.sketch, meta: { ...s.sketch.meta, freedomIsIntentional: true } },
+          action
+        );
         setS((prev) => ({
           ...prev,
-          sketch: { ...prev.sketch, meta: { ...prev.sketch.meta, freedomIsIntentional: true } },
-          completion: suggestCompletion(prev.sketch, names),
+          sketch: nextSketch,
+          completion: suggestCompletion(nextSketch, names),
           notice: { kind: "info", text: `Recorded: ${action.title.toLowerCase()}.` },
         }));
         return;

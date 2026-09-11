@@ -229,6 +229,8 @@ export interface RepeatRule {
   /** Whether consecutive instances weld their touching vertices. */
   weldAdjacent: boolean;
   provenance: Provenance;
+  /** Whether the containing profile grows with copies, pitch fits into it, or they are independent. */
+  enclosureCoupling?: "grow" | "fit" | "independent";
 }
 
 // ---------------------------------------------------------------------------

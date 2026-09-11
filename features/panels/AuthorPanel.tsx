@@ -495,7 +495,13 @@ function IntentOption({ option }: { option: IntentAction }) {
               {e}
             </p>
           ))}
-          <Button onClick={() => applyIntent(option)} tone="primary">
+          <Button
+            onClick={() => {
+              applyIntent(option);
+              setOpen(false);
+            }}
+            tone="primary"
+          >
             {option.isDeliberateFreedom ? "That is intended" : "This is what I meant"}
           </Button>
         </div>

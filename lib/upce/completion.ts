@@ -26,7 +26,7 @@ import {
   ParameterRole,
 } from "./types";
 import { analyseDof, countDof } from "./dof";
-import { uniqueParameterName, makeProvenance } from "./parameters";
+import { uniqueParameterName, makeProvenance, dependenciesOf } from "./parameters";
 import { findProfiles, profileLoop, pointInLoop, longestSegment, Profile } from "./profile";
 import { buildSystem, evaluateSystem, evaluateConstraint } from "./residuals";
 import { isRowIndependent } from "./admissibility";
@@ -263,7 +263,18 @@ export function measureAction(sketch: AuthoringSketch, action: IntentAction): nu
 
 /** Commits an action: creates its parameters, then its constraints. */
 export function applyAction(sketch: AuthoringSketch, action: IntentAction): AuthoringSketch {
-  if (action.isDeliberateFreedom) return sketch;
+  if (action.isDeliberateFreedom) {
+    if (action.id.startsWith("array_free_")) {
+      const ruleId = action.id.replace("array_free_", "");
+      return {
+        ...sketch,
+        repeats: sketch.repeats.map((r) =>
+          r.id === ruleId ? { ...r, enclosureCoupling: "independent" as const } : r
+        ),
+      };
+    }
+    return sketch;
+  }
 
   const parameters = { ...sketch.parameters };
 
@@ -376,7 +387,20 @@ export function applyAction(sketch: AuthoringSketch, action: IntentAction): Auth
     }
   }
 
-  return { ...sketch, parameters, constraints };
+  let repeats = sketch.repeats;
+  if (action.id.startsWith("array_grow_")) {
+    const ruleId = action.id.replace("array_grow_", "");
+    repeats = repeats.map((r) =>
+      r.id === ruleId ? { ...r, enclosureCoupling: "grow" as const } : r
+    );
+  } else if (action.id.startsWith("array_fit_")) {
+    const ruleId = action.id.replace("array_fit_", "");
+    repeats = repeats.map((r) =>
+      r.id === ruleId ? { ...r, enclosureCoupling: "fit" as const } : r
+    );
+  }
+
+  return { ...sketch, parameters, constraints, repeats };
 }
 
 // ---------------------------------------------------------------------------
@@ -1045,49 +1069,144 @@ function clearanceQuestions(
       const axisWord = axis === "horizontal" ? "left and right" : "top and bottom";
       const suggestedName = axis === "horizontal" ? "WallThickness" : "SlabThickness";
 
+      const containerSpan = spanParameterFor(sketch, outer, axis === "horizontal" ? "x" : "y");
+      const innerSpan = spanParameterFor(sketch, inner, axis === "horizontal" ? "x" : "y");
+
       const options: IntentAction[] = [];
 
-      options.push({
-        id: `clear_equal_${f1.outerEdgeId}_${f2.outerEdgeId}`,
-        title: `Keep both ${axisWord} gaps equal and name them`,
-        rationale: equal
-          ? `The two gaps already measure the same within ${policy.cluster_mm} mm, which usually means one thickness was intended for both.`
-          : `The two gaps differ. Choosing this makes them equal at their average and drives both from one value.`,
-        createsParameters: [
-          {
-            name: suggestedName,
-            value: Math.round(mean * 100) / 100,
-            role: "DRIVING",
-            unit: "mm",
-            uiGroup: "Thicknesses",
-            description: `Distance held between ${outer.label} and ${inner.label} on both ${axisWord} faces.`,
+      if (containerSpan && innerSpan) {
+        // Both spans are already driving parameters. Holding thickness on BOTH sides
+        // is an arithmetic relationship: OuterSpan = InnerSpan + 2 * Thickness.
+        // Therefore, one of the two MUST become derived, otherwise both spans stay
+        // independent driving numbers and the second gap is silently dropped.
+        options.push({
+          id: `clear_grow_${outer.id}_${inner.id}_${axis}`,
+          title: `${outer.label} grows to fit ${inner.label} with equal ${axisWord} thickness`,
+          rationale: `${outer.label}'s size stops being typed and is calculated from ${inner.label} plus equal ${suggestedName} on both sides.`,
+          createsParameters: [
+            {
+              name: suggestedName,
+              value: Math.round(mean * 100) / 100,
+              role: "DRIVING",
+              unit: "mm",
+              uiGroup: "Thicknesses",
+              description: `Distance held between ${outer.label} and ${inner.label} on both ${axisWord} faces.`,
+            },
+          ],
+          createsConstraints: [
+            {
+              kind: "point_line_distance" as const,
+              points: [f1.innerPointIds[0]],
+              segments: [f1.outerEdgeId],
+              sign: f1.sign,
+              paramRef: suggestedName,
+              strength: "hard" as const,
+              driving: true,
+              state: "active" as const,
+              label: `${inner.label} sits ${suggestedName} from ${outer.label}`,
+              provenance: makeProvenance(
+                "completion-assistant",
+                `${outer.label} was derived to fit ${inner.label} plus equal ${suggestedName} on both sides.`,
+                { evidence: [`${f1.distance.toFixed(2)} mm and ${f2.distance.toFixed(2)} mm measured`] }
+              ),
+            },
+          ],
+          convertToDerived: {
+            name: containerSpan,
+            expr: `${innerSpan} + 2 * ${suggestedName}`,
           },
-        ],
-        createsConstraints: [f1, f2].map((f) => ({
-          kind: "point_line_distance" as const,
-          points: [f.innerPointIds[0]],
-          segments: [f.outerEdgeId],
-          sign: f.sign,
-          paramRef: suggestedName,
-          strength: "hard" as const,
-          driving: true,
-          state: "active" as const,
-          label: `${inner.label} sits ${suggestedName} from ${outer.label}`,
-          provenance: makeProvenance(
-            "completion-assistant",
-            `Both ${axisWord} gaps were bound to one named value, so changing the outside cannot change the thickness.`,
-            { evidence: [`${f1.distance.toFixed(2)} mm and ${f2.distance.toFixed(2)} mm measured`] }
-          ),
-        })),
-        evidence: [
-          `One face: ${f1.distance.toFixed(2)} mm`,
-          `The opposite face: ${f2.distance.toFixed(2)} mm`,
-          equal
-            ? `Difference ${Math.abs(f1.distance - f2.distance).toFixed(2)} mm — within tolerance`
-            : `Difference ${Math.abs(f1.distance - f2.distance).toFixed(2)} mm — they would be averaged`,
-        ],
-        dofRemoved: 0,
-      });
+          evidence: [
+            `${containerSpan} becomes derived: ${innerSpan} + 2 * ${suggestedName}`,
+            `Changing ${innerSpan} or ${suggestedName} will automatically adjust ${containerSpan}`,
+          ],
+          dofRemoved: 1,
+        });
+
+        options.push({
+          id: `clear_fit_${outer.id}_${inner.id}_${axis}`,
+          title: `${inner.label} sizes to fit inside ${outer.label} with equal ${axisWord} thickness`,
+          rationale: `${inner.label}'s size stops being typed and is carved out of ${outer.label} minus equal ${suggestedName} on both sides.`,
+          createsParameters: [
+            {
+              name: suggestedName,
+              value: Math.round(mean * 100) / 100,
+              role: "DRIVING",
+              unit: "mm",
+              uiGroup: "Thicknesses",
+              description: `Distance held between ${outer.label} and ${inner.label} on both ${axisWord} faces.`,
+            },
+          ],
+          createsConstraints: [
+            {
+              kind: "point_line_distance" as const,
+              points: [f1.innerPointIds[0]],
+              segments: [f1.outerEdgeId],
+              sign: f1.sign,
+              paramRef: suggestedName,
+              strength: "hard" as const,
+              driving: true,
+              state: "active" as const,
+              label: `${inner.label} sits ${suggestedName} from ${outer.label}`,
+              provenance: makeProvenance(
+                "completion-assistant",
+                `${inner.label} was derived to fit inside ${outer.label} with equal ${suggestedName} on both sides.`,
+                { evidence: [`${f1.distance.toFixed(2)} mm and ${f2.distance.toFixed(2)} mm measured`] }
+              ),
+            },
+          ],
+          convertToDerived: {
+            name: innerSpan,
+            expr: `${containerSpan} - 2 * ${suggestedName}`,
+          },
+          evidence: [
+            `${innerSpan} becomes derived: ${containerSpan} - 2 * ${suggestedName}`,
+            `Changing ${containerSpan} or ${suggestedName} will automatically adjust ${innerSpan}`,
+          ],
+          dofRemoved: 1,
+        });
+      } else {
+        options.push({
+          id: `clear_equal_${f1.outerEdgeId}_${f2.outerEdgeId}`,
+          title: `Keep both ${axisWord} gaps equal and name them`,
+          rationale: equal
+            ? `The two gaps already measure the same within ${policy.cluster_mm} mm, which usually means one thickness was intended for both.`
+            : `The two gaps differ. Choosing this makes them equal at their average and drives both from one value.`,
+          createsParameters: [
+            {
+              name: suggestedName,
+              value: Math.round(mean * 100) / 100,
+              role: "DRIVING",
+              unit: "mm",
+              uiGroup: "Thicknesses",
+              description: `Distance held between ${outer.label} and ${inner.label} on both ${axisWord} faces.`,
+            },
+          ],
+          createsConstraints: [f1, f2].map((f) => ({
+            kind: "point_line_distance" as const,
+            points: [f.innerPointIds[0]],
+            segments: [f.outerEdgeId],
+            sign: f.sign,
+            paramRef: suggestedName,
+            strength: "hard" as const,
+            driving: true,
+            state: "active" as const,
+            label: `${inner.label} sits ${suggestedName} from ${outer.label}`,
+            provenance: makeProvenance(
+              "completion-assistant",
+              `Both ${axisWord} gaps were bound to one named value, so changing the outside cannot change the thickness.`,
+              { evidence: [`${f1.distance.toFixed(2)} mm and ${f2.distance.toFixed(2)} mm measured`] }
+            ),
+          })),
+          evidence: [
+            `One face: ${f1.distance.toFixed(2)} mm`,
+            `The opposite face: ${f2.distance.toFixed(2)} mm`,
+            equal
+              ? `Difference ${Math.abs(f1.distance - f2.distance).toFixed(2)} mm — within tolerance`
+              : `Difference ${Math.abs(f1.distance - f2.distance).toFixed(2)} mm — they would be averaged`,
+          ],
+          dofRemoved: 0,
+        });
+      }
 
       let side = 0;
       for (const f of [f1, f2]) {
@@ -1323,6 +1442,21 @@ function arrayContainerQuestions(
     // What already names the container's span, and the unit's own span?
     const containerSpanParam = spanParameterFor(sketch, container, axis);
     const unitSpanParam = spanParameterFor(sketch, unit, axis);
+
+    const containerParam = containerSpanParam ? sketch.parameters[containerSpanParam] : undefined;
+    const containerGrows =
+      rule.enclosureCoupling === "grow" ||
+      (containerParam?.role === "DERIVED" &&
+        Boolean(containerParam.expr) &&
+        dependenciesOf(containerParam.expr!).includes(rule.countParam));
+    const spacingFits =
+      rule.enclosureCoupling === "fit" ||
+      (spacingParam.role === "DERIVED" &&
+        Boolean(spacingParam.expr) &&
+        dependenciesOf(spacingParam.expr!).includes(rule.countParam));
+    const independent = rule.enclosureCoupling === "independent";
+
+    if (containerGrows || spacingFits || independent) continue;
 
     // The clearances at each end of the array, from the faces that pin this axis.
     const endFaces = containing.filter(
