@@ -33,7 +33,44 @@ export interface RegenerateResult {
   parameterErrors: { parameter: string; message: string }[];
   /** Constraints dropped because the geometry they referenced was deleted. */
   droppedConstraintIds: string[];
+  /**
+   * Shapes whose coordinates the solver changed relative to the ones handed in.
+   *
+   * In the intent direction this is "a value was typed and these responded". In
+   * the geometry direction it is the more interesting answer: "you dragged this,
+   * and the rules would not let it stay there" — which is the only way the UI
+   * can tell a move that was accepted from one that was quietly undone, instead
+   * of leaving the draftsman to wonder why a pinned shape kept jumping back.
+   */
+  movedShapeIds: string[];
   notes: string[];
+}
+
+/** Numeric geometry carried by the shape types the kernel can lower. */
+const GEOMETRY_KEYS = [
+  "x", "y", "width", "height",
+  "x1", "y1", "x2", "y2",
+  "cx", "cy", "r", "rx", "ry",
+  "rotation",
+] as const;
+
+function movedShapes(before: Shape[], after: Shape[], tol: number): string[] {
+  const prior = new Map(before.map((s) => [s.id, s as unknown as Record<string, unknown>]));
+  const out: string[] = [];
+  for (const shape of after) {
+    const was = prior.get(shape.id);
+    if (!was) continue;
+    const now = shape as unknown as Record<string, unknown>;
+    for (const key of GEOMETRY_KEYS) {
+      const a = was[key];
+      const b = now[key];
+      if (typeof a === "number" && typeof b === "number" && Math.abs(a - b) > tol) {
+        out.push(shape.id);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 export interface RegenerateOptions {
@@ -41,6 +78,19 @@ export interface RegenerateOptions {
   shapeNames?: Record<string, string>;
   /** Skip the reject-on-failure gate. Used for live drag preview only. */
   preview?: boolean;
+  /**
+   * Which of the two models moved first.
+   *
+   * `"intent"` (the default) is the normal direction: a value was typed or a
+   * rule was accepted, and the geometry has to follow, so the last solved
+   * coordinates are the honest starting point.
+   *
+   * `"geometry"` is the other direction — the draftsman dragged something. The
+   * shapes handed in ARE the new truth and must not be overwritten by the
+   * previous solve, or the drag would be silently undone before the solver ever
+   * saw it and every move would look identical to a move the rules refused.
+   */
+  source?: "intent" | "geometry";
 }
 
 /** Display names for the DOF and candidate wording, taken from the drawing. */
@@ -75,7 +125,13 @@ export function regenerate(
   //
   // Lifting the previous solve back onto the shapes first means every copy starts
   // as an exact translation of the current unit and stays on its branch.
-  const current = liftSketchToShapes(previous, authoredShapes, policy).shapes;
+  //
+  // None of that applies when the geometry is what moved: there the incoming
+  // coordinates are newer than the sketch, and lifting would throw them away.
+  const current =
+    options.source === "geometry"
+      ? authoredShapes
+      : liftSketchToShapes(previous, authoredShapes, policy).shapes;
   const expansion = expandRepeats(current, previous);
 
   // 2. Lower the drawing into primitives, carrying the previous intent forward.
@@ -94,8 +150,14 @@ export function regenerate(
   const outcome: SolveOutcome = solveSketch(withRepeatRows, { policy, preview: options.preview });
 
   if (!outcome.ok) {
+    // §35: a refused edit must not leave half-moved geometry on the sheet. The
+    // last solved coordinates live in `previous`, so lifting them back is the
+    // rollback — and in the geometry direction that is the whole point, because
+    // the shapes handed in are the ones the draftsman just dragged somewhere the
+    // rules do not allow.
+    const restored = liftSketchToShapes(previous, authoredShapes, policy).shapes;
     return {
-      shapes: authoredShapes,
+      shapes: restored,
       sketch: previous,
       dof: analyseDof(previous, names, policy),
       invariants: outcome.invariants,
@@ -105,6 +167,7 @@ export function regenerate(
       rejection: outcome.rejection,
       parameterErrors: outcome.parameterErrors,
       droppedConstraintIds,
+      movedShapeIds: movedShapes(authoredShapes, restored, policy.geometry_mm),
       notes: expansion.notes,
     };
   }
@@ -122,6 +185,7 @@ export function regenerate(
     maxResidual: outcome.maxResidual,
     parameterErrors: outcome.parameterErrors,
     droppedConstraintIds,
+    movedShapeIds: movedShapes(authoredShapes, lifted.shapes, policy.geometry_mm),
     notes: [...expansion.notes, ...lifted.issues.map((i) => i.message)],
   };
 }

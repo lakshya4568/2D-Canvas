@@ -121,6 +121,9 @@ interface UpceContextValue extends UpceState {
 
 const Ctx = React.createContext<UpceContextValue | null>(null);
 
+/** How long the drawing must sit still before the solver is asked about it. */
+const SETTLE_MS = 120;
+
 export function UpceProvider({ children }: { children: React.ReactNode }) {
   const { state, dispatch } = useDrawing();
   const [s, setS] = React.useState<UpceState>(initial);
@@ -185,6 +188,100 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     [authored, names, dispatch, push]
   );
 
+  /**
+   * The drawing moved; catch the model up and let the solver answer.
+   *
+   * Everything the authoring panels do runs `commit`, where intent changes first
+   * and the geometry follows. A drag runs the other way: the canvas writes new
+   * coordinates straight into the drafting reducer, and until this existed the
+   * authoring sketch never heard about it. Two visible consequences, both of
+   * which look like separate bugs and are not:
+   *
+   *   - constraint glyphs and dimension badges are positioned from the sketch's
+   *     points, so they stayed behind at the old location while the shape moved
+   *     away from underneath them;
+   *   - a `fix` rule is enforced by the solver, and the solver was never asked,
+   *     so a pinned shape could be dragged anywhere with nothing to stop it.
+   *
+   * Re-lowering with `source: "geometry"` puts the new coordinates in as the
+   * starting point and keeps the accepted intent, so the solve either accepts
+   * the move or pulls the geometry back to where the rules require it.
+   */
+  const syncFromGeometry = React.useCallback(() => {
+    if (!s.started || s.busy) return;
+
+    const result = regenerate(authored, s.sketch, { shapeNames: names, source: "geometry" });
+
+    if (result.rejection) {
+      dispatch({ type: "APPLY_SOLVED_SHAPES", shapes: result.shapes, description: "Edit refused" });
+      setS((prev) => ({
+        ...prev,
+        invariants: result.invariants,
+        notice: { kind: "error", text: `That edit was put back: ${result.rejection}` },
+      }));
+      return;
+    }
+
+    // Only write back when the solver actually disagreed with the drag. A move
+    // the rules are happy with must not turn into a second undo step.
+    const held = result.movedShapeIds;
+    if (held.length > 0) {
+      dispatch({
+        type: "APPLY_SOLVED_SHAPES",
+        shapes: result.shapes,
+        description: "Held by the rules",
+      });
+    }
+
+    setS((prev) => ({
+      ...prev,
+      sketch: result.sketch,
+      dof: result.dof,
+      invariants: result.invariants,
+      // Behaviour was verified against the geometry that has just changed.
+      readiness: null,
+      notice:
+        held.length > 0
+          ? {
+              kind: "warn",
+              text: `${held
+                .map((id) => names[id] ?? id)
+                .slice(0, 3)
+                .join(", ")} could not stay where it was put — a rule holds it. Remove or suppress that rule in "Rules in force" to move it freely.`,
+            }
+          : prev.notice,
+    }));
+  }, [s.started, s.busy, s.sketch, authored, names, dispatch]);
+
+  /**
+   * Debounced so the solve happens once per gesture, not once per frame.
+   *
+   * The canvas dispatches new coordinates on every pointer move; §34 forbids
+   * running full-document analysis at that rate. Waiting for the drawing to sit
+   * still costs a few frames of glyph lag during a drag and one solve at the end
+   * of it. The ref indirection keeps the timer from re-arming just because the
+   * callback's identity changed on an unrelated render.
+   */
+  const syncRef = React.useRef(syncFromGeometry);
+  syncRef.current = syncFromGeometry;
+  const syncedRevision = React.useRef(state.geometryRevision);
+
+  React.useEffect(() => {
+    if (!s.started) {
+      // Nothing to catch up to yet: the sketch starts at the first Analyse.
+      syncedRevision.current = state.geometryRevision;
+      return;
+    }
+    if (state.geometryRevision === syncedRevision.current) return;
+
+    const revision = state.geometryRevision;
+    const timer = setTimeout(() => {
+      syncedRevision.current = revision;
+      syncRef.current();
+    }, SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [state.geometryRevision, s.started]);
+
   const analyse = React.useCallback(() => {
     // Always carry the current sketch forward, even on the first run.
     //
@@ -193,7 +290,7 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     // grouped and named, which then reverted to "Profile A" in every sentence
     // the panel produced. `rebuildSketch` merges an empty sketch to nothing, so
     // there is no case that needs the fresh start.
-    const result = regenerate(authored, s.sketch, { shapeNames: names });
+    const result = regenerate(authored, s.sketch, { shapeNames: names, source: "geometry" });
     const working = result.rejection ? s.sketch : result.sketch;
 
     const candidates = detectCandidates(working, { shapeNames: names }).filter(

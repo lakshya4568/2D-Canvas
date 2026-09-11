@@ -282,10 +282,18 @@ Stated plainly, because the brief asks for no fake completeness.
   fewer questions than one built from lines.
 - **Ellipses and splines** are carrier geometry: drawn, exported, never
   constrained. The readiness check says so rather than ignoring them.
-- **Grip dragging** does not yet route through `dragPoint()`. The function exists
-  and is correct — a temporary target row plus a preview solve — but the canvas
-  still moves shapes directly and the sketch catches up on the next regenerate.
-  Editing a dimension badge *does* go through the solver.
+- **Grip dragging** does not yet route through `dragPoint()` *live*. The canvas
+  still writes coordinates directly while the pointer is down, so nothing
+  resists mid-drag. What has changed is that the drawing no longer gets away
+  with it: `geometryRevision` ticks on every change the solver did not make, and
+  120 ms after the drawing settles the authoring session re-lowers it with
+  `regenerate(..., { source: "geometry" })`. The solver then either accepts the
+  move or puts the geometry back and names the rule that held it. Constraint
+  glyphs and dimension badges follow the geometry for the same reason. The
+  remaining gap is the *feel* — a pinned shape should refuse under the cursor
+  rather than springing back on release — and the bidirectional half of §12,
+  where dragging a parameter-bound edge changes the parameter instead of being
+  undone. Editing a dimension badge *does* go through the solver.
 - **The in-app manual** still describes the old workflow.
 - **Multi-view drawings** (plan, elevation, section sharing parameters) are not
   implemented; one document is one sketch.

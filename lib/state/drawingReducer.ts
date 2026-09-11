@@ -66,6 +66,23 @@ export interface DrawingState {
    *   user      - enters site conditions into a form. Read-only geometry.
    */
   userMode: UserMode;
+  /**
+   * Ticks every time the drawing's geometry is changed by something OTHER than
+   * the parametric solver — a drag, a resize, a typed width, an undo.
+   *
+   * The authoring sketch is a model of the drawing, not the drawing itself, so
+   * when the pen moves a shape the sketch is instantly out of date: its points
+   * still sit where the shape used to be, which is why constraint glyphs and
+   * dimension badges were left stranded behind a moved rectangle, and why a
+   * shape carrying a `fix` rule could be dragged anywhere with nothing stopping
+   * it. This counter is the signal the authoring session watches so it can
+   * re-lower the drawing and let the solver have its say (§12: the editor must
+   * never change coordinates independently of the model).
+   *
+   * Solver output is deliberately excluded, otherwise applying a solve would ask
+   * for another solve for ever.
+   */
+  geometryRevision: number;
 }
 
 export type DrawingAction =
@@ -148,6 +165,7 @@ export const initialDrawingState: DrawingState = {
   },
   boundaryEvaluations: [],
   userMode: "draftsman",
+  geometryRevision: 0,
 };
 
 /**
@@ -275,7 +293,7 @@ function expandGroupIds(shapes: Shape[], ids: ID[]): ID[] {
   return Array.from(selectedSet);
 }
 
-export function drawingReducer(state: DrawingState, action: DrawingAction): DrawingState {
+function reduce(state: DrawingState, action: DrawingAction): DrawingState {
   switch (action.type) {
     case "SET_TOOL": {
       return {
@@ -1119,4 +1137,20 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
     default:
       return state;
   }
+}
+
+/**
+ * Every action goes through here so the geometry counter cannot be forgotten.
+ *
+ * Bumping it inside each of the twenty-odd cases that touch `shapes` would be a
+ * standing invitation to add a twenty-first and miss it; comparing the array
+ * identity afterwards catches all of them, including the ones that move
+ * geometry as a side effect of something else.
+ */
+export function drawingReducer(state: DrawingState, action: DrawingAction): DrawingState {
+  const next = reduce(state, action);
+  if (next.shapes !== state.shapes && action.type !== "APPLY_SOLVED_SHAPES") {
+    return { ...next, geometryRevision: state.geometryRevision + 1 };
+  }
+  return next;
 }

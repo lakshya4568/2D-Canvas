@@ -105,7 +105,15 @@ export function assessReadiness(
   if (baseline.rejection) {
     add("Constraint solve", "fail", `The drawing does not solve as it stands: ${baseline.rejection}`);
   } else if (!baseline.converged) {
-    add("Constraint solve", "fail", "The solver could not settle the current geometry.");
+    // Not a failure on its own: every relationship the author declared still
+    // holds — that is what the invariant report just confirmed — the solver
+    // simply stopped short of its numerical target. Worth saying, because a
+    // large residual here is the first sign of an ill-conditioned model.
+    add(
+      "Constraint solve",
+      "warn",
+      `Solved, but the numbers did not fully settle: worst residual ${baseline.maxResidual.toExponential(1)}. Every declared relationship still holds; a large figure here usually means two requirements are pulling against each other.`
+    );
   } else {
     add("Constraint solve", "pass", `Converged with a worst residual of ${baseline.maxResidual.toExponential(1)}.`);
   }

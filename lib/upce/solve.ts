@@ -291,14 +291,30 @@ function solveWithHomotopy(
   const direct = polish(sketch, sys, solveLevenbergMarquardt(model(sketch, sys), sys.X, lmOptions));
   if (direct.converged) return direct;
 
-  // Where each dimensional target currently sits, measured on the start
-  // geometry. `residual = measured - target`, so measured = target + residual.
-  const startTargets = new Map<string, number>();
+  // Where each numeric target currently sits, measured on the start geometry.
+  // `residual = measured - target`, so measured = target + residual.
+  //
+  // An anchor belongs here as much as a dimension does. It was left out at
+  // first because it reads as a geometric rule rather than a measurement, and
+  // that omission is what made a pinned shape impossible to put back: drag one
+  // 300 mm and the direct solve has to swallow the whole displacement in a
+  // single bound, which lands it in a local minimum — a rectangle sixteen
+  // degrees out of square that no longer lifts back onto a rectangle primitive.
+  // Walking the pin home in six steps is the same medicine dimensions already
+  // get, and each step is a perturbation the solver handles easily.
+  const startTargets = new Map<string, { value: number; valueY?: number }>();
   let cursor = 0;
   const { residuals } = evaluateSystem(sketch, sys, sys.X);
   for (const c of sys.active) {
     const rows = rowCount(c);
-    if (isDimensional(c)) startTargets.set(c.id, targetOf(c, sketch) + residuals[cursor]);
+    if (c.kind === "fix" && c.value !== undefined && c.valueY !== undefined) {
+      startTargets.set(c.id, {
+        value: c.value + residuals[cursor],
+        valueY: c.valueY + residuals[cursor + 1],
+      });
+    } else if (isDimensional(c)) {
+      startTargets.set(c.id, { value: targetOf(c, sketch) + residuals[cursor] });
+    }
     cursor += rows;
   }
   if (startTargets.size === 0) return direct;
@@ -311,12 +327,22 @@ function solveWithHomotopy(
       constraints: sketch.constraints.map((c) => {
         const from = startTargets.get(c.id);
         if (from === undefined) return c;
+        if (c.kind === "fix") {
+          // An anchor carries its two literals directly; `targetOf` never sees
+          // them, so there is no sign or scale to clear here.
+          const fromY = from.valueY ?? 0;
+          return {
+            ...c,
+            value: from.value + ((c.value ?? 0) - from.value) * lambda,
+            valueY: fromY + ((c.valueY ?? 0) - fromY) * lambda,
+          };
+        }
         const to = targetOf(c, sketch);
         // The blended literal already carries the sign and the repeat index
         // multiplier, so both are cleared to stop `targetOf` applying them twice.
         return {
           ...c,
-          value: from + (to - from) * lambda,
+          value: from.value + (to - from.value) * lambda,
           sign: 1 as const,
           paramRef: undefined,
           paramScale: undefined,
@@ -454,7 +480,16 @@ export function solveSketch(input: AuthoringSketch, options: SolveOptions = {}):
   return {
     ok: true,
     sketch: solved,
-    converged: true,
+    // Report what the solver actually did, not what the gate decided.
+    //
+    // These are two different questions and this used to answer the second one
+    // twice: an edit that passed the invariant report came back flagged
+    // `converged: true` whatever the residual was. That hid a genuine stall —
+    // a large anchored drag settling sixteen degrees out of square — behind a
+    // clean-looking result, because every downstream check was reading a
+    // constant. Acceptance is still the invariant report; this field is now
+    // just the truth about the numerics.
+    converged: result.converged,
     iterations: result.iterations,
     maxResidual: result.maxResidual,
     invariants,
