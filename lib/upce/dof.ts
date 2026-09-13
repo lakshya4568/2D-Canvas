@@ -22,7 +22,9 @@ import {
   evaluateConstraint,
   rowCount,
   CompiledSystem,
+  referencedPoints,
 } from "./residuals";
+import { condensationFor } from "./rigid";
 
 export interface FreeMotion {
   /** One sentence a draftsman can act on. */
@@ -323,7 +325,11 @@ export function countDof(sketch: AuthoringSketch): number {
   const n = sys.X.length;
   if (n === 0) return 0;
   const { jacobian } = evaluateSystem(sketch, sys, sys.X);
-  return n - rankOf(jacobian, n, 1e-9);
+  const cond = condensationFor(sketch, sys);
+  if (!cond) return n - rankOf(jacobian, n, 1e-9);
+  const q = cond.reduce(sys.X);
+  const reduced = cond.condenseJacobian(jacobian, q);
+  return cond.reducedSize - rankOf(reduced, cond.reducedSize, 1e-9);
 }
 
 /**
@@ -355,29 +361,60 @@ export function analyseDof(
 
   const { residuals, jacobian } = evaluateSystem(sketch, sys, sys.X);
   const eps = policy.singular_value_eps;
-  const { q, V } = fullRightSingular(jacobian, n);
-  const scale = Math.max(...q, 1);
-  const rank = jacobian.length === 0 ? 0 : q.filter((s) => s > eps * scale).length;
-  const dof = n - rank;
 
-  // Null-space vectors are the columns of V past the rank.
+  // A rigid group is not a rule, it is a restriction on the space the solver may
+  // search: 2k coordinates become one frame's (X0, Y0, theta). Freedom has to be
+  // counted in THAT space or the report lies about a grouped drawing — it would
+  // go on offering to constrain the inside of something that can no longer
+  // change shape (§4.2).
+  const condensation = condensationFor(sketch, sys);
+  const qVec = condensation ? condensation.reduce(sys.X) : null;
+  const J = condensation && qVec ? condensation.condenseJacobian(jacobian, qVec) : jacobian;
+  const width = condensation ? condensation.reducedSize : n;
+
+  const { q, V } = fullRightSingular(J, width);
+  const scale = Math.max(...q, 1);
+  const rank = J.length === 0 ? 0 : q.filter((s) => s > eps * scale).length;
+  const dof = width - rank;
+
+  // Null-space vectors are the columns of V past the rank. Under condensation
+  // they are motions of the FRAMES, and `describeFreedom` talks about lines on
+  // the sheet — so they are carried back into world coordinates through dX/dq
+  // before anyone tries to put them into a sentence.
+  const tangent = condensation && qVec ? condensation.tangentMatrix(qVec) : null;
   const nullVectors: number[][] = [];
-  for (let col = rank; col < n; col++) {
+  for (let col = rank; col < width; col++) {
     const v: number[] = [];
-    for (let row = 0; row < n; row++) v.push(V[row][col]);
-    nullVectors.push(v);
+    for (let row = 0; row < width; row++) v.push(V[row][col]);
+    if (!tangent) {
+      nullVectors.push(v);
+      continue;
+    }
+    const full = new Array<number>(n).fill(0);
+    for (let r = 0; r < n; r++) {
+      let acc = 0;
+      for (let c = 0; c < width; c++) acc += tangent[r][c] * v[c];
+      full[r] = acc;
+    }
+    nullVectors.push(full);
   }
 
   const motions = describeFreedom(nullVectors, sys, sketch, shapeNames, dof);
 
   const maxResidual = residuals.reduce((m, r) => Math.max(m, Math.abs(r)), 0);
-  const diagnoses = diagnose(sketch, sys, jacobian, residuals, rank, n, eps, policy);
+  // Dependency analysis stays in FULL coordinates on purpose. "Is this rule
+  // already implied by the others?" is a question about the rules the author
+  // wrote, and rigidity is not one of them. Asking it in the reduced space would
+  // report a rectangle's own right angles as redundant the moment it was
+  // grouped — advising the author to delete the only reason it is still a
+  // rectangle once the group is unfrozen again.
+  const diagnoses = diagnose(sketch, sys, jacobian, residuals, rankOf(jacobian, n, eps), n, eps, policy);
 
   const over = diagnoses.some((d) => d.status === "conflicting");
   const status: DofReport["status"] = over ? "over" : dof > 0 ? "under" : "well";
 
   return {
-    variables: n,
+    variables: width,
     rows: jacobian.length,
     rank,
     dof,
@@ -513,11 +550,7 @@ function partitionBlocks(
   for (const id of sys.ids) parent.set(id, id);
 
   for (const c of sys.active) {
-    const touched: string[] = [...c.points];
-    for (const s of c.segments) {
-      const seg = sketch.segments[s];
-      if (seg) touched.push(seg.p1, seg.p2);
-    }
+    const touched = referencedPoints(sketch, c);
     for (let i = 1; i < touched.length; i++) union(touched[0], touched[i]);
   }
   // Points of one shape belong together even without a constraint between them.
@@ -549,11 +582,7 @@ function partitionBlocks(
 
     const localRows: number[][] = [];
     for (const c of sys.active) {
-      const pts: string[] = [...c.points];
-      for (const s of c.segments) {
-        const seg = sketch.segments[s];
-        if (seg) pts.push(seg.p1, seg.p2);
-      }
+      const pts = referencedPoints(sketch, c);
       if (!pts.every((p) => localIndex.has(p))) continue;
       const full = evaluateLocal(sketch, c, sys, memberIds, localIndex);
       localRows.push(...full);

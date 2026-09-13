@@ -46,13 +46,15 @@ import {
   Link2,
   Link2Off,
   Ruler,
+  GitCompare,
+  Crosshair,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "../parametric/upceContext";
 import { PanelBody, Empty } from "./DraftPanel";
 import type { ConstraintCandidate, DerivedCandidate, SketchParameter } from "@/lib/upce/types";
 import type { IntentAction } from "@/lib/upce/completion";
-import type { Measurable } from "@/lib/upce/link";
+import type { Measurable, LineRelationKind } from "@/lib/upce/link";
 
 const ORIGIN_LABEL: Record<string, string> = {
   "geometric-fact": "Part of the shape",
@@ -95,6 +97,150 @@ const ROLE_TONE: Record<string, string> = {
  *            between shapes that share no constraint at all - the link lives in
  *            the scalar graph, and the geometric graph never learns of it (§9).
  */
+
+/**
+ * Relationships between two things the drawing says nothing about.
+ *
+ * Notebook pages 4-6 and 9, in one place. The assistant above can only propose
+ * what it can SEE — two edges already parallel, a profile already nested inside
+ * another. These are the opposite case: two lines or two shapes that share
+ * nothing, tied together because the engineering says so and for no other
+ * reason. That is why they are asserted here rather than offered there.
+ *
+ * Both halves work off the canvas selection, because pointing at the geometry is
+ * how a draftsman says which things they mean.
+ */
+function AssertRelationSection() {
+  const upce = useUpce();
+  const { state } = useDrawing();
+  const { edgesFor, loopsFor, relationOptionsFor, relateTwoLines, relateTwoCentres } = upce;
+
+  const selection = React.useMemo(
+    () => (state.selectedIds.length > 0 ? state.selectedIds : state.selectedId ? [state.selectedId] : []),
+    [state.selectedIds, state.selectedId]
+  );
+
+  const edges = React.useMemo(() => (selection.length ? edgesFor(selection) : []), [selection, edgesFor]);
+  const loops = React.useMemo(() => (selection.length ? loopsFor(selection) : []), [selection, loopsFor]);
+
+  const [edgeA, setEdgeA] = React.useState("");
+  const [edgeB, setEdgeB] = React.useState("");
+  const [kind, setKind] = React.useState<LineRelationKind>("normal_offset");
+
+  const options = React.useMemo(
+    () => (edgeA && edgeB && edgeA !== edgeB ? relationOptionsFor(edgeA, edgeB) : []),
+    [edgeA, edgeB, relationOptionsFor]
+  );
+  const chosen = options.find((o) => o.kind === kind);
+
+  return (
+    <Section title="Step 4c · Relate two things" count={loops.length > 1 ? `${edges.length} edges` : undefined}>
+      <p className="text-[10.5px] leading-[1.55] text-(--fg-muted)">
+        For a relationship the drawing shows no evidence for. Select the geometry on the canvas,
+        then say how the two should be held. Moving one afterwards brings the other with it.
+      </p>
+
+      {/* ---- Line to line: notebook pages 4, 5, 6 ---- */}
+      <div className="rounded-[6px] border border-(--rule) overflow-hidden">
+        <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
+          <GitCompare className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
+          <span className="text-[11px] text-(--fg-secondary)">Hold one edge relative to another</span>
+        </div>
+        {edges.length < 2 ? (
+          <p className="px-2.5 py-2 text-[10.5px] text-(--fg-muted)">
+            Select geometry with at least two edges between it.
+          </p>
+        ) : (
+          <div className="px-2.5 py-2 flex flex-col gap-1.5">
+            <select
+              value={edgeA}
+              onChange={(e) => setEdgeA(e.target.value)}
+              className="h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+            >
+              <option value="">Reference edge…</option>
+              {edges.map((e) => (
+                <option key={e.segmentId} value={e.segmentId}>{e.label}</option>
+              ))}
+            </select>
+            <select
+              value={edgeB}
+              onChange={(e) => setEdgeB(e.target.value)}
+              className="h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+            >
+              <option value="">Edge that follows it…</option>
+              {edges.filter((e) => e.segmentId !== edgeA).map((e) => (
+                <option key={e.segmentId} value={e.segmentId}>{e.label}</option>
+              ))}
+            </select>
+
+            {options.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {options.map((o) => (
+                  <button
+                    key={o.kind}
+                    onClick={() => setKind(o.kind)}
+                    className={`text-left px-2 py-1.5 rounded-[5px] border text-[10.5px] leading-[1.45] cursor-pointer ${
+                      kind === o.kind
+                        ? "border-(--pen) bg-(--ink-raised) text-(--fg-primary)"
+                        : "border-(--rule) text-(--fg-muted) hover:text-(--fg-primary)"
+                    }`}
+                  >
+                    <span className="block text-(--fg-primary)">{o.label}</span>
+                    <span className="num opacity-70">measures {o.measured.toFixed(1)} mm now</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {chosen && <p className="text-[10px] leading-[1.5] text-(--fg-muted)">{chosen.rationale}</p>}
+
+            <Button
+              onClick={() => {
+                relateTwoLines(edgeA, edgeB, kind);
+                setEdgeA("");
+                setEdgeB("");
+              }}
+              disabled={!edgeA || !edgeB || edgeA === edgeB}
+              icon={GitCompare}
+              tone="primary"
+            >
+              Hold this relationship
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ---- Centre to centre: notebook page 9 ---- */}
+      <div className="rounded-[6px] border border-(--rule) overflow-hidden">
+        <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
+          <Crosshair className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
+          <span className="text-[11px] text-(--fg-secondary)">Drive the gap between two centres</span>
+        </div>
+        {loops.length < 2 ? (
+          <p className="px-2.5 py-2 text-[10.5px] text-(--fg-muted)">
+            Select two closed shapes. Works on rectangles, circles and anything drawn from
+            lines — the centre comes from the boundary, not from the shape&apos;s type.
+          </p>
+        ) : (
+          <div className="px-2.5 py-2 flex flex-col gap-1.5">
+            <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
+              Ties <span className="text-(--fg-primary)">{loops[0].label}</span> to{" "}
+              <span className="text-(--fg-primary)">{loops[1].label}</span>. Lowering the value
+              brings both in; raising it pushes both out.
+            </p>
+            <Button
+              onClick={() => relateTwoCentres(loops[0].loop, loops[1].loop, loops[0].label, loops[1].label)}
+              icon={Crosshair}
+              tone="primary"
+            >
+              Name the centre-to-centre distance
+            </Button>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 function RelationshipSection() {
   const upce = useUpce();
   const { state } = useDrawing();
@@ -320,6 +466,16 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+/** One measured figure, for a read-only schedule. */
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="px-2.5 py-1 border-t border-(--rule) first:border-t-0 flex items-center justify-between gap-2">
+      <span className="text-(--fg-muted)">{label}</span>
+      <span className="num text-(--fg-secondary)">{value}</span>
+    </div>
   );
 }
 
@@ -776,6 +932,12 @@ export function AuthorPanel() {
     refreshDerived,
     makeComponent,
     makeRepeat,
+    setUnitRigid,
+    measureUnitFor,
+    setMergeOverlaps,
+    repeatMeasurements,
+    overlaps,
+    fusion,
     setIntentionalFreedom,
     setTemplateName,
     checkReadiness,
@@ -790,7 +952,8 @@ export function AuthorPanel() {
   const [componentName, setComponentName] = React.useState("Unit");
   const [repeatCount, setRepeatCount] = React.useState(3);
   const [repeatPitch, setRepeatPitch] = React.useState(0);
-  const [spacingMode, setSpacingMode] = React.useState<"driven" | "derived">("driven");
+  const [spacingMode, setSpacingMode] = React.useState<"driven" | "derived" | "gap">("gap");
+  const [repeatGap, setRepeatGap] = React.useState<number | null>(null);
 
   return (
     <PanelBody>
@@ -1039,6 +1202,8 @@ export function AuthorPanel() {
 
       {started && <RelationshipSection />}
 
+      {started && <AssertRelationSection />}
+
       {started && sketch.constraints.length > 0 && (
         <Section title="Rules in force" count={sketch.constraints.length}>
           <div className="rounded-[6px] border border-(--rule) overflow-hidden max-h-[260px] overflow-y-auto">
@@ -1074,32 +1239,14 @@ export function AuthorPanel() {
           {selection.length === 0 ? (
             <div className="flex flex-col gap-1.5 p-2 rounded bg-(--ink-raised) border border-(--rule)">
               <p className="text-[10.5px] text-(--fg-muted)">
-                Select shapes on canvas, or click to auto-select inner cell shapes:
+                Select the geometry that makes up one unit — on the canvas, or from the list below.
               </p>
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Button
-                  onClick={() => {
-                    // Filter out the outer enclosing rectangle
-                    const rects = state.shapes.filter((s) => s.type === "rectangle") as { id: string; width?: number; height?: number }[];
-                    let outerId: string | null = null;
-                    if (rects.length > 0) {
-                      const largest = rects.reduce((prev, curr) =>
-                        ((curr.width ?? 0) * (curr.height ?? 0)) > ((prev.width ?? 0) * (prev.height ?? 0)) ? curr : prev
-                      );
-                      outerId = largest.id;
-                    }
-                    const innerShapes = state.shapes.filter((s) => s.id !== outerId);
-                    selectMultiple(innerShapes.map((s) => s.id));
-                  }}
-                  tone="quiet"
-                >
-                  + Select cell shapes ({state.shapes.length > 1 ? state.shapes.length - 1 : state.shapes.length})
-                </Button>
                 <Button
                   onClick={() => selectMultiple(state.shapes.map((s) => s.id))}
                   tone="quiet"
                 >
-                  Select all
+                  Select all ({state.shapes.length})
                 </Button>
               </div>
             </div>
@@ -1151,17 +1298,63 @@ export function AuthorPanel() {
           )}
 
           {sketch.components.map((c) => {
-            const hasRule = sketch.repeats.some((r) => r.componentId === c.id);
+            const rule = sketch.repeats.find((r) => r.componentId === c.id);
+            const measured = measureUnitFor(c.id, { x: 1, y: 0 });
+            const defaultGap = measured?.wall ?? 0;
+            const gap = repeatGap ?? defaultGap;
+            const report = repeatMeasurements.find((m) => m.ruleId === rule?.id);
             return (
               <div key={c.id} className="rounded-[6px] border border-(--rule) px-2.5 py-2 flex flex-col gap-1.5">
                 <p className="text-[11.5px] text-(--fg-primary)">
                   {c.name}
                   <span className="text-(--fg-muted) text-[10px]"> · {c.shapeIds.length} shape(s)</span>
                 </p>
-                {hasRule ? (
-                  <p className="text-[10.5px] text-(--fg-muted)">
-                    Repeating. Change the count in the values list above.
+
+                {/* Notebook pages 3 and 5 — a group that is a body, not a label. */}
+                <label className="inline-flex items-start gap-1.5 text-[10.5px] text-(--fg-secondary) cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-[2px]"
+                    checked={Boolean(c.rigid)}
+                    onChange={(e) => setUnitRigid(c.id, e.target.checked)}
+                  />
+                  <span>
+                    Moves as one piece
+                    <span className="block text-(--fg-muted)">
+                      {c.rigid
+                        ? "Held rigid: three freedoms — across, up, and turn. Nothing inside it can change shape."
+                        : "Tie any edge of it to anything and the whole unit follows, instead of that edge pulling away from the rest."}
+                    </span>
+                  </span>
+                </label>
+
+                {measured && measured.extent > 0 && (
+                  <p className="text-[10px] text-(--fg-muted) font-mono">
+                    {measured.extent.toFixed(1)} across
+                    {measured.opening > 0
+                      ? ` · opening ${measured.opening.toFixed(1)} · wall ${measured.wall.toFixed(1)}`
+                      : " · solid"}
                   </p>
+                )}
+
+                {rule ? (
+                  <div className="flex flex-col gap-0.5">
+                    <p className="text-[10.5px] text-(--fg-muted)">
+                      Repeating. Change the count in the values list above.
+                    </p>
+                    {report && (
+                      <p className="text-[10px] text-(--fg-secondary) font-mono">
+                        {report.count} x · pitch {report.pitch.toFixed(1)}
+                        {report.mode === "gap" && (
+                          <span className="text-(--fg-muted)">
+                            {" "}
+                            = {(report.opening || report.extent).toFixed(1)} + {report.gap.toFixed(1)},
+                            measured
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5 text-[10.5px]">
@@ -1173,16 +1366,30 @@ export function AuthorPanel() {
                         onChange={(e) => setRepeatCount(Number(e.target.value))}
                         className="num w-[46px] h-[22px] px-1 text-right rounded-[3px] bg-(--ink-raised) border border-(--rule) outline-none"
                       />
-                      <label className="text-(--fg-muted)">pitch</label>
+                      <label className="text-(--fg-muted)">
+                        {spacingMode === "gap" ? (measured?.opening ? "web" : "gap") : spacingMode === "derived" ? "run" : "pitch"}
+                      </label>
                       <input
                         type="number"
-                        value={repeatPitch}
-                        onChange={(e) => setRepeatPitch(Number(e.target.value))}
+                        value={spacingMode === "gap" ? gap : repeatPitch}
+                        onChange={(e) =>
+                          spacingMode === "gap"
+                            ? setRepeatGap(Number(e.target.value))
+                            : setRepeatPitch(Number(e.target.value))
+                        }
                         className="num w-[64px] h-[22px] px-1 text-right rounded-[3px] bg-(--ink-raised) border border-(--rule) outline-none"
                       />
                       <span className="text-(--fg-muted)">mm</span>
                     </div>
                     <div className="flex flex-col gap-0.5 text-[10.5px] text-(--fg-muted)">
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          checked={spacingMode === "gap"}
+                          onChange={() => setSpacingMode("gap")}
+                        />
+                        hold the material between copies — the pitch follows the unit
+                      </label>
                       <label className="inline-flex items-center gap-1.5 cursor-pointer">
                         <input
                           type="radio"
@@ -1200,19 +1407,49 @@ export function AuthorPanel() {
                         keep the overall run fixed — the pitch closes up
                       </label>
                     </div>
+
+                    {spacingMode === "gap" && measured && (
+                      <p className="text-[10px] leading-[1.5] text-(--fg-muted)">
+                        {measured.opening > 0 ? (
+                          <>
+                            Pitch will be {measured.opening.toFixed(1)} + {gap.toFixed(1)} ={" "}
+                            <span className="text-(--fg-secondary)">
+                              {(measured.opening + gap).toFixed(1)} mm
+                            </span>
+                            , re-measured whenever the unit changes. Starts at {defaultGap.toFixed(1)},
+                            which is what already sits between this unit&apos;s opening and its outside.
+                          </>
+                        ) : (
+                          <>
+                            This unit encloses nothing, so the gap is measured outside to outside:
+                            pitch {measured.extent.toFixed(1)} + {gap.toFixed(1)} ={" "}
+                            <span className="text-(--fg-secondary)">
+                              {(measured.extent + gap).toFixed(1)} mm
+                            </span>
+                            .
+                          </>
+                        )}
+                      </p>
+                    )}
+
                     <Button
                       onClick={() =>
                         makeRepeat({
                           componentId: c.id,
                           count: repeatCount,
                           pitch: repeatPitch,
+                          gap: spacingMode === "gap" ? gap : undefined,
                           spacingMode,
                           direction: { x: 1, y: 0 },
                         })
                       }
                       icon={Repeat}
-                      disabled={repeatPitch <= 0}
-                      title={repeatPitch <= 0 ? "Set a pitch greater than zero" : undefined}
+                      disabled={spacingMode !== "gap" && repeatPitch <= 0}
+                      title={
+                        spacingMode !== "gap" && repeatPitch <= 0
+                          ? "Set a pitch greater than zero"
+                          : undefined
+                      }
                     >
                       Repeat it
                     </Button>
@@ -1221,6 +1458,72 @@ export function AuthorPanel() {
               </div>
             );
           })}
+        </Section>
+      )}
+
+      {/* Notebook page 7 — solids that have run into each other. */}
+      {started && overlaps.length > 0 && (
+        <Section title="Step 5b · Solids that meet" count={overlaps.length}>
+          <p className="text-[11px] leading-[1.55] text-(--fg-muted)">
+            Two pours running into each other is a real situation with two real answers: one
+            monolithic pour, or a joint between them. Nothing is refused and nothing is rewritten —
+            drag them apart and they come apart.
+          </p>
+
+          {overlaps.map((o) => (
+            <div
+              key={`${o.a}|${o.b}`}
+              className="rounded-[6px] border border-(--rule) bg-(--ink-raised) px-2.5 py-1.5 text-[10.5px] text-(--fg-secondary)"
+            >
+              <span className="text-(--fg-primary)">{o.labelA}</span> and{" "}
+              <span className="text-(--fg-primary)">{o.labelB}</span> have run into each other by{" "}
+              <span className="font-mono">{o.depthMm.toFixed(1)} mm</span>.
+            </div>
+          ))}
+
+          <label className="inline-flex items-start gap-1.5 text-[10.5px] text-(--fg-secondary) cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-[2px]"
+              checked={sketch.meta.mergeOverlaps !== false}
+              onChange={(e) => setMergeOverlaps(e.target.checked)}
+            />
+            <span>
+              Read them as one pour
+              <span className="block text-(--fg-muted)">
+                The shared material is counted once, and the seam between them is dissolved. Turn
+                this off for an expansion joint.
+              </span>
+            </span>
+          </label>
+
+          {fusion && (
+            <div className="rounded-[6px] border border-(--rule) overflow-hidden text-[10.5px]">
+              <Row label="Pours" value={`${fusion.solids}`} />
+              <Row label="Voids kept" value={`${fusion.voids}`} />
+              {fusion.merged ? (
+                <>
+                  <Row
+                    label="Shared material"
+                    value={`${((fusion.grossAreaMm2 - fusion.netAreaMm2) / 1e6).toFixed(4)} m²`}
+                  />
+                  <Row label="Counted once" value={`${(fusion.netAreaMm2 / 1e6).toFixed(4)} m²`} />
+                </>
+              ) : (
+                <Row
+                  label="Counted separately"
+                  value={`${(fusion.grossAreaMm2 / 1e6).toFixed(4)} m²`}
+                />
+              )}
+              {fusion.webs.map((w) => (
+                <Row
+                  key={w.between.join("|")}
+                  label="Web after merge"
+                  value={`${w.thickness.toFixed(1)} mm`}
+                />
+              ))}
+            </div>
+          )}
         </Section>
       )}
 

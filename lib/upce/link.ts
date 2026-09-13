@@ -26,7 +26,7 @@
  */
 
 import { AuthoringSketch, SketchConstraint, SketchParameter } from "./types";
-import { findProfiles, Profile } from "./profile";
+import { findProfiles, profileLoopIds, Profile } from "./profile";
 import { applyAction, IntentAction } from "./completion";
 import { makeProvenance, uniqueParameterName, validateExpression } from "./parameters";
 
@@ -374,4 +374,297 @@ export function refreshMeasured(sketch: AuthoringSketch): AuthoringSketch {
   }
 
   return changed ? { ...sketch, parameters } : sketch;
+}
+
+// ---------------------------------------------------------------------------
+// Relationships between whole shapes (notebook pages 4-6 and 9)
+// ---------------------------------------------------------------------------
+
+/**
+ * The ways two lines can be held relative to one another.
+ *
+ * The notebook asks for this directly: "if I move line l-1 to move left along
+ * -x axis and create a relation ... distance b/w lines is maintained". A plain
+ * distance cannot say it, because distance is unsigned — it pins how far apart
+ * two lines are and says nothing about which side, so the solver is free to
+ * flip one through the other and still report zero.
+ */
+export type LineRelationKind = "relative_x" | "relative_y" | "normal_offset";
+
+export interface LineRelationOption {
+  kind: LineRelationKind;
+  label: string;
+  /** What it measures right now, in mm. */
+  measured: number;
+  rationale: string;
+}
+
+function midpoint(sketch: AuthoringSketch, segId: string): { x: number; y: number } | null {
+  const seg = sketch.segments[segId];
+  if (!seg) return null;
+  const a = sketch.points[seg.p1];
+  const b = sketch.points[seg.p2];
+  if (!a || !b) return null;
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/** Every way the author could tie `segB` to `segA`, measured as drawn. */
+export function lineRelationOptions(
+  sketch: AuthoringSketch,
+  segA: string,
+  segB: string
+): LineRelationOption[] {
+  const ma = midpoint(sketch, segA);
+  const mb = midpoint(sketch, segB);
+  if (!ma || !mb) return [];
+
+  const a1 = sketch.points[sketch.segments[segA].p1];
+  const a2 = sketch.points[sketch.segments[segA].p2];
+  const b1 = sketch.points[sketch.segments[segB].p1];
+  const dx = a2.x - a1.x;
+  const dy = a2.y - a1.y;
+  const L = Math.hypot(dx, dy);
+  const normal = L < 1e-9 ? 0 : (-dy * (b1.x - a1.x) + dx * (b1.y - a1.y)) / L;
+
+  return [
+    {
+      kind: "relative_x",
+      label: "Hold them a set distance apart across the sheet",
+      measured: mb.x - ma.x,
+      rationale:
+        "The horizontal gap becomes a number you can type, and it stays that number when either line moves. Independent of the vertical gap, so the two can be driven separately.",
+    },
+    {
+      kind: "relative_y",
+      label: "Hold them a set distance apart up the sheet",
+      measured: mb.y - ma.y,
+      rationale: "The same, measured up and down instead of across.",
+    },
+    {
+      kind: "normal_offset",
+      label: "Hold a true thickness between them",
+      measured: normal,
+      rationale:
+        "Measured square to the first line rather than along an axis, so it keeps its meaning if the pair is rotated. It is signed, so the second line cannot pass through the first and come out the other side.",
+    },
+  ];
+}
+
+/**
+ * Creates one of those relationships.
+ *
+ * The measured value becomes the target, so nothing moves when the relationship
+ * is made — it records what the author already drew and then holds it. A rule
+ * that jumped the geometry the moment you agreed to it would be a rule nobody
+ * could trust.
+ */
+export function relateLines(
+  sketch: AuthoringSketch,
+  segA: string,
+  segB: string,
+  kind: LineRelationKind,
+  labelA: string,
+  labelB: string
+): { sketch: AuthoringSketch; refused?: string } {
+  if (segA === segB) return { sketch, refused: "Those are the same edge." };
+  const option = lineRelationOptions(sketch, segA, segB).find((o) => o.kind === kind);
+  if (!option) return { sketch, refused: "Those two edges cannot be related." };
+
+  const word =
+    kind === "relative_x" ? "across" : kind === "relative_y" ? "up the sheet" : "square to it";
+
+  const constraint: Omit<SketchConstraint, "id"> = {
+    kind,
+    points: [],
+    segments: [segA, segB],
+    value: option.measured,
+    strength: "hard",
+    driving: true,
+    state: "active",
+    label: `${labelB} stays ${Math.abs(option.measured).toFixed(1)} from ${labelA}, ${word}`,
+    provenance: makeProvenance(
+      "user",
+      `The author tied ${labelB} to ${labelA}. Nothing in the drawing implied it; it is a design decision.`
+    ),
+  };
+
+  const next = applyAction(sketch, {
+    id: `relate_${kind}_${segA}_${segB}`,
+    title: constraint.label,
+    rationale: option.rationale,
+    createsParameters: [],
+    createsConstraints: [constraint],
+    evidence: [],
+    dofRemoved: 0,
+  });
+
+  if (next === sketch) {
+    return {
+      sketch,
+      refused: `${labelB}'s position relative to ${labelA} is already decided by the rules in force, so this would be a second answer to the same question.`,
+    };
+  }
+  return { sketch: next };
+}
+
+/**
+ * Ties two shapes together by the distance between their centres.
+ *
+ * The notebook's third problem: "I want something that I can build a
+ * relationship b/w centers/centroid of 2 shapes ... so when I try to close them
+ * the rectangles also start coming closer too." Both shapes move, because the
+ * minimum-norm step spreads the correction over whatever is free — nothing here
+ * picks a winner.
+ */
+export function relateCentroids(
+  sketch: AuthoringSketch,
+  loopA: string[],
+  loopB: string[],
+  labelA: string,
+  labelB: string,
+  paramName?: string
+): { sketch: AuthoringSketch; refused?: string } {
+  if (loopA.length < 3 || loopB.length < 3) {
+    return { sketch, refused: "A centre needs a closed shape with at least three corners on each side." };
+  }
+  const centre = (loop: string[]) => {
+    let x = 0;
+    let y = 0;
+    for (const id of loop) {
+      const p = sketch.points[id];
+      if (!p) return null;
+      x += p.x;
+      y += p.y;
+    }
+    return { x: x / loop.length, y: y / loop.length };
+  };
+  const ca = centre(loopA);
+  const cb = centre(loopB);
+  if (!ca || !cb) return { sketch, refused: "One of those shapes has a corner the sketch does not hold." };
+
+  const measured = Math.hypot(cb.x - ca.x, cb.y - ca.y);
+  if (measured < 1e-6) {
+    return { sketch, refused: "Those two centres are already in the same place; there is no distance to drive." };
+  }
+
+  const name = paramName
+    ? uniqueParameterName(cleanName(paramName), sketch.parameters)
+    : uniqueParameterName(`${cleanName(labelA)}To${cleanName(labelB)}Centres`, sketch.parameters);
+
+  const constraint: Omit<SketchConstraint, "id"> = {
+    kind: "centroid_distance",
+    points: [],
+    segments: [],
+    loopA: [...loopA],
+    loopB: [...loopB],
+    paramRef: name,
+    strength: "hard",
+    driving: true,
+    state: "active",
+    label: `${labelA} and ${labelB} stay ${name} apart, centre to centre`,
+    provenance: makeProvenance(
+      "user",
+      `The author tied the centres of ${labelA} and ${labelB} together. Changing the value moves both shapes towards or away from each other.`
+    ),
+  };
+
+  const next = applyAction(sketch, {
+    id: `centres_${loopA[0]}_${loopB[0]}`,
+    title: constraint.label,
+    rationale:
+      "The distance between the two centres becomes a value you can type. Lowering it brings both shapes in; raising it pushes both out.",
+    createsParameters: [
+      {
+        name,
+        value: Math.round(measured * 100) / 100,
+        role: "DRIVING",
+        unit: "mm",
+        uiGroup: "Spacing",
+        description: `Centre-to-centre distance between ${labelA} and ${labelB}.`,
+      },
+    ],
+    createsConstraints: [constraint],
+    evidence: [`Measured ${measured.toFixed(1)} mm between the two centres`],
+    dofRemoved: 0,
+  });
+
+  if (next === sketch || !next.parameters[name]) {
+    return {
+      sketch,
+      refused: `The distance between those two centres is already decided by the rules in force, so naming it would be a second answer to one question.`,
+    };
+  }
+  return { sketch: next };
+}
+
+/** An edge the author can point at, with a name they will recognise. */
+export interface SelectableEdge {
+  segmentId: string;
+  label: string;
+  length: number;
+  /** Which way it runs, for a sentence that reads like a drawing note. */
+  orientation: "horizontal" | "vertical" | "sloping";
+}
+
+/** Every edge the given shapes contribute, labelled for a picker. */
+export function edgesIn(
+  sketch: AuthoringSketch,
+  shapeIds: string[],
+  names: Record<string, string> = {}
+): SelectableEdge[] {
+  const wanted = new Set(shapeIds);
+  const out: SelectableEdge[] = [];
+
+  for (const [id, seg] of Object.entries(sketch.segments)) {
+    if (!wanted.has(seg.shapeId)) continue;
+    const a = sketch.points[seg.p1];
+    const b = sketch.points[seg.p2];
+    if (!a || !b) continue;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const orientation =
+      Math.abs(dy) < Math.abs(dx) * 0.05
+        ? "horizontal"
+        : Math.abs(dx) < Math.abs(dy) * 0.05
+          ? "vertical"
+          : "sloping";
+    const shapeName = names[seg.shapeId] ?? seg.shapeId;
+    // A four-sided shape's edges read better by side than by index.
+    const side =
+      orientation === "horizontal"
+        ? a.y < b.y || Math.abs(a.y - b.y) < 1e-9
+          ? `edge ${seg.edgeIndex + 1}`
+          : `edge ${seg.edgeIndex + 1}`
+        : `edge ${seg.edgeIndex + 1}`;
+    out.push({
+      segmentId: id,
+      label: `${shapeName} ${side} (${orientation})`,
+      length: Math.hypot(dx, dy),
+      orientation,
+    });
+  }
+
+  return out.sort((m, n) => m.label.localeCompare(n.label));
+}
+
+/** Closed profiles among the given shapes, as ordered boundary point lists. */
+export function loopsIn(
+  sketch: AuthoringSketch,
+  shapeIds: string[],
+  names: Record<string, string> = {}
+): Array<{ id: string; label: string; loop: string[] }> {
+  const wanted = new Set(shapeIds);
+  const out: Array<{ id: string; label: string; loop: string[] }> = [];
+
+  for (const profile of findProfiles(sketch, names)) {
+    if (!profile.shapeIds.some((id) => wanted.has(id))) continue;
+    // The centroid needs the boundary IN ORDER. An unordered vertex set has no
+    // shoelace area, and a wrong order produces a self-crossing polygon whose
+    // signed area — and therefore centroid — is meaningless.
+    const loop = profileLoopIds(sketch, profile);
+    if (!loop || loop.length < 3) continue;
+    out.push({ id: profile.id, label: profile.label, loop });
+  }
+
+  return out;
 }

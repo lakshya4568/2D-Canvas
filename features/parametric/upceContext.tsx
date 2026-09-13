@@ -33,9 +33,16 @@ import { suggestCompletion, applyAction, CompletionReport, IntentAction } from "
 import { proposeDerived, acceptDerived } from "@/lib/upce/derive";
 import { analyseDof, DofReport } from "@/lib/upce/dof";
 import { assessReadiness, publish, buildManifest, ReadinessReport, TemplateManifest } from "@/lib/upce/template";
-import { createComponent, createRepeat, RepeatDraft } from "@/lib/upce/repeat";
+import { createComponent, createRepeat, measureUnit, RepeatDraft, RepeatMeasurement, UnitMeasurement } from "@/lib/upce/repeat";
+import { setComponentRigid, rigidConflict } from "@/lib/upce/rigid";
+import type { OverlapPair, FusionSummary } from "@/lib/upce/fusion";
+import { buildSystem } from "@/lib/upce/residuals";
 import { dependentsOf, validateExpression, uniqueParameterName, makeProvenance } from "@/lib/upce/parameters";
-import { measurablesIn, nameMeasurement, linkParameter, unlinkParameter, Measurable, MeasureMode } from "@/lib/upce/link";
+import {
+  measurablesIn, nameMeasurement, linkParameter, unlinkParameter,
+  edgesIn, loopsIn, lineRelationOptions, relateLines, relateCentroids,
+  Measurable, MeasureMode, SelectableEdge, LineRelationKind, LineRelationOption,
+} from "@/lib/upce/link";
 import type { InvariantCheck } from "@/lib/upce/solve";
 
 export type AuthoringStage =
@@ -61,6 +68,12 @@ interface UpceState {
   completion: CompletionReport | null;
   readiness: ReadinessReport | null;
   invariants: InvariantCheck[];
+  /** What each repeat rule measured off its unit on the last rebuild. */
+  repeatMeasurements: RepeatMeasurement[];
+  /** Solids currently standing in each other's way. */
+  overlaps: OverlapPair[];
+  /** The arranged planar map, when anything overlaps. */
+  fusion: FusionSummary | null;
   notice: Notice | null;
   busy: boolean;
   /** Intent-level undo. Separate from the drafting history. */
@@ -78,6 +91,9 @@ const initial: UpceState = {
   completion: null,
   readiness: null,
   invariants: [],
+  repeatMeasurements: [],
+  overlaps: [],
+  fusion: null,
   notice: null,
   busy: false,
   past: [],
@@ -111,10 +127,23 @@ interface UpceContextValue extends UpceState {
   nameMeasurementAs: (target: Measurable, name: string, mode: MeasureMode) => void;
   linkValue: (name: string, expr: string) => void;
   unlinkValue: (name: string) => void;
+  /** Edges of the given shapes, for the line-to-line relation picker. */
+  edgesFor: (shapeIds: string[]) => SelectableEdge[];
+  /** Closed profiles of the given shapes, for the centre-to-centre relation. */
+  loopsFor: (shapeIds: string[]) => Array<{ id: string; label: string; loop: string[] }>;
+  relationOptionsFor: (segA: string, segB: string) => LineRelationOption[];
+  relateTwoLines: (segA: string, segB: string, kind: LineRelationKind) => void;
+  relateTwoCentres: (loopA: string[], loopB: string[], labelA: string, labelB: string) => void;
   deleteConstraint: (id: string) => void;
   toggleConstraint: (id: string) => void;
   makeComponent: (name: string, shapeIds: string[]) => void;
   makeRepeat: (draft: RepeatDraft) => void;
+  /** Freeze or release a unit, so it moves as one body (notebook pages 3, 5). */
+  setUnitRigid: (componentId: string, rigid: boolean) => void;
+  /** What a unit measures along a direction — for the pitch default and readout. */
+  measureUnitFor: (componentId: string, direction: { x: number; y: number }) => UnitMeasurement | null;
+  /** Whether overlapping solids are reported as one pour (notebook page 7). */
+  setMergeOverlaps: (value: boolean) => void;
   setIntentionalFreedom: (value: boolean) => void;
   setTemplateName: (name: string) => void;
   checkReadiness: () => void;
@@ -175,6 +204,9 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
           sketch: result.sketch,
           dof: result.dof,
           invariants: result.invariants,
+          repeatMeasurements: result.repeatMeasurements,
+          overlaps: result.topology.overlaps,
+          fusion: result.fusion,
           readiness: null,
           notice:
             parameterProblems.length > 0
@@ -230,12 +262,18 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
 
     // Only write back when the solver actually disagreed with the drag. A move
     // the rules are happy with must not turn into a second undo step.
-    const held = result.movedShapeIds;
-    if (held.length > 0) {
+    //
+    // "Disagreed" includes producing different SHAPES, not only different
+    // coordinates: a repeat rule regenerates its copies here, and if the drawing
+    // arrived without them — freshly loaded, or a shape deleted — none of them
+    // would ever reach the sheet.
+    const held = result.heldShapeIds;
+    const changed = result.movedShapeIds.length > 0 || result.shapeSetChanged;
+    if (changed) {
       dispatch({
         type: "APPLY_SOLVED_SHAPES",
         shapes: result.shapes,
-        description: "Held by the rules",
+        description: held.length > 0 ? "Held by the rules" : "Rebuilt from the rules",
       });
     }
 
@@ -244,6 +282,9 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
       sketch: result.sketch,
       dof: result.dof,
       invariants: result.invariants,
+      repeatMeasurements: result.repeatMeasurements,
+      overlaps: result.topology.overlaps,
+      fusion: result.fusion,
       // Behaviour was verified against the geometry that has just changed.
       readiness: null,
       notice:
@@ -571,6 +612,57 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     [s.sketch, commit, push]
   );
 
+  const edgesFor = React.useCallback(
+    (shapeIds: string[]) => edgesIn(s.sketch, shapeIds, names),
+    [s.sketch, names]
+  );
+
+  const loopsFor = React.useCallback(
+    (shapeIds: string[]) => loopsIn(s.sketch, shapeIds, names),
+    [s.sketch, names]
+  );
+
+  const relationOptionsFor = React.useCallback(
+    (segA: string, segB: string) => lineRelationOptions(s.sketch, segA, segB),
+    [s.sketch]
+  );
+
+  /**
+   * Tie one edge to another (notebook pages 4-6).
+   *
+   * No detector will ever propose this: the two lines may share nothing at all,
+   * and the drawing offers no evidence they are related. Only the engineer
+   * knows, which is why it is an assertion rather than a suggestion.
+   */
+  const relateTwoLines = React.useCallback(
+    (segA: string, segB: string, kind: LineRelationKind) => {
+      const labelOf = (id: string) => {
+        const seg = s.sketch.segments[id];
+        return seg ? (names[seg.shapeId] ?? seg.shapeId) : id;
+      };
+      const { sketch: next, refused } = relateLines(s.sketch, segA, segB, kind, labelOf(segA), labelOf(segB));
+      if (refused) {
+        push({ notice: { kind: "error", text: refused } });
+        return;
+      }
+      if (commit(next, "Related two edges", s.sketch)) reanalyse(next);
+    },
+    [s.sketch, names, commit, push, reanalyse]
+  );
+
+  /** Tie two shapes by the distance between their centres (notebook page 9). */
+  const relateTwoCentres = React.useCallback(
+    (loopA: string[], loopB: string[], labelA: string, labelB: string) => {
+      const { sketch: next, refused } = relateCentroids(s.sketch, loopA, loopB, labelA, labelB);
+      if (refused) {
+        push({ notice: { kind: "error", text: refused } });
+        return;
+      }
+      if (commit(next, `Tied ${labelA} and ${labelB} centre to centre`, s.sketch)) reanalyse(next);
+    },
+    [s.sketch, commit, push, reanalyse]
+  );
+
   const deleteConstraint = React.useCallback(
     (id: string) => {
       const { sketch: next, refused, removedParameters } = removeConstraint(s.sketch, id);
@@ -637,6 +729,62 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
       if (commit(next, "Created a repeat", before)) reanalyse(next);
     },
     [s.sketch, commit, reanalyse]
+  );
+
+  /**
+   * Freeze a unit into a body, or let it go loose again (notebook pages 3, 5).
+   *
+   * The refusal is checked BEFORE the flag is set, so the author finds out while
+   * they are still looking at what they selected rather than three edits later
+   * when a solve throws.
+   */
+  const setUnitRigid = React.useCallback(
+    (componentId: string, rigid: boolean) => {
+      const component = s.sketch.components.find((c) => c.id === componentId);
+      if (!component) return;
+
+      if (rigid) {
+        const refusal = rigidConflict(s.sketch, buildSystem(s.sketch).index, component);
+        if (refusal) {
+          push({ notice: { kind: "error", text: refusal } });
+          return;
+        }
+      }
+
+      const next = setComponentRigid(s.sketch, componentId, rigid);
+      commit(
+        next,
+        rigid
+          ? `"${component.name}" now moves as one piece`
+          : `"${component.name}" can be reshaped again`,
+        s.sketch
+      );
+    },
+    [s.sketch, commit, push]
+  );
+
+  const measureUnitFor = React.useCallback(
+    (componentId: string, direction: { x: number; y: number }) => {
+      const component = s.sketch.components.find((c) => c.id === componentId);
+      if (!component) return null;
+      return measureUnit(s.sketch, component, direction);
+    },
+    [s.sketch]
+  );
+
+  const setMergeOverlaps = React.useCallback(
+    (value: boolean) => {
+      const next: AuthoringSketch = {
+        ...s.sketch,
+        meta: { ...s.sketch.meta, mergeOverlaps: value },
+      };
+      commit(
+        next,
+        value ? "Overlapping solids read as one pour" : "Overlapping solids stay separate",
+        s.sketch
+      );
+    },
+    [s.sketch, commit]
   );
 
   const setIntentionalFreedom = React.useCallback((value: boolean) => {
@@ -733,10 +881,18 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     nameMeasurementAs,
     linkValue,
     unlinkValue,
+    edgesFor,
+    loopsFor,
+    relationOptionsFor,
+    relateTwoLines,
+    relateTwoCentres,
     deleteConstraint,
     toggleConstraint,
     makeComponent,
     makeRepeat,
+    setUnitRigid,
+    measureUnitFor,
+    setMergeOverlaps,
     setIntentionalFreedom,
     setTemplateName,
     checkReadiness,

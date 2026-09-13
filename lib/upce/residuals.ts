@@ -26,6 +26,12 @@ import {
   evaluateMidpointConstraint,
 } from "../solver/jacobians/analyticalJacobians";
 import { AuthoringSketch, SketchConstraint } from "./types";
+import {
+  evaluateRelativeOffsetX,
+  evaluateRelativeOffsetY,
+  evaluateDirectedNormalOffset,
+} from "../parametric/constraints/relativeLineConstraint";
+import { evaluateCentroidDistanceConstraint } from "../parametric/constraints/centroidConstraint";
 
 export interface CompiledSystem {
   /** Point id -> index in X. */
@@ -69,6 +75,30 @@ export function buildSystem(sketch: AuthoringSketch): CompiledSystem {
 }
 
 /** How many residual rows a constraint contributes. */
+/**
+ * Every point a constraint actually depends on.
+ *
+ * Reading `c.points` and the endpoints of `c.segments` used to be the whole
+ * answer, and a `centroid_distance` broke that assumption the moment it arrived:
+ * it names two whole boundaries and neither of them appears in either field. Any
+ * caller that partitions or filters on a constraint's reach — the DOF block
+ * decomposition does both — silently dropped the loops and then tried to
+ * evaluate a row against a subsystem that did not contain half its inputs.
+ *
+ * One helper, used by all of them, so the next constraint shaped like this
+ * cannot reintroduce the same bug in a different file.
+ */
+export function referencedPoints(sketch: AuthoringSketch, c: SketchConstraint): string[] {
+  const out: string[] = [...c.points];
+  for (const s of c.segments) {
+    const seg = sketch.segments[s];
+    if (seg) out.push(seg.p1, seg.p2);
+  }
+  if (c.loopA) out.push(...c.loopA);
+  if (c.loopB) out.push(...c.loopB);
+  return out;
+}
+
 export function rowCount(c: SketchConstraint): number {
   switch (c.kind) {
     case "fix":
@@ -187,6 +217,14 @@ export function rowScale(sketch: AuthoringSketch, c: SketchConstraint, X: number
     case "point_on_line":
     case "symmetric":
       return lengthOf(c.segments[0]);
+    case "centroid_distance": {
+      // The residual is |dC|^2 - D^2: square millimetres. Dividing by the
+      // target brings it back to millimetres so a millimetre tolerance means
+      // what it says — the same units mistake that made a corner square to
+      // three thousandths of a degree read as a 1.6 mm contradiction.
+      const target = Math.abs(targetOf(c, sketch));
+      return target > 1 ? 2 * target : 1;
+    }
     default:
       return 1;
   }
@@ -304,6 +342,36 @@ export function evaluateConstraint(
     }
     case "concentric":
       return evaluateCoincidentConstraint(X, p(c.points[0]), p(c.points[1]));
+
+    // --- Relationships the author asserts, ADDENDUM-2.0 §2.1 and §2.2. ---
+    //
+    // Each takes TWO segments and relates the second to the first. The
+    // separation is measured between midpoints rather than endpoints, so the
+    // relationship says where one line sits relative to the other and nothing
+    // about their lengths or their end alignment — which is what leaves the
+    // remaining freedom for other rules to claim.
+    case "relative_x":
+    case "relative_y": {
+      const [a, b] = segPts(c.segments[0]);
+      const [d, e] = segPts(c.segments[1]);
+      const spec = { p1: a, p2: b, p3: d, p4: e, target };
+      return c.kind === "relative_x"
+        ? evaluateRelativeOffsetX(X, spec)
+        : evaluateRelativeOffsetY(X, spec);
+    }
+    case "normal_offset": {
+      const [a, b] = segPts(c.segments[0]);
+      const [d, e] = segPts(c.segments[1]);
+      return evaluateDirectedNormalOffset(X, { p1: a, p2: b, p3: d, p4: e, target });
+    }
+    case "centroid_distance": {
+      if (!c.loopA || !c.loopB) throw new Error(`${c.id} has no loops to take centroids of`);
+      return evaluateCentroidDistanceConstraint(X, {
+        loopA: c.loopA.map(p),
+        loopB: c.loopB.map(p),
+        targetDistance: target,
+      });
+    }
     default: {
       const never: never = c.kind;
       throw new Error(`unhandled constraint kind ${never}`);

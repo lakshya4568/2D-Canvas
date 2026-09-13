@@ -194,6 +194,44 @@ export function profileLoop(
   return usedSegments.size === profile.segmentIds.length && loop.length >= 3 ? loop : null;
 }
 
+/**
+ * The same walk, returning point IDS rather than coordinates.
+ *
+ * A centroid constraint has to name the vertices it depends on, not copy their
+ * positions — the positions are what the solver is about to change. Sharing the
+ * traversal with `profileLoop` keeps the two in the same order, which matters
+ * because a shoelace area is meaningless if the boundary is walked differently
+ * on two occasions.
+ */
+export function profileLoopIds(sketch: AuthoringSketch, profile: Profile): string[] | null {
+  if (!profile.closed) return null;
+
+  const adjacency = new Map<string, { segId: string; other: string }[]>();
+  for (const segId of profile.segmentIds) {
+    const seg = sketch.segments[segId];
+    (adjacency.get(seg.p1) ?? adjacency.set(seg.p1, []).get(seg.p1)!).push({ segId, other: seg.p2 });
+    (adjacency.get(seg.p2) ?? adjacency.set(seg.p2, []).get(seg.p2)!).push({ segId, other: seg.p1 });
+  }
+
+  const start = profile.pointIds[0];
+  const ids: string[] = [];
+  const usedSegments = new Set<string>();
+  let current = start;
+
+  for (let guard = 0; guard <= profile.segmentIds.length; guard++) {
+    if (!sketch.points[current]) return null;
+    ids.push(current);
+
+    const next = (adjacency.get(current) ?? []).find((e) => !usedSegments.has(e.segId));
+    if (!next) break;
+    usedSegments.add(next.segId);
+    current = next.other;
+    if (current === start) break;
+  }
+
+  return usedSegments.size === profile.segmentIds.length && ids.length >= 3 ? ids : null;
+}
+
 export function pointInLoop(loop: { x: number; y: number }[], p: { x: number; y: number }): boolean {
   let inside = false;
   for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {

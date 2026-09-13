@@ -16,7 +16,9 @@ import { Shape } from "../geometry/types";
 import { DEFAULT_TOLERANCE_POLICY, TolerancePolicy } from "../geometry/tolerance";
 import { AuthoringSketch, SketchConstraint, emptySketch } from "./types";
 import { rebuildSketch, liftSketchToShapes, constraintIsResolvable, isLowerable } from "./lower";
-import { expandRepeats, isGeneratedShape } from "./repeat";
+import { expandRepeats, isGeneratedShape, RepeatMeasurement } from "./repeat";
+import { fuseSketch, FusionSummary } from "./fusion";
+import { absorbRigidEdits, rigidComponents } from "./rigid";
 import { solveSketch, SolveOutcome, InvariantCheck, TopologyCheck } from "./solve";
 import { analyseDof, DofReport } from "./dof";
 import { refreshMeasured } from "./link";
@@ -44,6 +46,38 @@ export interface RegenerateResult {
    * of leaving the draftsman to wonder why a pinned shape kept jumping back.
    */
   movedShapeIds: string[];
+  /**
+   * Shapes the SOLVER put somewhere other than where they were handed to it.
+   *
+   * A subset of `movedShapeIds`, and the one a warning belongs on. The two
+   * differ whenever something between the drawing and the solve moved geometry
+   * legitimately — a rigid group absorbing a drag is the case that exists: the
+   * eleven lines that followed the one the author pulled all differ from what
+   * the drawing held, and none of them was "held by a rule". Warning about them
+   * would tell the author their group is broken at the exact moment it worked.
+   */
+  heldShapeIds: string[];
+  /**
+   * The rebuild added or removed shapes, rather than only moving them.
+   *
+   * Separate from `movedShapeIds` because the two mean opposite things to the
+   * author. A moved shape is one the rules would not let stay where it was put,
+   * and saying so is a warning. A shape set that changed is repeat expansion
+   * doing its job — the copies a rule requires either did not exist yet or are
+   * no longer the right number — and it needs no comment, only writing back.
+   * Conflating them left a drawing loaded from a file with its copies missing:
+   * the expansion produced them, nothing had "moved", so nothing was committed.
+   */
+  shapeSetChanged: boolean;
+  /** What each repeat rule measured off the unit on this rebuild. */
+  repeatMeasurements: RepeatMeasurement[];
+  /**
+   * The planar map after overlapping solids were arranged, when any overlap.
+   *
+   * Derived, never written back: the authored shapes stay the parametric source
+   * so the pieces can still be dragged apart again (notebook page 7).
+   */
+  fusion: FusionSummary | null;
   notes: string[];
 }
 
@@ -54,6 +88,12 @@ const GEOMETRY_KEYS = [
   "cx", "cy", "r", "rx", "ry",
   "rotation",
 ] as const;
+
+function sameShapeSet(before: Shape[], after: Shape[]): boolean {
+  if (before.length !== after.length) return false;
+  const prior = new Set(before.map((s) => s.id));
+  return after.every((s) => prior.has(s.id));
+}
 
 function movedShapes(before: Shape[], after: Shape[], tol: number): string[] {
   const prior = new Map(before.map((s) => [s.id, s as unknown as Record<string, unknown>]));
@@ -129,11 +169,28 @@ export function regenerate(
   //
   // None of that applies when the geometry is what moved: there the incoming
   // coordinates are newer than the sketch, and lifting would throw them away.
+  const lastSolved = liftSketchToShapes(previous, authoredShapes, policy).shapes;
   const current =
     options.source === "geometry"
-      ? authoredShapes
-      : liftSketchToShapes(previous, authoredShapes, policy).shapes;
-  const expansion = expandRepeats(current, previous);
+      ? // A rigid group takes a direct edit whole (§4.2). The canvas writes a
+        // drag straight into the drawing without asking anyone, so by the time
+        // it arrives here one line of a group can already be somewhere the
+        // other eleven are not. Reading the edit as the motion the body made,
+        // and moving the body, is what stops a group tearing open the first
+        // time someone drags a member of it.
+        rigidComponents(previous).length > 0
+        ? absorbRigidEdits(previous, lastSolved, authoredShapes, policy.geometry_mm)
+        : authoredShapes
+      : lastSolved;
+
+  // A repeat rule in gap mode measures the unit rather than storing a pitch, and
+  // it has to measure it where the unit IS. `previous` holds the intent but its
+  // coordinates are one solve behind whenever the author has just dragged
+  // something, so the unit is lowered once from the current shapes first. Only
+  // when there is a rule to answer — an extra lowering is not free.
+  const measured =
+    previous.repeats.length > 0 ? rebuildSketch(current, previous, policy).sketch : previous;
+  const expansion = expandRepeats(current, previous, measured);
 
   // 2. Lower the drawing into primitives, carrying the previous intent forward.
   const { sketch: rebuilt, droppedConstraintIds } = rebuildSketch(expansion.shapes, previous, policy);
@@ -148,7 +205,11 @@ export function regenerate(
   };
 
   // 4. Solve, with the whole invariant/topology gate behind it.
-  const outcome: SolveOutcome = solveSketch(withRepeatRows, { policy, preview: options.preview });
+  const outcome: SolveOutcome = solveSketch(withRepeatRows, {
+    policy,
+    preview: options.preview,
+    shapeNames: names,
+  });
 
   if (!outcome.ok) {
     // §35: a refused edit must not leave half-moved geometry on the sheet. The
@@ -169,6 +230,10 @@ export function regenerate(
       parameterErrors: outcome.parameterErrors,
       droppedConstraintIds,
       movedShapeIds: movedShapes(authoredShapes, restored, policy.geometry_mm),
+      heldShapeIds: movedShapes(current, restored, policy.geometry_mm),
+      shapeSetChanged: !sameShapeSet(authoredShapes, restored),
+      repeatMeasurements: expansion.measurements,
+      fusion: null,
       notes: expansion.notes,
     };
   }
@@ -176,6 +241,18 @@ export function regenerate(
   // 5. Back into the drawing, and re-read anything that only reports a number.
   const lifted = liftSketchToShapes(outcome.sketch, expansion.shapes, policy);
   const settled = refreshMeasured(outcome.sketch);
+
+  // 6. Where solids ran into each other, arrange them. Only when they did, and
+  //    never during a drag preview — the arrangement is for the committed
+  //    answer, not for every frame of a gesture.
+  const fusion =
+    !options.preview && outcome.topology.overlaps.length > 0
+      ? fuseSketch(settled, {
+          merge: settled.meta.mergeOverlaps !== false,
+          policy,
+          names,
+        })
+      : null;
 
   return {
     shapes: lifted.shapes,
@@ -188,6 +265,10 @@ export function regenerate(
     parameterErrors: outcome.parameterErrors,
     droppedConstraintIds,
     movedShapeIds: movedShapes(authoredShapes, lifted.shapes, policy.geometry_mm),
+    heldShapeIds: movedShapes(current, lifted.shapes, policy.geometry_mm),
+    shapeSetChanged: !sameShapeSet(authoredShapes, lifted.shapes),
+    repeatMeasurements: expansion.measurements,
+    fusion,
     notes: [...expansion.notes, ...lifted.issues.map((i) => i.message)],
   };
 }

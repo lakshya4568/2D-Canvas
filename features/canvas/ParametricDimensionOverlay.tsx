@@ -32,10 +32,12 @@ interface Placement {
   x: number;
   y: number;
   measured: number;
+  /** The two points the dimension actually measures, for the witness lines. */
+  witness: { a: { x: number; y: number }; b: { x: number; y: number } };
 }
 
 export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProps> = ({ scale }) => {
-  const { sketch, started, dof, setParameterValue } = useUpce();
+  const { sketch, started, dof, setParameterValue, unlinkValue } = useUpce();
 
   const conflicting = React.useMemo(
     () => new Set((dof?.diagnoses ?? []).filter((d) => d.status === "conflicting").map((d) => d.constraintId)),
@@ -67,6 +69,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         x: (a.x + b.x) / 2 + (nx / len) * off,
         y: (a.y + b.y) / 2 + (ny / len) * off,
         measured,
+        witness: { a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y } },
       };
     }
 
@@ -86,6 +89,7 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
         x: (p.x + foot.x) / 2,
         y: (p.y + foot.y) / 2,
         measured: Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len,
+        witness: { a: { x: p.x, y: p.y }, b: foot },
       };
     }
 
@@ -130,6 +134,13 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
             paramName={param.name}
             visualState={visualState}
             isEditable={visualState === "driving"}
+            witness={placement.witness}
+            onConvertToDriving={
+              // A derived badge is a dead end without this: the value is locked
+              // because an expression computes it, and the only honest way to
+              // edit it is to stop that expression driving it first.
+              param.role === "DERIVED" ? () => unlinkValue(param.name) : undefined
+            }
             diagnosticMessage={
               visualState === "conflicting"
                 ? `${constraint.label} cannot hold together with the other requirements.`

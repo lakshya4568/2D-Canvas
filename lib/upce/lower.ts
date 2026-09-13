@@ -239,6 +239,11 @@ export function rebuildSketch(
       const remapped: SketchConstraint = {
         ...c,
         points: c.points.map((p) => alias.get(p) ?? p),
+        // Loops are point lists too, and a welded vertex moves under them just
+        // the same. Forgetting to remap them would leave a centroid relation
+        // pointing at a vertex that was absorbed on the last rebuild.
+        loopA: c.loopA?.map((p) => alias.get(p) ?? p),
+        loopB: c.loopB?.map((p) => alias.get(p) ?? p),
       };
       if (constraintIsResolvable(remapped, sketch)) sketch.constraints.push(remapped);
       else dropped.push(c.id);
@@ -266,6 +271,11 @@ export function rebuildSketch(
 export function constraintIsResolvable(c: SketchConstraint, sketch: AuthoringSketch): boolean {
   for (const p of c.points) if (!sketch.points[p]) return false;
   for (const s of c.segments) if (!sketch.segments[s]) return false;
+  // A centroid relation names whole boundaries, not a pair of points. Losing one
+  // vertex of a loop makes the centroid a different quantity, so the rule stops
+  // meaning what the author agreed to and has to go with the geometry.
+  for (const p of c.loopA ?? []) if (!sketch.points[p]) return false;
+  for (const p of c.loopB ?? []) if (!sketch.points[p]) return false;
   return true;
 }
 

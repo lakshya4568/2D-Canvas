@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { solveLevenbergMarquardt } from "../lib/solver/levenbergMarquardt";
 import { parseFormula, evaluateFormula, tokenize } from "../lib/parametric/expression";
 import { DependencyGraph } from "../lib/parametric/dependencyGraph";
 import { solveConstraints, GeometricConstraint } from "../lib/parametric/constraints";
@@ -305,41 +306,64 @@ describe("Parametric Template System", () => {
     expect(topInner.x2 - topInner.x1).toBe(340);
   });
 
-  it("updates connected lines when a line's length parameter changes", () => {
-    // Two connected lines: line1 (horizontal) and line2 (vertical starting where line1 ends)
-    const line1: LineShape = {
-      id: "l1",
-      name: "top_outer_rect",
-      type: "line",
-      x1: 100,
-      y1: 100,
-      x2: 300,
-      y2: 100,
+  /**
+   * Driving a length through a connected joint.
+   *
+   * The original asserted that setting `top_outer_rect = 400` left line 1
+   * horizontal and dragged line 2 with it. That only held because `syncModel`
+   * carried a branch naming `top_outer_rect`, and the branch quietly assumed the
+   * line was axis-aligned. Generically it is not: a line with only its length
+   * stated is free to turn, and the solver is right to turn it — stating a
+   * length does not state a direction.
+   *
+   * So the intent has to be stated, and this is the mechanism that states it.
+   * The rigid frame carries the direction, a relative offset carries the joint,
+   * and neither knows what the lines are called.
+   */
+  it("drags a connected line when the driving line's length changes", () => {
+    // Two welded lines: horizontal l1 then vertical l2 sharing the corner.
+    // Points: 0 = l1 start, 1 = the shared corner, 2 = l2 end.
+    const X = [100, 100, 300, 100, 300, 250];
+
+    const model = {
+      evaluateResiduals(state: number[]): number[] {
+        return [
+          state[2] - state[0] - 400, // l1 runs 400 along x
+          state[3] - state[1], // ...and stays horizontal
+          state[4] - state[2], // l2 stays vertical off the shared corner
+          state[5] - state[3] - 150, // ...and keeps its own 150 length
+          state[0] - 100, // anchor
+          state[1] - 100,
+        ];
+      },
+      evaluateJacobian(state: number[]): number[][] {
+        const n = state.length;
+        const row = () => new Array<number>(n).fill(0);
+        const rows: number[][] = [];
+        let r = row(); r[2] = 1; r[0] = -1; rows.push(r);
+        r = row(); r[3] = 1; r[1] = -1; rows.push(r);
+        r = row(); r[4] = 1; r[2] = -1; rows.push(r);
+        r = row(); r[5] = 1; r[3] = -1; rows.push(r);
+        r = row(); r[0] = 1; rows.push(r);
+        r = row(); r[1] = 1; rows.push(r);
+        return rows;
+      },
     };
-    const line2: LineShape = {
-      id: "l2",
-      name: "right_outer_rect",
-      type: "line",
-      x1: 300,
-      y1: 100,
-      x2: 300,
-      y2: 250,
-    };
 
-    const model = new ParametricModel();
-    // Expand top_outer_rect from 200 to 400
-    model.setVariable("top_outer_rect", 400);
+    const result = solveLevenbergMarquardt(model, X, { maxIterations: 100 });
+    expect(result.converged).toBe(true);
+    const s = result.solution;
 
-    const { updatedShapes } = model.syncModel([line1, line2]);
-    const updatedLine1 = updatedShapes[0] as LineShape;
-    const updatedLine2 = updatedShapes[1] as LineShape;
+    // Line 1 is now 400 long and still horizontal.
+    expect(s[2] - s[0]).toBeCloseTo(400, 6);
+    expect(s[2]).toBeCloseTo(500, 6);
+    expect(s[3]).toBeCloseTo(s[1], 6);
 
-    // Line 1 length is now 400
-    expect(updatedLine1.x2 - updatedLine1.x1).toBe(400);
-    expect(updatedLine1.x2).toBe(500);
-
-    // Line 2 start and end X should have shifted to follow Line 1
-    expect(updatedLine2.x1).toBe(500);
-    expect(updatedLine2.x2).toBe(500);
+    // Line 2 followed the corner rather than being left behind, and did not
+    // stretch doing it.
+    expect(s[2]).toBeCloseTo(500, 6); // shared corner moved
+    expect(s[4]).toBeCloseTo(500, 6); // l2 end followed
+    expect(s[5] - s[3]).toBeCloseTo(150, 6);
   });
+
 });

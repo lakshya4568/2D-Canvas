@@ -17,14 +17,6 @@ import { detectClosedLoops, analyzePolygon, ClosedShapeAnalysis, DetectedLoop } 
 import { ConstructionManager } from "./constructionGeometry";
 import { solveClosedStructuralLoop } from "./structuralLoopSolver";
 import { solveConnectedGeometry } from "./connectedComponentSolver";
-import {
-  createSingleCellCulvertModel,
-  solveSingleCellCulvertSpan,
-} from "../state/presets/singleCellCulvert";
-import {
-  createTwoSpanCulvertModel,
-  solveTwoSpanCulvertBay1,
-} from "../state/presets/twoSpanCulvert";
 import { BipartiteConstraintGraph } from "./graph/bipartiteGraph";
 import { extractConnectedSubgraphsBFS, ConnectedSubgraph } from "./graph/bfsPartition";
 import type { ParametricVariable, ShapeParameterDef } from "./types";
@@ -502,344 +494,81 @@ export class ParametricModel {
       return s;
     });
 
-    const culvertOuter = updatedShapes.find((s) => s.id === "culvert_outer" || s.name === "culvert_outer");
-    if (culvertOuter && culvertOuter.type === "rectangle") {
-      const ox = culvertOuter.x;
-      const oy = culvertOuter.y;
-      const targetSpan = (getVarValue("clear_span", "Span", "span") as number) ?? 300;
-      const clearH = (getVarValue("clear_height", "Height", "height") as number) ?? 200;
-      const wallT = (getVarValue("wall_thickness") as number) ?? 30;
-      const haunchL = (getVarValue("haunch_leg") as number) ?? 35;
+    // The generic resolution path, and the only one.
+    //
+    // What used to stand here was a cascade of branches keyed on magic entity
+    // ids — `culvert_inner_top`, `culvert_haunch_tr`, `b1_haunch_bl`,
+    // `miter_tl`, `edge_top` — each one re-deriving a particular drawing's
+    // geometry from a particular set of variable names. It worked for exactly
+    // the templates it named and for nothing a draftsman drew, which is the
+    // definition of the failure UPCE-MASTER-1.0 exists to end (§21: no
+    // hardcoded civil object types in the kernel).
+    //
+    // Everything below is id-agnostic. It reasons about connectivity, closed
+    // loops and coincident joints, so it treats a culvert, a truss and a shape
+    // somebody drew this morning the same way — because by this point they are
+    // all just connected lines.
 
-      const culvert = createSingleCellCulvertModel({
-        clearSpan: 300,
-        clearHeight: clearH,
-        wallThickness: wallT,
-        haunchLeg: haunchL,
-      });
+    // 1. Check connected component geometry (handles ANY connected figures:
+    // triangles, rectangles with diagonals, trusses, multi-loop assemblies, etc.)
+    const connRes = solveConnectedGeometry({
+      shapes,
+      variables: this.variables,
+    });
 
-      const solved = solveSingleCellCulvertSpan(culvert, targetSpan);
-      if (solved.converged) {
-        culvertOuter.width = solved.outerWidth;
-        culvertOuter.height = solved.outerHeight;
-
-        const innerPts = solved.innerLoop;
-        for (const s of updatedShapes) {
-          if (s.type === "line") {
-            switch (s.id) {
-              case "culvert_inner_top":
-                s.x1 = ox + innerPts[0].x; s.y1 = oy + innerPts[0].y;
-                s.x2 = ox + innerPts[1].x; s.y2 = oy + innerPts[1].y;
-                break;
-              case "culvert_haunch_tr":
-                s.x1 = ox + innerPts[1].x; s.y1 = oy + innerPts[1].y;
-                s.x2 = ox + innerPts[2].x; s.y2 = oy + innerPts[2].y;
-                break;
-              case "culvert_inner_right":
-                s.x1 = ox + innerPts[2].x; s.y1 = oy + innerPts[2].y;
-                s.x2 = ox + innerPts[3].x; s.y2 = oy + innerPts[3].y;
-                break;
-              case "culvert_haunch_br":
-                s.x1 = ox + innerPts[3].x; s.y1 = oy + innerPts[3].y;
-                s.x2 = ox + innerPts[4].x; s.y2 = oy + innerPts[4].y;
-                break;
-              case "culvert_inner_bottom":
-                s.x1 = ox + innerPts[4].x; s.y1 = oy + innerPts[4].y;
-                s.x2 = ox + innerPts[5].x; s.y2 = oy + innerPts[5].y;
-                break;
-              case "culvert_haunch_bl":
-                s.x1 = ox + innerPts[5].x; s.y1 = oy + innerPts[5].y;
-                s.x2 = ox + innerPts[6].x; s.y2 = oy + innerPts[6].y;
-                break;
-              case "culvert_inner_left":
-                s.x1 = ox + innerPts[6].x; s.y1 = oy + innerPts[6].y;
-                s.x2 = ox + innerPts[7].x; s.y2 = oy + innerPts[7].y;
-                break;
-              case "culvert_haunch_tl":
-                s.x1 = ox + innerPts[7].x; s.y1 = oy + innerPts[7].y;
-                s.x2 = ox + innerPts[0].x; s.y2 = oy + innerPts[0].y;
-                break;
-            }
-          }
+    let handled = false;
+    if (connRes.handled) {
+      for (const s of connRes.updatedShapes) {
+        const idx = updatedShapes.findIndex((us) => us.id === s.id);
+        if (idx !== -1) {
+          updatedShapes[idx] = s;
         }
       }
-    } else if (updatedShapes.some((s) => s.id === "two_span_outer" || s.name === "outer_frame")) {
-      const twoSpanOuter = updatedShapes.find((s) => s.id === "two_span_outer" || s.name === "outer_frame");
-      if (twoSpanOuter && twoSpanOuter.type === "rectangle") {
-        const ox = twoSpanOuter.x;
-        const oy = twoSpanOuter.y;
-        const b1Span = (getVarValue("bay1_span") as number) ?? 250;
-        const b2Span = (getVarValue("bay2_span") as number) ?? 250;
-        const clearH = (getVarValue("clear_height") as number) ?? 200;
-        const extW = (getVarValue("ext_wall") as number) ?? 30;
-        const midW = (getVarValue("mid_wall") as number) ?? 40;
-        const haunchL = (getVarValue("haunch_leg") as number) ?? 35;
-
-        const culvert = createTwoSpanCulvertModel({
-          bay1Span: 250,
-          bay2Span: b2Span,
-          clearHeight: clearH,
-          extWallThickness: extW,
-          midWallThickness: midW,
-          haunchLeg: haunchL,
+      handled = true;
+    } else if (loops.length > 0) {
+      // 2. Fallback to cyclical loop solver for multi-edge polygons
+      for (const loop of loops) {
+        const solveRes = solveClosedStructuralLoop({
+          loopShapes: loop.shapes,
+          loopVertices: loop.vertices,
+          variables: this.variables,
         });
 
-        const solved = solveTwoSpanCulvertBay1(culvert, b1Span);
-        if (solved.converged) {
-          twoSpanOuter.width = solved.totalWidth;
-          twoSpanOuter.height = solved.totalHeight;
-
-          const b1Pts = solved.bay1Loop;
-          const b2Pts = solved.bay2Loop;
-
-          for (const s of updatedShapes) {
-            if (s.type === "line") {
-              switch (s.id) {
-                case "b1_top":
-                  s.x1 = ox + b1Pts[0].x; s.y1 = oy + b1Pts[0].y;
-                  s.x2 = ox + b1Pts[1].x; s.y2 = oy + b1Pts[1].y;
-                  break;
-                case "b1_haunch_tr":
-                  s.x1 = ox + b1Pts[1].x; s.y1 = oy + b1Pts[1].y;
-                  s.x2 = ox + b1Pts[2].x; s.y2 = oy + b1Pts[2].y;
-                  break;
-                case "b1_right":
-                  s.x1 = ox + b1Pts[2].x; s.y1 = oy + b1Pts[2].y;
-                  s.x2 = ox + b1Pts[3].x; s.y2 = oy + b1Pts[3].y;
-                  break;
-                case "b1_haunch_br":
-                  s.x1 = ox + b1Pts[3].x; s.y1 = oy + b1Pts[3].y;
-                  s.x2 = ox + b1Pts[4].x; s.y2 = oy + b1Pts[4].y;
-                  break;
-                case "b1_bottom":
-                  s.x1 = ox + b1Pts[4].x; s.y1 = oy + b1Pts[4].y;
-                  s.x2 = ox + b1Pts[5].x; s.y2 = oy + b1Pts[5].y;
-                  break;
-                case "b1_haunch_bl":
-                  s.x1 = ox + b1Pts[5].x; s.y1 = oy + b1Pts[5].y;
-                  s.x2 = ox + b1Pts[6].x; s.y2 = oy + b1Pts[6].y;
-                  break;
-                case "b1_left":
-                  s.x1 = ox + b1Pts[6].x; s.y1 = oy + b1Pts[6].y;
-                  s.x2 = ox + b1Pts[7].x; s.y2 = oy + b1Pts[7].y;
-                  break;
-                case "b1_haunch_tl":
-                  s.x1 = ox + b1Pts[7].x; s.y1 = oy + b1Pts[7].y;
-                  s.x2 = ox + b1Pts[0].x; s.y2 = oy + b1Pts[0].y;
-                  break;
-
-                case "b2_top":
-                  s.x1 = ox + b2Pts[0].x; s.y1 = oy + b2Pts[0].y;
-                  s.x2 = ox + b2Pts[1].x; s.y2 = oy + b2Pts[1].y;
-                  break;
-                case "b2_haunch_tr":
-                  s.x1 = ox + b2Pts[1].x; s.y1 = oy + b2Pts[1].y;
-                  s.x2 = ox + b2Pts[2].x; s.y2 = oy + b2Pts[2].y;
-                  break;
-                case "b2_right":
-                  s.x1 = ox + b2Pts[2].x; s.y1 = oy + b2Pts[2].y;
-                  s.x2 = ox + b2Pts[3].x; s.y2 = oy + b2Pts[3].y;
-                  break;
-                case "b2_haunch_br":
-                  s.x1 = ox + b2Pts[3].x; s.y1 = oy + b2Pts[3].y;
-                  s.x2 = ox + b2Pts[4].x; s.y2 = oy + b2Pts[4].y;
-                  break;
-                case "b2_bottom":
-                  s.x1 = ox + b2Pts[4].x; s.y1 = oy + b2Pts[4].y;
-                  s.x2 = ox + b2Pts[5].x; s.y2 = oy + b2Pts[5].y;
-                  break;
-                case "b2_haunch_bl":
-                  s.x1 = ox + b2Pts[5].x; s.y1 = oy + b2Pts[5].y;
-                  s.x2 = ox + b2Pts[6].x; s.y2 = oy + b2Pts[6].y;
-                  break;
-                case "b2_left":
-                  s.x1 = ox + b2Pts[6].x; s.y1 = oy + b2Pts[6].y;
-                  s.x2 = ox + b2Pts[7].x; s.y2 = oy + b2Pts[7].y;
-                  break;
-                case "b2_haunch_tl":
-                  s.x1 = ox + b2Pts[7].x; s.y1 = oy + b2Pts[7].y;
-                  s.x2 = ox + b2Pts[0].x; s.y2 = oy + b2Pts[0].y;
-                  break;
-              }
+        if (solveRes.closed) {
+          for (const solvedShape of solveRes.updatedShapes) {
+            const idx = updatedShapes.findIndex((s) => s.id === solvedShape.id);
+            if (idx !== -1) {
+              updatedShapes[idx] = solvedShape;
             }
           }
+          handled = true;
         }
       }
-    } else {
-    // 2b. Canonical resolution for slab / multi-line frames
-    const topOuter = updatedShapes.find((s) => s.name === "top_outer_rect");
-    if (topOuter && topOuter.type === "line") {
-      const ox = topOuter.x1;
-      const oy = topOuter.y1;
-      const W = (getVarValue("top_outer_rect") as number) ?? 300;
-      const H = (getVarValue("height_outer_rect") as number) ?? 180;
-      const T = (getVarValue("wall_thickness") as number) ?? 25;
+    }
 
-      for (const s of updatedShapes) {
-        if (s.type === "line") {
-          switch (s.name) {
-            case "top_outer_rect":
-              s.x1 = ox; s.y1 = oy; s.x2 = ox + W; s.y2 = oy;
-              break;
-            case "right_outer_rect":
-              s.x1 = ox + W; s.y1 = oy; s.x2 = ox + W; s.y2 = oy + H;
-              break;
-            case "bottom_outer_rect":
-              s.x1 = ox + W; s.y1 = oy + H; s.x2 = ox; s.y2 = oy + H;
-              break;
-            case "left_outer_rect":
-              s.x1 = ox; s.y1 = oy + H; s.x2 = ox; s.y2 = oy;
-              break;
-            case "top_inner_rect":
-              s.x1 = ox + T; s.y1 = oy + T; s.x2 = ox + W - T; s.y2 = oy + T;
-              break;
-            case "right_inner_rect":
-              s.x1 = ox + W - T; s.y1 = oy + T; s.x2 = ox + W - T; s.y2 = oy + H - T;
-              break;
-            case "bottom_inner_rect":
-              s.x1 = ox + W - T; s.y1 = oy + H - T; s.x2 = ox + T; s.y2 = oy + H - T;
-              break;
-            case "left_inner_rect":
-              s.x1 = ox + T; s.y1 = oy + H - T; s.x2 = ox + T; s.y2 = oy + T;
-              break;
-            case "miter_top_left":
-            case "miter_tl":
-              s.x1 = ox; s.y1 = oy; s.x2 = ox + T; s.y2 = oy + T;
-              break;
-            case "miter_top_right":
-            case "miter_tr":
-              s.x1 = ox + W; s.y1 = oy; s.x2 = ox + W - T; s.y2 = oy + T;
-              break;
-            case "miter_bottom_right":
-            case "miter_br":
-              s.x1 = ox + W; s.y1 = oy + H; s.x2 = ox + W - T; s.y2 = oy + H - T;
-              break;
-            case "miter_bottom_left":
-            case "miter_bl":
-              s.x1 = ox; s.y1 = oy + H; s.x2 = ox + T; s.y2 = oy + H - T;
-              break;
-          }
-        }
-      }
-    } else if (updatedShapes.some((s) => s.name === "edge_top")) {
-      const edgeTop = updatedShapes.find((s) => s.name === "edge_top")!;
-      const ox = (edgeTop as any).x1;
-      const oy = (edgeTop as any).y1;
-      const L_top = (getVarValue("edge_top", "edge_top.length", "top_edge_length") as number) ?? 177;
-      const L_tr = (getVarValue("edge_tr", "edge_tr.length", "tr_chamfer_length") as number) ?? 38;
-      const L_right = (getVarValue("edge_right", "edge_right.length", "right_edge_length") as number) ?? 92;
-      const L_br = (getVarValue("edge_br", "edge_br.length", "br_chamfer_length") as number) ?? 38;
-      const L_bot = (getVarValue("edge_bottom", "edge_bottom.length", "bottom_edge_length") as number) ?? 176;
-      const L_bl = (getVarValue("edge_bl", "edge_bl.length", "bl_chamfer_length") as number) ?? 46;
-      const L_left = (getVarValue("edge_left", "edge_left.length", "left_edge_length") as number) ?? 79;
-      const L_tl = (getVarValue("edge_tl", "edge_tl.length", "tl_chamfer_length") as number) ?? 44;
-
-      const v0 = { x: ox, y: oy };
-      const v1 = { x: ox + L_top, y: oy };
-      const v2 = { x: v1.x + L_tr * Math.SQRT1_2, y: v1.y + L_tr * Math.SQRT1_2 };
-      const v3 = { x: v2.x, y: v2.y + L_right };
-      const v4 = { x: v3.x - L_br * Math.SQRT1_2, y: v3.y + L_br * Math.SQRT1_2 };
-
-      const v7 = { x: v0.x - L_tl * Math.SQRT1_2, y: v0.y + L_tl * Math.SQRT1_2 };
-      const v6 = { x: v7.x, y: v7.y + L_left };
-      const v5 = { x: v6.x + L_bl * Math.SQRT1_2, y: v4.y };
-
-      for (const s of updatedShapes) {
-        if (s.type === "line") {
-          switch (s.name) {
-            case "edge_top": s.x1 = v0.x; s.y1 = v0.y; s.x2 = v1.x; s.y2 = v1.y; break;
-            case "edge_tr": s.x1 = v1.x; s.y1 = v1.y; s.x2 = v2.x; s.y2 = v2.y; break;
-            case "edge_right": s.x1 = v2.x; s.y1 = v2.y; s.x2 = v3.x; s.y2 = v3.y; break;
-            case "edge_br": s.x1 = v3.x; s.y1 = v3.y; s.x2 = v4.x; s.y2 = v4.y; break;
-            case "edge_bottom": s.x1 = v4.x; s.y1 = v4.y; s.x2 = v5.x; s.y2 = v5.y; break;
-            case "edge_bl": s.x1 = v5.x; s.y1 = v5.y; s.x2 = v6.x; s.y2 = v6.y; break;
-            case "edge_left": s.x1 = v6.x; s.y1 = v6.y; s.x2 = v7.x; s.y2 = v7.y; break;
-            case "edge_tl": s.x1 = v7.x; s.y1 = v7.y; s.x2 = v0.x; s.y2 = v0.y; break;
-          }
-        }
-      }
-
-      const syncTwin = (name1: string, name2: string, val: number) => {
-        if (this.variables.has(name1)) {
-          const v = this.variables.get(name1)!;
-          if (!v.formula) v.value = val;
-        }
-        if (this.variables.has(name2)) {
-          const v = this.variables.get(name2)!;
-          if (!v.formula) v.value = val;
-        }
-      };
-      syncTwin("edge_top", "top_edge_length", L_top);
-      syncTwin("edge_tr", "tr_chamfer_length", L_tr);
-      syncTwin("edge_right", "right_edge_length", L_right);
-      syncTwin("edge_br", "br_chamfer_length", L_br);
-      syncTwin("edge_bottom", "bottom_edge_length", L_bot);
-      syncTwin("edge_bl", "bl_chamfer_length", L_bl);
-      syncTwin("edge_left", "left_edge_length", L_left);
-      syncTwin("edge_tl", "tl_chamfer_length", L_tl);
-    } else {
-      // 1. Check connected component geometry (handles ANY connected figures:
-      // triangles, rectangles with diagonals, trusses, multi-loop assemblies, etc.)
-      const connRes = solveConnectedGeometry({
-        shapes,
-        variables: this.variables,
-      });
-
-      let handled = false;
-      if (connRes.handled) {
-        for (const s of connRes.updatedShapes) {
-          const idx = updatedShapes.findIndex((us) => us.id === s.id);
-          if (idx !== -1) {
-            updatedShapes[idx] = s;
-          }
-        }
-        handled = true;
-      } else if (loops.length > 0) {
-        // 2. Fallback to cyclical loop solver for multi-edge polygons
-        for (const loop of loops) {
-          const solveRes = solveClosedStructuralLoop({
-            loopShapes: loop.shapes,
-            loopVertices: loop.vertices,
-            variables: this.variables,
-          });
-
-          if (solveRes.closed) {
-            for (const solvedShape of solveRes.updatedShapes) {
-              const idx = updatedShapes.findIndex((s) => s.id === solvedShape.id);
-              if (idx !== -1) {
-                updatedShapes[idx] = solvedShape;
-              }
-            }
-            handled = true;
-          }
-        }
-      }
-
-      if (!handled) {
-        // General forward-only line connection: adjust connected lines without circular feedback
-        for (let i = 0; i < updatedShapes.length; i++) {
-          const curr = updatedShapes[i];
-          const orig = shapes[i];
-          if ((curr.type === "line" || curr.type === "arrow") && (orig.type === "line" || orig.type === "arrow")) {
-            const shiftX2 = curr.x2 - orig.x2;
-            const shiftY2 = curr.y2 - orig.y2;
-            if (Math.abs(shiftX2) > 1e-4 || Math.abs(shiftY2) > 1e-4) {
-              for (let j = i + 1; j < updatedShapes.length; j++) {
-                const other = updatedShapes[j];
-                if (other.type === "line" || other.type === "arrow") {
-                  if (Math.hypot(other.x1 - orig.x2, other.y1 - orig.y2) < 4) {
-                    other.x1 += shiftX2;
-                    other.y1 += shiftY2;
-                    if (Math.abs(other.x2 - other.x1) < 1e-4) other.x2 += shiftX2;
-                    if (Math.abs(other.y2 - other.y1) < 1e-4) other.y2 += shiftY2;
-                  }
+    if (!handled) {
+      // General forward-only line connection: adjust connected lines without circular feedback
+      for (let i = 0; i < updatedShapes.length; i++) {
+        const curr = updatedShapes[i];
+        const orig = shapes[i];
+        if ((curr.type === "line" || curr.type === "arrow") && (orig.type === "line" || orig.type === "arrow")) {
+          const shiftX2 = curr.x2 - orig.x2;
+          const shiftY2 = curr.y2 - orig.y2;
+          if (Math.abs(shiftX2) > 1e-4 || Math.abs(shiftY2) > 1e-4) {
+            for (let j = i + 1; j < updatedShapes.length; j++) {
+              const other = updatedShapes[j];
+              if (other.type === "line" || other.type === "arrow") {
+                if (Math.hypot(other.x1 - orig.x2, other.y1 - orig.y2) < 4) {
+                  other.x1 += shiftX2;
+                  other.y1 += shiftY2;
+                  if (Math.abs(other.x2 - other.x1) < 1e-4) other.x2 += shiftX2;
+                  if (Math.abs(other.y2 - other.y1) < 1e-4) other.y2 += shiftY2;
                 }
               }
             }
           }
         }
       }
-    }
     }
 
     // 3. Re-evaluate formulas with freshly updated geometry variables

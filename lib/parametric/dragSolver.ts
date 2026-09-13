@@ -276,3 +276,71 @@ export class DragSession {
     return this.previousSolution !== null;
   }
 }
+
+/**
+ * Dragging when some of the geometry is rigid (UPCE-ADDENDUM-2.0 §4.2).
+ *
+ * The damping above is written in coordinates, and a rigid component does not
+ * have coordinates the solver may touch — it has a pose. Dragging one of its
+ * edges in coordinate space would ask the solver to move that edge and leave the
+ * rest of the loop where it was, which is the skew this whole section exists to
+ * stop.
+ *
+ * So the drag is solved in the reduced space instead. The component's three DOFs
+ * take the drag scaling, the same S_jj = 0.05 that a dragged coordinate would
+ * get, and the minimum-norm step then spends the displacement on translating and
+ * turning the body rather than on pulling it apart.
+ */
+export interface RigidDragOptions extends DragSolverOptions {
+  /** Components whose pose should absorb the drag, by id. */
+  draggedComponentIds?: string[];
+}
+
+export function solveRigidDragStep(
+  model: DragSystemModel,
+  condensation: {
+    reduce(X: number[]): number[];
+    expand(q: number[]): number[];
+    condenseJacobian(J: number[][], q: number[]): number[][];
+    componentSlot(id: string): number | undefined;
+    freePointSlot(pointIndex: number): number | undefined;
+  },
+  currentX: number[],
+  targets: DragTarget[],
+  options: RigidDragOptions = {}
+): DragStepResult & { solutionX: number[] } {
+  const reducedModel: DragSystemModel = {
+    evaluateResiduals(q: number[]): number[] {
+      return model.evaluateResiduals(condensation.expand(q));
+    },
+    evaluateJacobian(q: number[]): number[][] {
+      const X = condensation.expand(q);
+      return condensation.condenseJacobian(model.evaluateJacobian(X), q);
+    },
+  };
+
+  const q0 = condensation.reduce(currentX);
+
+  // A drag target given in coordinate space only means something here if the
+  // point it names is still free. One inside a rigid body is redirected to that
+  // body's origin, which is the honest translation of "pull this" for something
+  // that can only move as a whole.
+  const reducedTargets: DragTarget[] = [];
+  for (const t of targets) {
+    const pointIndex = Math.floor(t.coordIndex / 2);
+    const axis = t.coordIndex % 2;
+    const freeSlot = condensation.freePointSlot(pointIndex);
+    if (freeSlot !== undefined) {
+      reducedTargets.push({ ...t, coordIndex: freeSlot + axis });
+    }
+  }
+  for (const id of options.draggedComponentIds ?? []) {
+    const base = condensation.componentSlot(id);
+    if (base === undefined) continue;
+    reducedTargets.push({ coordIndex: base, targetValue: q0[base], weight: 1e-6 });
+    reducedTargets.push({ coordIndex: base + 1, targetValue: q0[base + 1], weight: 1e-6 });
+  }
+
+  const result = DirectManipulationDragSolver.solveDragStep(reducedModel, q0, reducedTargets, options);
+  return { ...result, solutionX: condensation.expand(result.solution) };
+}

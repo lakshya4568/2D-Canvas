@@ -27,6 +27,9 @@ import {
   rowCount,
 } from "./residuals";
 import { refreshParameters } from "./parameters";
+import { RigidCondensation } from "../geometry/lcs/componentFrame";
+import { condensationFor } from "./rigid";
+import { detectOverlaps, OverlapPair } from "./fusion";
 
 export interface InvariantCheck {
   label: string;
@@ -59,6 +62,16 @@ export interface TopologyCheck {
   invertedShapeIds: string[];
   /** Segments that collapsed to (near) zero length. */
   degenerateSegmentIds: string[];
+  /**
+   * Closed profiles that are standing in each other's way (notebook page 7).
+   *
+   * Reported, never refused. Two solids running into one another is a real
+   * drafting situation with two real answers — one monolithic pour, or a joint
+   * — and which one applies is the author's call, not the solver's. Rejecting
+   * the edit would take that call away and leave them unable to draw the very
+   * thing the notebook is about.
+   */
+  overlaps: OverlapPair[];
 }
 
 export interface SolveOptions {
@@ -68,6 +81,13 @@ export interface SolveOptions {
   preview?: boolean;
   /** Extra rows that exist only for this solve (drag targets). */
   temporary?: SketchConstraint[];
+  /**
+   * Display names, so a report can say "Left cell" instead of "R3".
+   *
+   * The solver has no use for them; the overlap report does, and it is produced
+   * here because it is a statement about the solved geometry.
+   */
+  shapeNames?: Record<string, string>;
 }
 
 /**
@@ -114,7 +134,8 @@ function segmentsCross(
 export function checkTopology(
   before: AuthoringSketch,
   after: AuthoringSketch,
-  policy: TolerancePolicy
+  policy: TolerancePolicy,
+  names: Record<string, string> = {}
 ): TopologyCheck {
   const degenerate: string[] = [];
   for (const seg of Object.values(after.segments)) {
@@ -162,10 +183,12 @@ export function checkTopology(
   }
 
   return {
+    // Overlap is deliberately absent from `ok`: see the field's comment.
     ok: degenerate.length === 0 && inverted.length === 0 && crossings.length === 0,
     selfIntersections: [...new Set(crossings)],
     invertedShapeIds: inverted,
     degenerateSegmentIds: degenerate,
+    overlaps: detectOverlaps(after, policy, names),
   };
 }
 
@@ -231,12 +254,31 @@ function solveWithHomotopy(
   sketch: AuthoringSketch,
   sys: ReturnType<typeof buildSystem>,
   policy: TolerancePolicy,
-  maxIterations: number
+  maxIterations: number,
+  condensation: RigidCondensation | null
 ) {
+  /**
+   * One evaluation, in whichever space the solver is searching.
+   *
+   * With no rigid group that space is the coordinates themselves and this is
+   * the call it always was. With one it is (X0, Y0, theta) per group plus the
+   * loose points: the residuals are the SAME geometric statements about the
+   * same world points — a distance is still a distance — and only the columns
+   * change, by the chain rule through the frame. Nothing that already exists
+   * had to be rewritten to benefit, which is the whole reason the condensation
+   * sits here rather than inside each constraint.
+   */
+  const evaluate = (s: AuthoringSketch, system: typeof sys, v: number[]) => {
+    if (!condensation) return evaluateSystem(s, system, v);
+    const X = condensation.expand(v);
+    const { residuals, jacobian } = evaluateSystem(s, system, X);
+    return { residuals, jacobian: condensation.condenseJacobian(jacobian, v) };
+  };
   const model = (s: AuthoringSketch, system: typeof sys) => ({
-    evaluateResiduals: (X: number[]) => evaluateSystem(s, system, X).residuals,
-    evaluateJacobian: (X: number[]) => evaluateSystem(s, system, X).jacobian,
+    evaluateResiduals: (v: number[]) => evaluate(s, system, v).residuals,
+    evaluateJacobian: (v: number[]) => evaluate(s, system, v).jacobian,
   });
+  const start = condensation ? condensation.reduce(sys.X) : [...sys.X];
   const extent = drawingExtent(sys);
   // A residual of `extent x 1e-9` on a 4 m drawing is four nanometres. Demanding
   // better than that is demanding better than double precision can carry, and
@@ -266,11 +308,11 @@ function solveWithHomotopy(
     let best = result.maxResidual;
     let iterations = result.iterations;
     for (let i = 0; i < 40; i++) {
-      const { residuals, jacobian } = evaluateSystem(s, system, X);
+      const { residuals, jacobian } = evaluate(s, system, X);
       if (jacobian.length === 0) break;
       const step = solveMinimumNormStep(jacobian, residuals, policy.singular_value_eps);
       const trial = X.map((v, k) => v + step[k]);
-      const after = evaluateSystem(s, system, trial).residuals;
+      const after = evaluate(s, system, trial).residuals;
       const worst = after.reduce((m, r) => Math.max(m, Math.abs(r)), 0);
       iterations++;
       if (!Number.isFinite(worst) || worst >= best) break;
@@ -288,8 +330,15 @@ function solveWithHomotopy(
     };
   };
 
-  const direct = polish(sketch, sys, solveLevenbergMarquardt(model(sketch, sys), sys.X, lmOptions));
-  if (direct.converged) return direct;
+  /** Reduced solution -> world coordinates, so every caller sees full X. */
+  const surface = (r: LMSolverResult): LMSolverResult => {
+    if (!condensation) return r;
+    condensation.commitPoses(r.solution);
+    return { ...r, solution: condensation.expand(r.solution) };
+  };
+
+  const direct = polish(sketch, sys, solveLevenbergMarquardt(model(sketch, sys), start, lmOptions));
+  if (direct.converged) return surface(direct);
 
   // Where each numeric target currently sits, measured on the start geometry.
   // `residual = measured - target`, so measured = target + residual.
@@ -312,14 +361,19 @@ function solveWithHomotopy(
         value: c.value + residuals[cursor],
         valueY: c.valueY + residuals[cursor + 1],
       });
+    } else if (c.kind === "centroid_distance") {
+      // Its residual is |dC|^2 - D^2, divided by the row scale — neither of
+      // which is a distance, so `target + residual` would be meaningless here.
+      // Measure the gap directly instead.
+      startTargets.set(c.id, { value: measuredCentroidGap(sketch, c, sys.X, sys.index) });
     } else if (isDimensional(c)) {
       startTargets.set(c.id, { value: targetOf(c, sketch) + residuals[cursor] });
     }
     cursor += rows;
   }
-  if (startTargets.size === 0) return direct;
+  if (startTargets.size === 0) return surface(direct);
 
-  let X = [...sys.X];
+  let X = [...start];
   let last = direct;
   for (const lambda of [0.15, 0.3, 0.5, 0.7, 0.85, 1]) {
     const staged: AuthoringSketch = {
@@ -353,10 +407,36 @@ function solveWithHomotopy(
     // the sketch holds: `evaluateSystem` reads its rows from `system.active`.
     const stagedSys = { ...sys, active: staged.constraints.filter(isActive) };
     last = polish(staged, stagedSys, solveLevenbergMarquardt(model(staged, stagedSys), X, lmOptions));
-    if (!last.converged) return last;
+    if (!last.converged) return surface(last);
     X = last.solution;
   }
-  return last;
+  return surface(last);
+}
+
+/** The centre-to-centre gap a `centroid_distance` currently spans, in mm. */
+function measuredCentroidGap(
+  sketch: AuthoringSketch,
+  c: SketchConstraint,
+  X: number[],
+  index: Record<string, number>
+): number {
+  if (!c.loopA || !c.loopB) return 0;
+  const centre = (loop: string[]) => {
+    let x = 0;
+    let y = 0;
+    let n = 0;
+    for (const id of loop) {
+      const i = index[id];
+      if (i === undefined) continue;
+      x += X[2 * i];
+      y += X[2 * i + 1];
+      n++;
+    }
+    return n === 0 ? { x: 0, y: 0 } : { x: x / n, y: y / n };
+  };
+  const a = centre(c.loopA);
+  const b = centre(c.loopB);
+  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 function isDimensional(c: SketchConstraint): boolean {
@@ -365,7 +445,17 @@ function isDimensional(c: SketchConstraint): boolean {
     c.kind === "distance_x" ||
     c.kind === "distance_y" ||
     c.kind === "point_line_distance" ||
-    c.kind === "angle"
+    c.kind === "angle" ||
+    // The addendum's relationships carry numeric targets like any dimension, so
+    // they need the same staging. A centre-to-centre gap dropping from 900 to
+    // 500 is a 400 mm jump the direct solve will not make in one bound — it
+    // settles instead on a compromise that squashes a rectangle, because
+    // deforming a box is a cheaper least-squares answer than moving it when the
+    // step is that large.
+    c.kind === "relative_x" ||
+    c.kind === "relative_y" ||
+    c.kind === "normal_offset" ||
+    c.kind === "centroid_distance"
   );
 }
 
@@ -395,18 +485,28 @@ export function solveSketch(input: AuthoringSketch, options: SolveOptions = {}):
       maxResidual: 0,
       invariants: [],
       parameterErrors,
-      topology: { ok: true, selfIntersections: [], invertedShapeIds: [], degenerateSegmentIds: [] },
+      topology: {
+        ok: true,
+        selfIntersections: [],
+        invertedShapeIds: [],
+        degenerateSegmentIds: [],
+        overlaps: [],
+      },
     };
   }
 
   // 2. Variational solve. Minimum-norm steps keep the result near where the
   //    author left the geometry, which is what makes edits feel local (§29.4).
-  const result = solveWithHomotopy(working, sys, policy, options.maxIterations ?? 300);
+  // Rigid groups change the SPACE the solver searches, so they are settled
+  // before it starts, from the coordinates as they now stand (§4.2).
+  const condensation = condensationFor(working, sys);
+
+  const result = solveWithHomotopy(working, sys, policy, options.maxIterations ?? 300, condensation);
 
   const solvedFull = applySolution(working, sys, result.solution);
   const solved: AuthoringSketch = { ...solvedFull, constraints: withParams.constraints };
 
-  const topology = checkTopology(withParams, solved, policy);
+  const topology = checkTopology(withParams, solved, policy, options.shapeNames);
   const invariants = checkInvariants(solved, policy);
 
   if (options.preview) {

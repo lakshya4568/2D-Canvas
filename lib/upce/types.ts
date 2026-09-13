@@ -102,7 +102,13 @@ export type ConstraintKind =
   | "distance_y"        // p2.y - p1.y = value
   | "point_line_distance" // signed normal offset of p3 from segment p1->p2
   | "angle"             // signed angle between two segments, radians
-  | "concentric";       // two circles share a centre
+  | "concentric"        // two circles share a centre
+  // --- UPCE-ADDENDUM-2.0. Relationships the draftsman asserts between things
+  // --- the detectors cannot see a relationship between.
+  | "relative_x"        // midpoint separation of two segments along x
+  | "relative_y"        // midpoint separation of two segments along y
+  | "normal_offset"     // signed perpendicular offset of a segment from another
+  | "centroid_distance";// centre-to-centre distance between two closed loops
 
 export type ConstraintStrength =
   /** Structural truth of the primitive itself. Not deletable in place. */
@@ -151,6 +157,15 @@ export interface SketchConstraint {
   provenance: Provenance;
   /** Plain-language label, e.g. "left and right walls stay equal". */
   label: string;
+  /**
+   * Ordered boundary points of the two shapes a `centroid_distance` relates.
+   *
+   * Loops rather than a fixed pair of points because a centroid depends on
+   * every vertex of its shape — there is no pair of points that stands for it,
+   * and no upper bound on how many vertices a shape has.
+   */
+  loopA?: string[];
+  loopB?: string[];
   /** Set when DOF analysis found this row dependent on the others. */
   diagnostic?: string;
 }
@@ -208,13 +223,45 @@ export interface ComponentDefinition {
   createdAt: number;
   /** Local-frame snapshot: the unit's geometry at authoring time. */
   localShapes: unknown[];
+  /**
+   * The unit moves as one piece: three degrees of freedom, not two per vertex.
+   *
+   * Notebook pages 3 and 5 — "consider a closed structure as a single unit",
+   * "whether its a line, rect, triangle or anything; group it, treat as a single
+   * component". Without this a group is a label: the solver still sees loose
+   * coordinates, so constraining one edge of the group to something outside it
+   * drags that edge and leaves the rest of the loop behind, skewed.
+   *
+   * With it the group is condensed to a frame (X0, Y0, theta) and internal
+   * distortion is not discouraged, it is inexpressible — there is no vector in
+   * the reduced state space that moves one vertex relative to another.
+   */
+  rigid?: boolean;
 }
 
 export type RepeatSpacingMode =
   /** The author fixes the pitch; the extent grows with the count. */
   | "driven"
   /** The author fixes the extent; the pitch is span / count. */
-  | "derived";
+  | "derived"
+  /**
+   * The author fixes the MATERIAL BETWEEN copies; the pitch follows the unit.
+   *
+   * Notebook pages 1 and 2 — "cell pitch or unit pitch... wall thickness should
+   * be maintained at exact b/w the two cells on increasing". A pitch typed as a
+   * number is a number: widen the unit and the copies march straight through
+   * each other, which is the "multi-cell geometry loses its shape" failure.
+   *
+   * In this mode the pitch is not stored, it is MEASURED from the unit on every
+   * rebuild:
+   *
+   *     Pitch = (the unit's own opening, along the array) + Gap
+   *
+   * so the gap between consecutive copies is what stays put, whatever else
+   * changes. Nothing here knows what a wall is; the opening is the largest void
+   * the unit encloses, and a unit with no void uses its outer extent instead.
+   */
+  | "gap";
 
 export interface RepeatRule {
   id: string;
@@ -276,6 +323,17 @@ export interface SketchMeta {
   publishedAt?: number;
   /** Bumped on every publish so a user-mode drawing can name its source. */
   version: number;
+  /**
+   * Solids that run into each other are reported as one pour rather than two.
+   *
+   * Notebook page 7 — "they will start to overlap the sections; green shaded
+   * needs to be cut or removed". Overlap is ALWAYS detected and reported; this
+   * only decides whether the planar map then dissolves the seam between them.
+   * It never rewrites what the author drew: the authored shapes stay the
+   * parametric source and the fused map is derived from them, which is what
+   * keeps the overlap recoverable by dragging the pieces back apart.
+   */
+  mergeOverlaps?: boolean;
 }
 
 export function emptySketch(): AuthoringSketch {

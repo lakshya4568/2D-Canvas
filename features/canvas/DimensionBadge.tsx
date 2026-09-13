@@ -20,6 +20,22 @@ export interface DimensionBadgeProps {
   visualState?: BadgeVisualState;
   diagnosticMessage?: string;
   isEditable?: boolean;
+  /**
+   * The two points the dimension measures, in world coordinates.
+   *
+   * Supplied so the badge can draw its own witness lines. A number floating in
+   * space next to a drawing is ambiguous about which edge it belongs to as soon
+   * as two dimensions are near each other, and on a civil GAD they always are.
+   */
+  witness?: { a: { x: number; y: number }; b: { x: number; y: number } } | null;
+  /**
+   * Called when the author double-clicks a derived badge.
+   *
+   * A derived value cannot be typed into, because something else computes it —
+   * but refusing the click and saying nothing is a dead end. This is the way
+   * back: take the value under manual control, then edit it.
+   */
+  onConvertToDriving?: (paramName?: string) => void;
   onCommit?: (newValue: string, paramName?: string) => void;
   onCancel?: () => void;
   onChangeState?: (nextState: BadgeStateMachine) => void;
@@ -38,6 +54,8 @@ export const DimensionBadge: React.FC<DimensionBadgeProps> = React.memo(({
   visualState = "driving",
   diagnosticMessage,
   isEditable = false,
+  witness = null,
+  onConvertToDriving,
   onCommit,
   onCancel,
   onChangeState,
@@ -115,6 +133,20 @@ export const DimensionBadge: React.FC<DimensionBadgeProps> = React.memo(({
     setEditValue(initialVal);
     setState("EDITING");
     onChangeState?.("EDITING");
+  };
+
+  /**
+   * Double-click on a locked value: hand it back to the author.
+   *
+   * Single click is deliberately not this. A derived value being derived is
+   * usually the point — it is following something on purpose — so taking it
+   * under manual control has to be a decision, not a slip of the mouse.
+   */
+  const handleConvert = (e: React.MouseEvent) => {
+    if (visualState !== "derived" || !onConvertToDriving) return;
+    e.stopPropagation();
+    e.preventDefault();
+    onConvertToDriving(paramName);
   };
 
   const handleCommit = (e?: React.MouseEvent | React.KeyboardEvent) => {
@@ -225,11 +257,39 @@ export const DimensionBadge: React.FC<DimensionBadgeProps> = React.memo(({
   return (
     <g
       className={`dimension-badge transition-opacity duration-150 ${
-        isDraft ? "opacity-100 pointer-events-none" : isEditable ? "cursor-pointer opacity-95 hover:opacity-100" : "pointer-events-none opacity-90"
+        isDraft
+          ? "opacity-100 pointer-events-none"
+          : isEditable
+            ? "cursor-pointer opacity-95 hover:opacity-100"
+            : visualState === "derived" && onConvertToDriving
+              ? "cursor-help opacity-90 hover:opacity-100"
+              : "pointer-events-none opacity-90"
       }`}
       transform={`translate(${badgeX}, ${badgeY})`}
       onClick={isEditable ? handleStartEdit : undefined}
+      onDoubleClick={visualState === "derived" ? handleConvert : undefined}
     >
+      {/*
+        Witness lines. Drawn from the two measured points to the badge, in the
+        dimension's own colour and half a pixel wide, so the number is tied to
+        the edge it describes without competing with the drawing.
+      */}
+      {witness && !isDraft && (
+        <g className="witness" transform={`translate(${-badgeX}, ${-badgeY})`} pointerEvents="none">
+          <line
+            x1={witness.a.x}
+            y1={witness.a.y}
+            x2={witness.b.x}
+            y2={witness.b.y}
+            stroke={strokeColor}
+            strokeWidth={0.75 / scale}
+            strokeDasharray={visualState === "derived" ? `${4 / scale} ${3 / scale}` : undefined}
+            opacity={0.55}
+          />
+          <circle cx={witness.a.x} cy={witness.a.y} r={1.6 / scale} fill={strokeColor} opacity={0.8} />
+          <circle cx={witness.b.x} cy={witness.b.y} r={1.6 / scale} fill={strokeColor} opacity={0.8} />
+        </g>
+      )}
       <rect
         x={-badgeWidth / 2}
         y={-fontSize - paddingY / 2}

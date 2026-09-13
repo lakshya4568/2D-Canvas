@@ -22,7 +22,15 @@ export type ConstraintType =
   | "TANGENCY"
   | "POINT_ON_ARC"
   | "SYMMETRY"
-  | "DRAG_TARGET";
+  | "DRAG_TARGET"
+  // UPCE-ADDENDUM-2.0 additions. Each is an exact analytical row; none of them
+  // is a finite-difference stand-in.
+  | "CENTROID_DISTANCE"
+  | "RELATIVE_OFFSET_X"
+  | "RELATIVE_OFFSET_Y"
+  | "DIRECTED_NORMAL_OFFSET"
+  | "HAUNCH_LEG"
+  | "CHIRALITY_BARRIER";
 
 export interface ConstraintDescriptor {
   id: string;
@@ -36,4 +44,18 @@ export interface ConstraintDescriptor {
   signX?: number; // For haunches (+1 or -1)
   signY?: number; // For haunches (+1 or -1)
   isActive?: boolean;
+  /**
+   * Ordered boundary point indices, for constraints written on a whole loop
+   * rather than on a fixed number of points — the centroid pair needs one of
+   * these per shape, and there is no upper bound on how many vertices a shape
+   * has.
+   */
+  loopA?: number[];
+  loopB?: number[];
+  /** Barrier stiffness for CHIRALITY_BARRIER. */
+  mu?: number;
+  /** Which way the corner winds, for CHIRALITY_BARRIER and HAUNCH_LEG. */
+  orientation?: 1 | -1;
+  /** Second leg target, for HAUNCH_LEG. */
+  targetValueB?: number;
 }

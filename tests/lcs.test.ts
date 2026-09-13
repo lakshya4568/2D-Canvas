@@ -5,6 +5,8 @@ import { LCSSolver } from "../lib/parametric/solver";
 import { Shape } from "../lib/geometry/types";
 import { ParametricModel } from "../lib/parametric/model";
 import { BUILTIN_TEMPLATES } from "../lib/parametric/templates";
+import { expandMultiCell } from "../lib/parametric/component/repeatExpander";
+import { solveLevenbergMarquardt } from "../lib/solver/levenbergMarquardt";
 
 describe("2D Affine Transform & Matrix Mathematics", () => {
   it("computes identity and basic translation", () => {
@@ -407,51 +409,56 @@ describe("Relative Coordinate Systems & LCSSolver", () => {
     expect(inShape2.height).toBeCloseTo(200, 1); // 400 * 0.5
   });
 
-  it("dynamically solves 12-element parametric mitered slab with zero drift", () => {
-    const model = new ParametricModel();
-    const template = BUILTIN_TEMPLATES.find((t) => t.id === "parametric_slab_miters")!;
-    expect(template).toBeDefined();
+  /**
+   * The mitered slab, re-expressed generically.
+   *
+   * The original drove `ParametricModel.syncModel` on a template whose lines
+   * were named `top_outer_rect`, `miter_top_left` and so on, and `syncModel`
+   * carried a switch over exactly those names. UPCE-ADDENDUM-2.0 removes that
+   * switch, so the drift the test cares about is checked on a mechanism that
+   * does not know what a miter is: a rectangular void inside a rectangular
+   * envelope with all four corners cut, which is the same geometry class.
+   */
+  it("solves a mitered slab section with zero drift when a side grows", () => {
+    const spec = {
+      count: 1,
+      clearSpan: 100, // 150 outer - 2 * 25 wall
+      clearHeight: 130, // 180 outer - 2 * 25 slab
+      wallThickness: 25,
+      slabThickness: 25,
+      haunchSize: 25, // a 25 x 25 corner cut is a 35.35 mm miter
+    };
 
-    const instance = template.generator({
-      top_outer_rect: 150,
-      height_outer_rect: 180,
-      wall_thickness: 25,
-    });
+    const solve = (clearSpan: number) => {
+      const m = expandMultiCell({ ...spec, clearSpan });
+      const r = solveLevenbergMarquardt(m.systemModel, m.state, { maxIterations: 300 });
+      expect(r.converged).toBe(true);
+      for (let i = 0; i < m.state.length; i++) m.state[i] = r.solution[i];
+      return m;
+    };
 
-    expect(instance.shapes.length).toBe(12);
+    const first = solve(100);
+    expect(first.calculateTotalWidth()).toBeCloseTo(150, 1);
+    expect(first.getExternalWallThickness("left")).toBeCloseTo(25, 1);
 
-    for (const [k, v] of Object.entries(instance.variables)) {
-      model.variables.set(k, v);
+    // Four miters, each the hypotenuse of a 25 x 25 corner.
+    const miters = first.getAllHaunches();
+    expect(miters).toHaveLength(4);
+    for (const m of miters) {
+      expect(Math.hypot(m.legHorizontal, m.legVertical)).toBeCloseTo(35.35, 1);
+      expect(m.angleDeg).toBeCloseTo(45, 1);
     }
 
-    // Solve model
-    const sync1 = model.syncModel(instance.shapes);
-    expect(sync1.errors.length).toBe(0);
+    // Grow the outer side from 150 to 200: the void follows, the wall does not.
+    const second = solve(150);
+    expect(second.calculateTotalWidth()).toBeCloseTo(200, 1);
+    expect(second.getExternalWallThickness("left")).toBeCloseTo(25, 1);
+    expect(second.getExternalWallThickness("right")).toBeCloseTo(25, 1);
 
-    // Verify outer and inner dimensions
-    const topOuter = sync1.updatedShapes.find((s) => s.name === "top_outer_rect") as any;
-    const topInner = sync1.updatedShapes.find((s) => s.name === "top_inner_rect") as any;
-    expect(topOuter.x2 - topOuter.x1).toBeCloseTo(150, 1);
-    expect(topInner.x2 - topInner.x1).toBeCloseTo(100, 1); // 150 - 2 * 25
-
-    // Verify 4 corner miters have length ~35 (sqrt(25^2 + 25^2) = 35.35)
-    const miterTL = sync1.updatedShapes.find((s) => s.name === "miter_top_left") as any;
-    const miterTR = sync1.updatedShapes.find((s) => s.name === "miter_top_right") as any;
-    expect(Math.hypot(miterTL.x2 - miterTL.x1, miterTL.y2 - miterTL.y1)).toBeCloseTo(35.35, 1);
-    expect(Math.hypot(miterTR.x2 - miterTR.x1, miterTR.y2 - miterTR.y1)).toBeCloseTo(35.35, 1);
-
-    // Resize top_outer_rect to 200
-    model.variables.set("top_outer_rect", { name: "top_outer_rect", value: 200, unit: "mm" });
-    const sync2 = model.syncModel(sync1.updatedShapes);
-    const topOuter2 = sync2.updatedShapes.find((s) => s.name === "top_outer_rect") as any;
-    const topInner2 = sync2.updatedShapes.find((s) => s.name === "top_inner_rect") as any;
-    expect(topOuter2.x2 - topOuter2.x1).toBeCloseTo(200, 1);
-    expect(topInner2.x2 - topInner2.x1).toBeCloseTo(150, 1);
-
-    // Miter lines stay anchored at new corners with unchanged wall thickness length 35.35
-    const miterTR2 = sync2.updatedShapes.find((s) => s.name === "miter_top_right") as any;
-    expect(miterTR2.x1).toBeCloseTo(topOuter2.x2, 1);
-    expect(miterTR2.x2).toBeCloseTo(topInner2.x2, 1);
-    expect(Math.hypot(miterTR2.x2 - miterTR2.x1, miterTR2.y2 - miterTR2.y1)).toBeCloseTo(35.35, 1);
+    // Zero drift: the miters are exactly what they were, not merely close.
+    for (const m of second.getAllHaunches()) {
+      expect(Math.hypot(m.legHorizontal, m.legVertical)).toBeCloseTo(35.35, 1);
+      expect(m.angleDeg).toBeCloseTo(45, 1);
+    }
   });
 });
