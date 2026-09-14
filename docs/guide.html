@@ -1,0 +1,1352 @@
+<title>Parametric Authoring Field Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+:root {
+  --paper:      #f7f8fa;
+  --sheet:      #ffffff;
+  --sunken:     #eef1f5;
+  --ink:        #16191f;
+  --muted:      #5c6470;
+  --faint:      #848c99;
+  --rule:       #d6dbe3;
+  --rule-soft:  #e5e9ef;
+  --pen:        #1f6feb;
+  --pen-soft:   #e7effd;
+  --ok:         #0e7c5a;
+  --ok-soft:    #e2f3ec;
+  --warn:       #b4690e;
+  --warn-soft:  #fbf0dd;
+  --crit:       #c0392b;
+  --crit-soft:  #fbe9e7;
+
+  --f-head: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --measure: 66ch;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:     #0e1116;
+    --sheet:     #141821;
+    --sunken:    #10141b;
+    --ink:       #e4e7ec;
+    --muted:     #99a2b0;
+    --faint:     #6c7686;
+    --rule:      #252b34;
+    --rule-soft: #1c222b;
+    --pen:       #5b9cff;
+    --pen-soft:  #16233a;
+    --ok:        #45c79a;
+    --ok-soft:   #10241d;
+    --warn:      #e0a04a;
+    --warn-soft: #261d0e;
+    --crit:      #ef7b6c;
+    --crit-soft: #2a1512;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:     #0e1116;
+  --sheet:     #141821;
+  --sunken:    #10141b;
+  --ink:       #e4e7ec;
+  --muted:     #99a2b0;
+  --faint:     #6c7686;
+  --rule:      #252b34;
+  --rule-soft: #1c222b;
+  --pen:       #5b9cff;
+  --pen-soft:  #16233a;
+  --ok:        #45c79a;
+  --ok-soft:   #10241d;
+  --warn:      #e0a04a;
+  --warn-soft: #261d0e;
+  --crit:      #ef7b6c;
+  --crit-soft: #2a1512;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--pen-soft); color: var(--ink); }
+
+a { color: var(--pen); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; border-radius: 2px; }
+
+/* ---------- title block ---------- */
+
+.titleblock {
+  border-bottom: 1px solid var(--rule);
+  background: var(--sheet);
+}
+.titleblock-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 28px 28px;
+  display: grid;
+  gap: 22px;
+}
+.tb-rule {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  border: 1px solid var(--rule);
+}
+.tb-cell {
+  padding: 9px 12px;
+  border-right: 1px solid var(--rule);
+  display: grid;
+  gap: 1px;
+}
+.tb-cell:last-child { border-right: 0; }
+.tb-cell dt {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.tb-cell dd {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+h1 {
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: clamp(34px, 6vw, 54px);
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  margin: 0;
+  text-wrap: balance;
+}
+.standfirst {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: 19px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+/* ---------- shell ---------- */
+
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 28px 120px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 48px;
+}
+@media (min-width: 1040px) {
+  .shell { grid-template-columns: 224px minmax(0, 1fr); gap: 64px; align-items: start; }
+  .toc { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; }
+}
+
+/* ---------- contents ---------- */
+
+.toc { padding-top: 44px; }
+.toc h2 {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 12px;
+  font-weight: 500;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.toc a {
+  display: block;
+  padding: 3px 0;
+  font-family: var(--f-head);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  line-height: 1.35;
+}
+.toc a:hover { color: var(--pen); }
+.toc .toc-lvl { color: var(--faint); font-family: var(--f-mono); font-size: 10px; margin-right: 6px; }
+.toc li.gap { margin-top: 12px; }
+
+/* ---------- flow ---------- */
+
+main { padding-top: 44px; display: grid; gap: 56px; min-width: 0; }
+section { display: grid; gap: 20px; scroll-margin-top: 20px; }
+
+.lvl-head { display: grid; gap: 6px; border-top: 2px solid var(--ink); padding-top: 14px; }
+.lvl-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pen);
+}
+h2.lvl-title {
+  font-family: var(--f-head);
+  font-weight: 600;
+  font-size: clamp(24px, 3.4vw, 31px);
+  letter-spacing: -0.02em;
+  line-height: 1.14;
+  margin: 0;
+  text-wrap: balance;
+}
+.lvl-sub { margin: 0; color: var(--muted); max-width: var(--measure); font-size: 16px; }
+
+p, li { max-width: var(--measure); }
+p { margin: 0; }
+
+h3 {
+  font-family: var(--f-head);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: -0.012em;
+  margin: 0;
+  line-height: 1.25;
+}
+
+/* ---------- exercise ---------- */
+
+.ex {
+  display: grid;
+  gap: 12px;
+  padding-left: 46px;
+  position: relative;
+  border-left: 1px solid var(--rule-soft);
+  padding-bottom: 4px;
+}
+.ex::before {
+  content: attr(data-n);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 30px;
+  text-align: right;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pen);
+  padding-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.ex > p { color: var(--ink); }
+
+ol.steps { margin: 0; padding-left: 20px; display: grid; gap: 7px; }
+ol.steps li { padding-left: 2px; }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 7px; }
+
+/* ---------- inline devices ---------- */
+
+kbd, .path, code {
+  font-family: var(--f-mono);
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+}
+.path {
+  background: var(--sunken);
+  border: 1px solid var(--rule-soft);
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.path .sep { color: var(--faint); padding: 0 2px; }
+kbd {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 0.78em;
+}
+code { background: var(--sunken); padding: 1px 5px; border-radius: 3px; }
+strong { font-weight: 600; }
+em.term { font-style: normal; font-weight: 600; color: var(--pen); }
+
+/* ---------- readout ---------- */
+
+.readout {
+  background: var(--sunken);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--pen);
+  border-radius: 0 5px 5px 0;
+  padding: 11px 14px;
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--ink);
+  overflow-x: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+  max-width: 100%;
+}
+.readout .k { color: var(--faint); }
+.readout .v { color: var(--pen); font-weight: 500; }
+.readout .g { color: var(--ok); font-weight: 500; }
+
+.readout-label {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: -14px;
+}
+
+/* ---------- callouts ---------- */
+
+.note {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 13px;
+  border-radius: 5px;
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: var(--measure);
+}
+.note .tag {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding-top: 4px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.note p { max-width: none; }
+.note.why  { background: var(--pen-soft);  color: var(--ink); }
+.note.why .tag { color: var(--pen); }
+.note.dont { background: var(--crit-soft); color: var(--ink); }
+.note.dont .tag { color: var(--crit); }
+.note.care { background: var(--warn-soft); color: var(--ink); }
+.note.care .tag { color: var(--warn); }
+.note.good { background: var(--ok-soft);   color: var(--ink); }
+.note.good .tag { color: var(--ok); }
+
+/* ---------- tables ---------- */
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 5px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td {
+  text-align: left;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+  line-height: 1.5;
+}
+th {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 500;
+  background: var(--sunken);
+  white-space: nowrap;
+}
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-family: var(--f-head); font-weight: 500; font-size: 14px; }
+td .path { white-space: normal; }
+
+/* ---------- misc ---------- */
+
+.pill {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 20px;
+  border: 1px solid currentColor;
+  font-weight: 600;
+  vertical-align: 2px;
+}
+.pill.new { color: var(--pen); }
+
+.hr { height: 1px; background: var(--rule); border: 0; margin: 0; }
+
+.lede-list { display: grid; gap: 14px; }
+.lede-list > div { display: grid; gap: 3px; }
+.lede-list dt {
+  font-family: var(--f-head);
+  font-weight: 600;
+  font-size: 15px;
+}
+.lede-list dd { margin: 0; color: var(--muted); font-size: 15.5px; max-width: var(--measure); }
+
+footer {
+  border-top: 1px solid var(--rule);
+  margin-top: 20px;
+  padding-top: 20px;
+  color: var(--faint);
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+
+<header class="titleblock">
+  <div class="titleblock-inner">
+    <h1>Parametric Authoring Field&nbsp;Guide</h1>
+    <p class="standfirst">
+      Twenty-nine exercises, in order, from reading a drawing to publishing a template someone
+      else can run. Every click path and every figure below is one this build actually produces.
+    </p>
+    <dl class="tb-rule">
+      <div class="tb-cell"><dt>Units</dt><dd>mm</dd></div>
+      <div class="tb-cell"><dt>Weld tol.</dt><dd>0.500</dd></div>
+      <div class="tb-cell"><dt>Personas</dt><dd>Draft · Author · Run</dd></div>
+      <div class="tb-cell"><dt>Exercises</dt><dd>29</dd></div>
+      <div class="tb-cell"><dt>Spec</dt><dd>UPCE-2.0</dd></div>
+    </dl>
+  </div>
+</header>
+
+<div class="shell">
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#orient"><span class="toc-lvl">00</span>Before you start</a></li>
+      <li class="gap"><a href="#lvl1"><span class="toc-lvl">01</span>The loop</a></li>
+      <li><a href="#lvl2"><span class="toc-lvl">02</span>Relationships you assert</a></li>
+      <li><a href="#lvl3"><span class="toc-lvl">03</span>Units that move as one</a></li>
+      <li><a href="#lvl4"><span class="toc-lvl">04</span>Repeats and pitch</a></li>
+      <li><a href="#lvl5"><span class="toc-lvl">05</span>Solids that meet</a></li>
+      <li><a href="#lvl6"><span class="toc-lvl">06</span>Publish and run</a></li>
+      <li class="gap"><a href="#worked"><span class="toc-lvl">—</span>Worked example</a></li>
+      <li><a href="#dont"><span class="toc-lvl">—</span>What not to click</a></li>
+      <li><a href="#why"><span class="toc-lvl">—</span>Why did it do that?</a></li>
+      <li><a href="#sheet"><span class="toc-lvl">—</span>Control reference</a></li>
+      <li><a href="#limits"><span class="toc-lvl">—</span>Known limits</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ================= ORIENTATION ================= -->
+    <section id="orient">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Orientation</span>
+        <h2 class="lvl-title">Before you start</h2>
+        <p class="lvl-sub">Two ideas make everything else predictable. Neither takes long.</p>
+      </div>
+
+      <dl class="lede-list">
+        <div>
+          <dt>Three personas, one drawing</dt>
+          <dd>
+            Top right of the ribbon: <span class="path">Draft</span> to put geometry on the sheet,
+            <span class="path">Author</span> to say what it <em class="term">means</em>, and
+            <span class="path">Run</span> to use a published template the way a project engineer
+            would. Same drawing throughout — the persona changes which panel you get, not what exists.
+          </dd>
+        </div>
+        <div>
+          <dt>Every edit goes round the same loop</dt>
+          <dd>
+            You change intent — a value, a rule, a count — and the solver answers. If it can honour
+            everything you have declared, the geometry moves. If it cannot, <strong>nothing
+            changes</strong> and you are told which requirements disagree. There is no half-applied
+            state to clean up.
+          </dd>
+        </div>
+        <div>
+          <dt>Dragging runs the loop backwards</dt>
+          <dd>
+            The canvas writes your drag straight into the drawing, then the model catches up about a
+            tenth of a second after you stop. So a pinned shape springs back, and a grouped unit
+            follows the piece you pulled. That pause is deliberate: one solve per gesture, not one
+            per frame.
+          </dd>
+        </div>
+      </dl>
+
+      <div class="note why">
+        <span class="tag">Read this</span>
+        <p>
+          Nothing in this system is a shape. There is no culvert, no wall, no cell. There are lines,
+          closed boundaries, named values and rules between them. Every exercise below works the same
+          on a box culvert, a retaining wall, or a triangle you drew this morning — and that is the
+          reason the same nine controls cover all of it.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= LEVEL 1 ================= -->
+    <section id="lvl1">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Level 1 · Basics</span>
+        <h2 class="lvl-title">The loop</h2>
+        <p class="lvl-sub">
+          Draw something ordinary, then teach the system what it is. Six exercises; about ten minutes.
+        </p>
+      </div>
+
+      <article class="ex" data-n="01">
+        <h3>Analyse a drawing</h3>
+        <p>Start with two rectangles. Anything will do — the point is to see what the system reads.</p>
+        <ol class="steps">
+          <li>In <span class="path">Draft</span>, draw two rectangles roughly 400 × 300, a gap apart.</li>
+          <li>Switch the persona to <span class="path">Author</span>.</li>
+          <li>Press <span class="path">Step 1 <span class="sep">▸</span> Analyse geometry</span>.</li>
+        </ol>
+        <p>
+          Nothing moves. The drawing is measured, relationships are proposed, and the remaining
+          freedom is worked out from the constraint system itself.
+        </p>
+        <p class="readout-label">What is still free</p>
+        <div class="readout"><span class="k">status</span>   Under-defined — 16 independent movements remain
+<span class="k">reads</span>    · Rectangle 1 can slide across the sheet
+         · Rectangle 2 can slide across the sheet</div>
+        <div class="note why">
+          <span class="tag">Why</span>
+          <p>
+            Sixteen is not a complaint. Eight corners × two coordinates, minus what the rectangles'
+            own right angles already hold. A drawing with freedom left is a drawing that can still be
+            driven; the job of the next few steps is to spend that freedom on purpose.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="02">
+        <h3>Accept what the drawing already shows</h3>
+        <p>
+          <span class="path">Step 2 <span class="sep">▸</span> Relationships found</span> lists what the
+          detectors measured — parallel edges, equal lengths, aligned corners. Each card shows the
+          evidence and what accepting it will keep true from then on.
+        </p>
+        <ol class="steps">
+          <li>Read a card. It names what was measured and how far off exact it currently is.</li>
+          <li><span class="path">Accept</span> if you meant it. <span class="path">Not intended</span> if the drawing just happens to look that way.</li>
+          <li>Or take the lot with <span class="path">Accept all (n)</span> in the section header.</li>
+        </ol>
+        <div class="note care">
+          <span class="tag">Note</span>
+          <p>
+            Only <em class="term">admissible</em> cards offer buttons. A relationship already implied by
+            the rules in force is shown but cannot be accepted — adding it would be a second answer
+            to a settled question, and the degrees-of-freedom report would rightly call it redundant.
+          </p>
+        </div>
+        <p>
+          When the list empties you will see <em>“Every relationship the detectors can see is either
+          already in the model or already implied.”</em> That is the cue to move to Step 3.
+        </p>
+      </article>
+
+      <article class="ex" data-n="03">
+        <h3>Answer a design question</h3>
+        <p>
+          <span class="path">Step 3 <span class="sep">▸</span> Decide the design</span> is where the
+          system stops guessing. Where more than one answer is valid it asks, and each option carries
+          the freedom it would remove — measured by applying it to a copy and re-checking, not estimated.
+        </p>
+        <ol class="steps">
+          <li>Read the question and the movement it names underneath.</li>
+          <li>Pick the option that matches your intent. A value is created and named for you.</li>
+          <li>Obvious repairs appear as <span class="path">Apply all fixes (n)</span> — safe to take in one go.</li>
+        </ol>
+        <div class="note care">
+          <span class="tag">Blocked</span>
+          <p>
+            A question shown in a dashed box with no options is waiting on something else — usually an
+            anchor. The text says what. Answer that first and the question opens up.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="04">
+        <h3>Anchor the drawing</h3>
+        <p>
+          Until one point is pinned, the whole drawing can slide and the solver has no reason to prefer
+          one position over another. Accept the anchor question when it appears, or pin a corner yourself.
+        </p>
+        <ol class="steps">
+          <li>Take the <em>“hold this corner in place”</em> option in Step 3 when offered.</li>
+          <li>Drag that corner on the canvas and let go.</li>
+          <li>It returns to exactly where it was pinned. The panel says which rule held it.</li>
+        </ol>
+        <p class="readout-label">After the drag settles</p>
+        <div class="readout"><span class="k">notice</span>   Rectangle 1 could not stay where it was put — a rule holds it.
+<span class="k">corner</span>   <span class="v">100.000000, 100.000000</span></div>
+      </article>
+
+      <article class="ex" data-n="05">
+        <h3>Type a value on the sheet</h3>
+        <p>
+          Named values appear as badges on the drawing itself, not only in the panel. They are live
+          controls.
+        </p>
+        <ol class="steps">
+          <li><strong>Single click</strong> a badge to edit it.</li>
+          <li>Type the new figure. <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels.</li>
+          <li>The geometry re-solves, or the edit is refused with a reason and nothing moves.</li>
+        </ol>
+        <p>
+          The same values are listed in <span class="path">Step 4 <span class="sep">▸</span> Values</span>,
+          each with a role tag: <strong>DRI</strong>ving (you set it), <strong>DER</strong>ived (a formula
+          sets it), <strong>FIX</strong>ed, <strong>MEA</strong>sured (it only reports). Double-click a
+          name there to rename it.
+        </p>
+      </article>
+
+      <article class="ex" data-n="06">
+        <h3>Read and manage the rules in force</h3>
+        <p>
+          <span class="path">Rules in force</span> is the whole design intent in one list. Click a row to
+          expand it and read who created it and why.
+        </p>
+        <ul class="plain">
+          <li>The <strong>power icon</strong> switches a rule off temporarily — the fastest way to find out whether it is the one fighting you.</li>
+          <li>The <strong>cross</strong> removes it for good.</li>
+          <li>A rule marked <em class="term">fact</em> cannot be removed. It is part of what the shape <em>is</em> — a rectangle's own right angles. Explode the shape into lines if you need those corners free.</li>
+        </ul>
+        <div class="note good">
+          <span class="tag">Habit</span>
+          <p>
+            When an edit is refused, come here first. Suppress the rule named in the message, redo the
+            edit, and decide afterwards whether to delete the rule or restore it.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= LEVEL 2 ================= -->
+    <section id="lvl2">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Level 2 · Intermediate</span>
+        <h2 class="lvl-title">Relationships you assert</h2>
+        <p class="lvl-sub">
+          The detectors only find what the drawing shows. Everything else is a design decision, and
+          these are the tools for stating one.
+        </p>
+      </div>
+
+      <article class="ex" data-n="07">
+        <h3>Name a measurement</h3>
+        <p>
+          <span class="path">Step 4b <span class="sep">▸</span> Relationships you assert</span> turns any
+          measurable distance into a named value.
+        </p>
+        <ol class="steps">
+          <li>Select the geometry on the canvas.</li>
+          <li>Pick what to measure from the list that appears.</li>
+          <li>Give it a name — <code>WallThickness</code>, <code>ClearSpan</code>, whatever your office calls it.</li>
+        </ol>
+        <p>
+          Name it as <strong>measured</strong> and it only reports. Name it as <strong>driving</strong>
+          and typing into it moves the drawing.
+        </p>
+      </article>
+
+      <article class="ex" data-n="08">
+        <h3>Take a derived value under control</h3>
+        <p>
+          A badge showing a value that follows something else is <em class="term">derived</em>. Hovering
+          gives you a help cursor.
+        </p>
+        <ol class="steps">
+          <li><strong>Double-click</strong> the derived badge.</li>
+          <li>It becomes driving, and you can now type into it.</li>
+        </ol>
+        <div class="note care">
+          <span class="tag">By design</span>
+          <p>
+            Single click is deliberately <em>not</em> this. A derived value being derived is usually the
+            point — it is following something on purpose — so taking it under manual control has to be a
+            decision, not a slip of the mouse.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="09">
+        <h3>Write a formula</h3>
+        <p>Two ways, depending on whether the relationship already exists in the geometry.</p>
+        <ol class="steps">
+          <li>
+            <strong>Let it be found:</strong> <span class="path">Step 4 <span class="sep">▸</span> Find derived values</span>.
+            Each proposal is validated by perturbing its inputs and re-checking that the formula still
+            predicts the result. The card shows how many test cases passed.
+          </li>
+          <li>
+            <strong>Write it yourself:</strong> in Step 4b, enter an expression such as
+            <code>OtherWidth - 2 * WallThickness</code>. Dependencies are read from the parsed
+            expression, so renaming an input updates everything that reads it.
+          </li>
+        </ol>
+      </article>
+
+      <article class="ex" data-n="10">
+        <h3>Hold one edge against another</h3>
+        <p>
+          <span class="path">Step 4c <span class="sep">▸</span> Relate two things</span>, top panel:
+          <em>Hold one edge relative to another</em>. This is the tool for “when I move this line, that
+          line comes with it”.
+        </p>
+        <ol class="steps">
+          <li>Select both shapes on the canvas.</li>
+          <li>Choose a <strong>reference edge</strong>, then the <strong>edge that follows it</strong>.</li>
+          <li>Pick one of the three ways to hold them. Each shows what it measures right now.</li>
+          <li><span class="path">Hold this relationship</span>.</li>
+        </ol>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Option</th><th>Holds</th><th>Reach for it when</th></tr></thead>
+            <tbody>
+              <tr><td>Across</td><td>Horizontal separation of the two edges' midpoints</td><td>Things line up on a grid, whatever their angle</td></tr>
+              <tr><td>Up the sheet</td><td>Vertical separation, same idea</td><td>Levels, soffits, courses</td></tr>
+              <tr><td>Square to it</td><td>Perpendicular offset, signed — which side matters</td><td>A thickness that must survive the edge rotating</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="readout-label">Drive the first edge; the second follows</p>
+        <div class="readout"><span class="k">before</span>   R1 x=0 w=400     R2 x=500
+<span class="k">after</span>    R1 x=0 w=<span class="v">700</span>     R2 x=<span class="v">800</span>
+<span class="k">gap</span>      <span class="g">100.0 held</span></div>
+        <div class="note why">
+          <span class="tag">Why</span>
+          <p>
+            Because every option is created at what it <em>currently</em> measures, agreeing to one
+            moves nothing. You are recording the arrangement you already drew, then driving it
+            afterwards.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="11">
+        <h3>Drive the gap between two centres</h3>
+        <p>
+          Same section, bottom panel. Closing the distance brings the shapes together without either
+          of them changing size.
+        </p>
+        <ol class="steps">
+          <li>Select two closed shapes.</li>
+          <li><span class="path">Name the centre-to-centre distance</span>.</li>
+          <li>Type smaller numbers into the value it creates.</li>
+        </ol>
+        <p class="readout-label">Driving the named gap down</p>
+        <div class="readout"><span class="k">gap 900</span>  R1 x=0 w=400    R2 x=<span class="v">900</span> w=400
+<span class="k">gap 700</span>  R1 x=0 w=400    R2 x=<span class="v">700</span> w=400
+<span class="k">gap 500</span>  R1 x=0 w=400    R2 x=<span class="v">500</span> w=400</div>
+        <p>
+          Works on rectangles, circles and anything drawn from loose lines: the centre comes from the
+          boundary, not from the shape's type.
+        </p>
+        <div class="note care">
+          <span class="tag">Watch for</span>
+          <p>
+            If the shapes have nothing holding their own size, closing the centres can squash one
+            instead of moving it — both answers satisfy the rule, and the solver takes the cheaper one.
+            Name the sizes first and the notebook picture is the only solution left.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= LEVEL 3 ================= -->
+    <section id="lvl3">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Level 3 · Advanced <span class="pill new">New</span></span>
+        <h2 class="lvl-title">Units that move as one</h2>
+        <p class="lvl-sub">
+          Grouping used to be a label. Now it can be a body: three freedoms — across, up, and turn —
+          and nothing inside it can change shape.
+        </p>
+      </div>
+
+      <article class="ex" data-n="12">
+        <h3>Make a unit</h3>
+        <ol class="steps">
+          <li>Select the geometry that makes up one unit. Canvas, or <span class="path">Choose shapes from list</span>.</li>
+          <li>Type a name in <span class="path">Step 5 <span class="sep">▸</span> Reuse and repeat</span>.</li>
+          <li><span class="path">Make unit</span>.</li>
+        </ol>
+        <p>
+          The card that appears reports what the unit measures along the array direction, which you
+          will need in Level 4:
+        </p>
+        <div class="readout"><span class="k">Unit</span> · 2 shape(s)
+360.0 across  ·  opening 300.0  ·  wall 30.0</div>
+      </article>
+
+      <article class="ex" data-n="13">
+        <h3>Make it move as one piece</h3>
+        <ol class="steps">
+          <li>Tick <span class="path">Moves as one piece</span> on the unit's card.</li>
+          <li>Watch the freedom count in <span class="path">What is still free</span>.</li>
+        </ol>
+        <p class="readout-label">A triangle drawn from three loose lines</p>
+        <div class="readout"><span class="k">loose</span>    10 coordinates can move
+<span class="k">rigid</span>     <span class="v">3</span> — across, up, and turn</div>
+        <div class="note why">
+          <span class="tag">Why it works</span>
+          <p>
+            The unit is no longer described by its corners but by a frame. There is no vector in what
+            the solver can search that moves one corner relative to another, so internal lengths and
+            angles hold exactly — not to a tolerance, but because distortion has become inexpressible.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="14">
+        <h3>Drag one line and take the whole unit</h3>
+        <ol class="steps">
+          <li>Drag <strong>one</strong> line of a rigid unit across the sheet.</li>
+          <li>Wait a moment for the model to catch up.</li>
+        </ol>
+        <p class="readout-label">Dragging one edge of three by +120, +40</p>
+        <div class="readout"><span class="k">before</span>   T1 (0.0,0.0)-(500.0,0.0)      T2 (500.0,0.0)-(250.0,400.0)
+<span class="k">after</span>    T1 <span class="v">(120.0,40.0)-(620.0,40.0)</span>  T2 <span class="v">(620.0,40.0)-(370.0,440.0)</span></div>
+        <p>
+          Every member moved by exactly the amount you dragged. Turn a line instead and the unit turns
+          with it — side lengths unchanged to six decimals.
+        </p>
+        <div class="note good">
+          <span class="tag">Compare</span>
+          <p>
+            Untick the box and repeat the drag. The line you grabbed goes; the rest stays where it was.
+            That is what a group is without this — a name.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="15">
+        <h3>Tether a unit to a datum</h3>
+        <p>The two halves together: a rule pulls the body, and the body arrives whole.</p>
+        <ol class="steps">
+          <li>Draw a datum line clear of the unit. Pin both its ends.</li>
+          <li>In Step 4c, hold one edge of the unit against the datum.</li>
+          <li>Drive that distance.</li>
+        </ol>
+        <p>
+          The unit slides to suit. Every internal length and angle survives, because the solver was
+          never able to change them.
+        </p>
+      </article>
+
+      <article class="ex" data-n="16">
+        <h3>Understand what rigid does not do</h3>
+        <ul class="plain">
+          <li>
+            <strong>It does not pin the unit.</strong> Rules still move it. If you want it held, pin it
+            or dimension it.
+          </li>
+          <li>
+            <strong>It resists turning, but does not forbid it.</strong> One dimension on a free body
+            leaves the rotation open, and the unit slides rather than spins — the residual tilt is under
+            a micron across a half-metre section. Give it a rule that can only be met by turning and it
+            turns: a bar pinned at one end with its far end driven 50 up settles at exactly 30°, still
+            100 long.
+          </li>
+          <li>
+            <strong>Two units cannot share a corner.</strong> Ticking the box on the second is refused,
+            in a sentence, naming how many corners overlap. Two pieces that move independently cannot
+            both decide where the same corner is.
+          </li>
+        </ul>
+      </article>
+    </section>
+
+    <!-- ================= LEVEL 4 ================= -->
+    <section id="lvl4">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Level 4 · Advanced <span class="pill new">New</span></span>
+        <h2 class="lvl-title">Repeats and pitch</h2>
+        <p class="lvl-sub">
+          A count changes how many pieces exist, so it is never something the solver solves. The
+          drawing is rebuilt from the rule, then handed over.
+        </p>
+      </div>
+
+      <article class="ex" data-n="17">
+        <h3>Choose a spacing mode</h3>
+        <p>Three radio buttons on the unit's card, and the choice matters more than the number.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Mode</th><th>You hold</th><th>Correct when</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Material between copies</td>
+                <td>The gap. Pitch is measured off the unit, every rebuild.</td>
+                <td>The thing between copies is structure — a web, a joint, a nib. <strong>Start here.</strong></td>
+              </tr>
+              <tr>
+                <td>Pitch fixed</td>
+                <td>A literal centre-to-centre figure. The run grows with the count.</td>
+                <td>The pitch is the specification — bolt centres, post spacing.</td>
+              </tr>
+              <tr>
+                <td>Overall run fixed</td>
+                <td>The total length. Pitch closes up as the count rises.</td>
+                <td>You must fill a known opening with however many it takes.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note why">
+          <span class="tag">The difference</span>
+          <p>
+            A pitch typed as a number is right until the unit changes size, and then every copy is in
+            the wrong place. In gap mode the pitch is not stored at all — it is
+            <strong>the unit's own opening plus the gap</strong>, re-measured on every rebuild. That is
+            the whole of it.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="18">
+        <h3>Array a hollow unit</h3>
+        <p>Draw an outline 360 × 260 with an opening 300 × 200 inside it — a 30 wall all round.</p>
+        <ol class="steps">
+          <li>Select both, <span class="path">Make unit</span>.</li>
+          <li>Leave the mode on <em>hold the material between copies</em>.</li>
+          <li>Set the count to 3. Leave the <strong>web</strong> box alone.</li>
+          <li><span class="path">Repeat it</span>.</li>
+        </ol>
+        <p class="readout-label">The panel, before you press it</p>
+        <div class="readout">Pitch will be 300.0 + 30.0 = <span class="v">330.0 mm</span>, re-measured whenever
+the unit changes. Starts at 30.0, which is what already sits
+between this unit's opening and its outside.</div>
+        <p class="readout-label">The result</p>
+        <div class="readout"><span class="k">webs</span>     <span class="g">30.0</span>  <span class="g">30.0</span>
+<span class="k">cells</span>    x=30 w=300   x=360 w=300   x=690 w=300</div>
+        <div class="note why">
+          <span class="tag">Where 30 came from</span>
+          <p>
+            Nothing was told what a wall is. The opening is the largest hole in the largest closed
+            thing the unit owns; the wall is what is left either side of it. Same measurement on a
+            hollow pier, a ring beam, or a shape nobody has a name for.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="19">
+        <h3>Change the material between copies</h3>
+        <ol class="steps">
+          <li>Find the value named <code>UnitGap</code> in <span class="path">Step 4 <span class="sep">▸</span> Values</span>.</li>
+          <li>Type <strong>55</strong>.</li>
+        </ol>
+        <p class="readout-label">Webs, and the cells that did not move to make room</p>
+        <div class="readout"><span class="k">webs</span>     <span class="g">55.0</span>  <span class="g">55.0</span>
+<span class="k">cells</span>    360 wide, opening 300 — unchanged
+<span class="k">pitch</span>    <span class="v">355.0</span></div>
+        <p>
+          It is a real named value like any other: rename it, publish it, or drive it from a formula so
+          the web follows the wall thickness automatically.
+        </p>
+      </article>
+
+      <article class="ex" data-n="20">
+        <h3>Widen the unit and watch the pitch follow</h3>
+        <p>The exercise that shows why the mode matters.</p>
+        <ol class="steps">
+          <li>Widen the unit's outline to 460 and its opening to 400 — the wall stays 30.</li>
+          <li>Let the model settle.</li>
+        </ol>
+        <p class="readout-label">Nothing was retyped</p>
+        <div class="readout"><span class="k">opening</span>  300.0 → <span class="v">400.0</span>
+<span class="k">pitch</span>    355.0 → <span class="v">455.0</span>   re-measured
+<span class="k">webs</span>     <span class="g">55.0</span>  <span class="g">55.0</span>   held</div>
+        <p>
+          The panel shows its working: <code>3 x · pitch 455.0 = 400.0 + 55.0, measured</code>. Do the
+          same in <em>pitch fixed</em> mode and the copies march straight through each other — which is
+          exactly the right behaviour for that mode, and the wrong mode for this drawing.
+        </p>
+      </article>
+
+      <article class="ex" data-n="21">
+        <h3>Array something solid</h3>
+        <p>
+          A unit with no opening has nothing to measure a web against, so the gap is measured outside to
+          outside. The panel says so and the label changes from <strong>web</strong> to
+          <strong>gap</strong>.
+        </p>
+        <div class="readout">500.0 across  ·  solid
+
+This unit encloses nothing, so the gap is measured outside to
+outside: pitch 500.0 + 0.0 = <span class="v">500.0 mm</span>.</div>
+        <p>Type the clear spacing you want — 1880 for a post at 2000 centres on a 120 post.</p>
+      </article>
+
+      <article class="ex" data-n="22">
+        <h3>Change the count</h3>
+        <p>
+          Once a repeat exists, the card stops offering a count box and points you at
+          <span class="path">Step 4 <span class="sep">▸</span> Values</span>. The count lives there as
+          an integer.
+        </p>
+        <div class="note why">
+          <span class="tag">Why there</span>
+          <p>
+            Because it is topology, not geometry. Changing it does not stretch anything — it rebuilds
+            the drawing with a different number of pieces and hands the result to the solver. A count of
+            6 followed by a count of 2 leaves exactly two.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= LEVEL 5 ================= -->
+    <section id="lvl5">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Level 5 · Advanced <span class="pill new">New</span></span>
+        <h2 class="lvl-title">Solids that meet</h2>
+        <p class="lvl-sub">
+          Two pours running into each other has two honest answers, and which one applies is your call,
+          not the solver's.
+        </p>
+      </div>
+
+      <article class="ex" data-n="23">
+        <h3>Drive two units together</h3>
+        <ol class="steps">
+          <li>Place two closed units a little apart.</li>
+          <li>Move one until it crosses into the other.</li>
+        </ol>
+        <p>
+          A new section appears: <span class="path">Step 5b <span class="sep">▸</span> Solids that meet</span>.
+        </p>
+        <div class="readout">Left cell and Right cell have run into each other by <span class="v">19.0 mm</span>.</div>
+        <div class="note why">
+          <span class="tag">Not an error</span>
+          <p>
+            The edit is never refused and your shapes are never rewritten. Overlapping is how you draw a
+            monolithic structure in the first place; refusing it would make the drawing impossible.
+          </p>
+        </div>
+      </article>
+
+      <article class="ex" data-n="24">
+        <h3>Choose one pour, or a joint</h3>
+        <ol class="steps">
+          <li>Leave <span class="path">Read them as one pour</span> ticked for monolithic construction.</li>
+          <li>Untick it for an expansion joint between two separate pours.</li>
+        </ol>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Setting</th><th>Pours</th><th>Area</th><th>Web</th></tr></thead>
+            <tbody>
+              <tr><td>One pour</td><td>1</td><td>Shared material counted once</td><td>Reported — 30 + 30 − 20 = 40.0</td></tr>
+              <tr><td>Joint</td><td>2</td><td>Each measured in full</td><td>None; the seam stays</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="readout-label">One pour, two hollow units overlapping by 20</p>
+        <div class="readout"><span class="k">Pours</span>             1
+<span class="k">Voids kept</span>        2
+<span class="k">Shared material</span>   0.0052 m²
+<span class="k">Counted once</span>      0.0620 m²
+<span class="k">Web after merge</span>   <span class="v">40.0 mm</span></div>
+        <p>
+          Both voids survive the merge — they were never touched by it. That is the point of doing this
+          through a planar map rather than a clipping library.
+        </p>
+      </article>
+
+      <article class="ex" data-n="25">
+        <h3>Take it back</h3>
+        <p>Drag the two apart. The section disappears and the solids are two again.</p>
+        <div class="note good">
+          <span class="tag">Guaranteed</span>
+          <p>
+            The merge is <em>derived</em> — it never writes back over what you drew. Your shapes stay the
+            parametric source, which is the only reason the overlap is recoverable. Nothing here consumes
+            the parameters that produced it.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= LEVEL 6 ================= -->
+    <section id="lvl6">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Level 6 · Handover</span>
+        <h2 class="lvl-title">Publish and run</h2>
+        <p class="lvl-sub">Turning a drawing into something a colleague can use without opening it.</p>
+      </div>
+
+      <article class="ex" data-n="26">
+        <h3>Check it</h3>
+        <ol class="steps">
+          <li>Name the template in <span class="path">Step 6 <span class="sep">▸</span> Publish</span>.</li>
+          <li>Press <span class="path">Check it</span>.</li>
+        </ol>
+        <p>
+          Each check passes, warns or fails with a reason. The sweep at the bottom is the one worth
+          reading: it re-solves the drawing at a spread of test values and reports how many came back
+          with every declared relationship intact.
+        </p>
+        <div class="readout"><span class="k">sweep</span>    <span class="g">12 of 12</span> test values re-solved with every
+         declared relationship intact.</div>
+      </article>
+
+      <article class="ex" data-n="27">
+        <h3>Publish deliberately under-constrained work</h3>
+        <p>
+          A drawing that is <em>meant</em> to keep some freedom is publishable. Tick the intentional-freedom
+          option rather than inventing rules to silence the check — inventing them is how a template ends
+          up fully constrained and wrong.
+        </p>
+      </article>
+
+      <article class="ex" data-n="28">
+        <h3>Use it as a project engineer</h3>
+        <ol class="steps">
+          <li>Switch the persona to <span class="path">Run</span>.</li>
+          <li>Type into the published values, grouped as you grouped them.</li>
+          <li>Read <em>Worked out for you</em> for the derived figures.</li>
+        </ol>
+        <p>
+          <em>What this drawing keeps true</em> lists the invariants, re-measured on the solved geometry —
+          not assumed from the fact that the solver returned.
+        </p>
+      </article>
+
+      <article class="ex" data-n="29">
+        <h3>Step back</h3>
+        <p>
+          <span class="path">Step 1 <span class="sep">▸</span> Step back</span> undoes one design decision.
+          It is separate from the drafting undo: geometry and intent have their own histories, and
+          stepping back a decision does not unpick the lines you drew.
+        </p>
+      </article>
+    </section>
+
+    <!-- ================= WORKED ================= -->
+    <section id="worked">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Putting it together</span>
+        <h2 class="lvl-title">A three-cell box, start to finish</h2>
+        <p class="lvl-sub">Every control above, in the order you would actually use them.</p>
+      </div>
+      <ol class="steps">
+        <li><strong>Draft.</strong> One cell only: outline 360 × 260, opening 300 × 200. Never draw the other two.</li>
+        <li><strong>Author ▸ Step 1.</strong> Analyse. Read the freedom.</li>
+        <li><strong>Step 2.</strong> Accept the alignments you meant. Reject the coincidences.</li>
+        <li><strong>Step 3.</strong> Answer the anchor question first — it unblocks the rest.</li>
+        <li><strong>Step 4b.</strong> Name <code>ClearSpan</code> and <code>WallThickness</code>.</li>
+        <li><strong>Step 4c.</strong> Hold the opening square to the outline so the wall survives any rotation.</li>
+        <li><strong>Step 5.</strong> Select both shapes, <span class="path">Make unit</span>, name it <code>Cell</code>.</li>
+        <li><strong>Step 5.</strong> Tick <span class="path">Moves as one piece</span> so the cell cannot be distorted by anything downstream.</li>
+        <li><strong>Step 5.</strong> Mode: material between copies. Count 3. Leave the web at its measured default. <span class="path">Repeat it</span>.</li>
+        <li><strong>Step 4.</strong> Drive <code>ClearSpan</code>. Watch the pitch follow and the webs hold.</li>
+        <li><strong>Step 5b.</strong> If you close the cells right up, decide monolithic or jointed.</li>
+        <li><strong>Step 6.</strong> Check it, then publish.</li>
+      </ol>
+      <div class="note good">
+        <span class="tag">The test</span>
+        <p>
+          Change <code>ClearSpan</code> from 300 to 400 and look at the webs. If they still read
+          <strong>55.0 / 55.0</strong> the drawing is parametric. If they moved, you are in pitch mode.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= DON'T ================= -->
+    <section id="dont">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Reference</span>
+        <h2 class="lvl-title">What not to click</h2>
+      </div>
+      <div class="note dont">
+        <span class="tag">Don't</span>
+        <p>
+          <strong>Accept a detected relationship you did not mean.</strong> “Not intended” is a real
+          answer and costs nothing. An accepted coincidence becomes a rule that fights every later edit.
+        </p>
+      </div>
+      <div class="note dont">
+        <span class="tag">Don't</span>
+        <p>
+          <strong>Draw the copies.</strong> Draw one unit and array it. Three hand-drawn cells are three
+          unrelated things, and no count will ever govern them.
+        </p>
+      </div>
+      <div class="note dont">
+        <span class="tag">Don't</span>
+        <p>
+          <strong>Type a pitch into the gap box.</strong> In gap mode that field is the material
+          <em>between</em> copies. Entering 330 there gives a 330 web, not a 330 pitch.
+        </p>
+      </div>
+      <div class="note dont">
+        <span class="tag">Don't</span>
+        <p>
+          <strong>Put one shape in two rigid units.</strong> It is refused, and the refusal is right:
+          two bodies that move independently cannot both decide where a shared corner is.
+        </p>
+      </div>
+      <div class="note dont">
+        <span class="tag">Don't</span>
+        <p>
+          <strong>Single-click a derived badge expecting to edit it.</strong> Double-click converts it.
+          Single click on a derived badge is intentionally inert.
+        </p>
+      </div>
+      <div class="note dont">
+        <span class="tag">Don't</span>
+        <p>
+          <strong>Delete a rule to make a refusal go away.</strong> Switch it off, redo the edit, and
+          then decide. The power icon is reversible; the cross is not.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= WHY ================= -->
+    <section id="why">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Reference</span>
+        <h2 class="lvl-title">Why did it do that?</h2>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What you saw</th><th>What it means</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>“could not stay where it was put”</td>
+              <td>A rule holds that shape. The drag was undone, not lost.</td>
+              <td>Suppress the named rule in Rules in force, drag again, then decide.</td>
+            </tr>
+            <tr>
+              <td>“Those values cannot all hold at once”</td>
+              <td>Genuinely contradictory. The message names the three worst offenders and by how much.</td>
+              <td>Suppress one of the named rules, or change the value you typed.</td>
+            </tr>
+            <tr>
+              <td>A shape sprang back after a drag</td>
+              <td>It is pinned, or dimensioned to something that is.</td>
+              <td>Expected. Drive the dimension instead of dragging.</td>
+            </tr>
+            <tr>
+              <td>Copies march through each other after a resize</td>
+              <td>The repeat is in <em>pitch fixed</em> mode, holding a literal.</td>
+              <td>Switch to material between copies. The pitch will follow from then on.</td>
+            </tr>
+            <tr>
+              <td>A group tore apart when dragged</td>
+              <td><em>Moves as one piece</em> is not ticked, so it is only a name.</td>
+              <td>Tick it on the unit's card in Step 5.</td>
+            </tr>
+            <tr>
+              <td>A unit turned very slightly</td>
+              <td>One dimension leaves the rotation free. The tilt is under a micron.</td>
+              <td>Ignore it, or add a second rule that settles the orientation.</td>
+            </tr>
+            <tr>
+              <td>A rule has no remove button</td>
+              <td>It is a <em>fact</em> — part of what the shape is.</td>
+              <td>Explode the shape into lines if you need those corners free.</td>
+            </tr>
+            <tr>
+              <td>Step 3 shows a question with no options</td>
+              <td>Something else has to be settled first, usually the anchor.</td>
+              <td>The dashed box says what. Answer that, and the options appear.</td>
+            </tr>
+            <tr>
+              <td>A detected relationship has no Accept button</td>
+              <td>Already implied by the rules in force.</td>
+              <td>Nothing. Adding it would be a second answer to a settled question.</td>
+            </tr>
+            <tr>
+              <td>Closing two centres squashed a shape</td>
+              <td>Nothing held its size, so deforming it satisfied the rule too.</td>
+              <td>Name the sizes, or make the shapes units that move as one piece.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= CHEAT SHEET ================= -->
+    <section id="sheet">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Reference</span>
+        <h2 class="lvl-title">Control reference</h2>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Where</th><th>Control</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td>Step 1</td><td>Analyse geometry</td><td>Measures, proposes, counts freedom. Changes nothing.</td></tr>
+            <tr><td>Step 1</td><td>Step back</td><td>Undoes one design decision. Separate from drafting undo.</td></tr>
+            <tr><td>Step 2</td><td>Accept / Not intended</td><td>Turns a detected relationship into a rule, or dismisses it.</td></tr>
+            <tr><td>Step 3</td><td>Design questions</td><td>Where more than one answer is valid. Each option names the freedom it removes.</td></tr>
+            <tr><td>Step 3</td><td>Apply all fixes</td><td>Takes every unambiguous repair at once.</td></tr>
+            <tr><td>Step 4</td><td>Values list</td><td>Every named value with its role. Double-click a name to rename.</td></tr>
+            <tr><td>Step 4</td><td>Find derived values</td><td>Proposes formulas, each validated by perturbation.</td></tr>
+            <tr><td>Step 4b</td><td>Name a measurement</td><td>Turns a distance into a named value, measured or driving.</td></tr>
+            <tr><td>Step 4c</td><td>Hold one edge relative to another</td><td>Across, up the sheet, or square to it.</td></tr>
+            <tr><td>Step 4c</td><td>Name the centre-to-centre distance</td><td>Drives two closed shapes together or apart.</td></tr>
+            <tr><td>Step 5</td><td>Make unit</td><td>Groups the selection into a reusable unit.</td></tr>
+            <tr><td>Step 5</td><td>Moves as one piece <span class="pill new">New</span></td><td>Three freedoms, no internal distortion. Absorbs drags whole.</td></tr>
+            <tr><td>Step 5</td><td>Spacing mode <span class="pill new">New</span></td><td>Material between copies · pitch fixed · overall run fixed.</td></tr>
+            <tr><td>Step 5</td><td>Repeat it</td><td>Arrays the unit. The count then lives in Step 4.</td></tr>
+            <tr><td>Step 5b</td><td>Read them as one pour <span class="pill new">New</span></td><td>Monolithic, or an expansion joint. Never rewrites your shapes.</td></tr>
+            <tr><td>Rules in force</td><td>Power icon / cross</td><td>Suppress temporarily / remove for good.</td></tr>
+            <tr><td>Step 6</td><td>Check it / Publish</td><td>Readiness checks and a value sweep, then handover.</td></tr>
+            <tr><td>Canvas</td><td>Badge, single click</td><td>Edit the value. Enter commits, Esc cancels.</td></tr>
+            <tr><td>Canvas</td><td>Badge, double click</td><td>Converts a derived value to driving.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= LIMITS ================= -->
+    <section id="limits">
+      <div class="lvl-head">
+        <span class="lvl-eyebrow">Reference</span>
+        <h2 class="lvl-title">Known limits</h2>
+        <p class="lvl-sub">What this build does not yet do, stated plainly so you do not go looking.</p>
+      </div>
+      <ul class="plain">
+        <li>
+          <strong>Arcs are not constrainable.</strong> The arc type exists but is not part of the shape
+          set the authoring kernel lowers, so an arc will not follow a rigid unit and cannot carry a
+          rule. Lines, rectangles, circles, ellipses, polygons and stars all work.
+        </li>
+        <li>
+          <strong>No tangent constraint.</strong> Nothing creates one yet.
+        </li>
+        <li>
+          <strong>Angles can be solved but not authored.</strong> The solver handles an angle rule; no
+          control creates one.
+        </li>
+        <li>
+          <strong>Live drag does not resist under the cursor.</strong> The rules answer when you let go,
+          about a tenth of a second later, rather than fighting the pointer in real time.
+        </li>
+        <li>
+          <strong>Multi-view, IFC, bill of quantities and PDF sheets are downstream.</strong> This is the
+          authoring environment; a published template is what the production engine consumes.
+        </li>
+      </ul>
+    </section>
+
+    <footer>
+      Every readout on this page is copied from a run of this build — not illustrative.
+      Figures in millimetres; weld tolerance 0.5&nbsp;mm.
+    </footer>
+
+  </main>
+</div>
