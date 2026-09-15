@@ -43,6 +43,7 @@ import {
 import type { AdvisorResult, ReviewedSuggestion, SuggestionPlan } from "@/lib/ai/constraintAdvisor";
 import { abstractSketch, planSuggestion } from "@/lib/ai/constraintAdvisor";
 import { renameParameters } from "@/lib/upce/parameters";
+import { describeDrawing, type QaTurn, type QaResult } from "@/lib/ai/drawingQa";
 import { verifyProposedFormula } from "@/lib/upce/formulaCheck";
 import { buildSystem } from "@/lib/upce/residuals";
 import { dependentsOf, validateExpression, uniqueParameterName, makeProvenance } from "@/lib/upce/parameters";
@@ -98,6 +99,18 @@ interface UpceState {
   advisor: AdvisorResult | null;
   advisorStatus: { configured: boolean; model: string; detail: string } | null;
   advisorBusy: boolean;
+  /**
+   * The conversation about the drawing.
+   *
+   * Kept apart from `advisor` because the two produce different things: that one
+   * produces changes to accept, this one produces sentences. Mixing them in one
+   * list would invite accepting a sentence.
+   */
+  conversation: QaTurn[];
+  /** Named values the last answer mentioned, with what they really are. */
+  lastCitedValues: QaResult["citedValues"];
+  askingBusy: boolean;
+  askError: string | null;
   /** Solids currently standing in each other's way. */
   overlaps: OverlapPair[];
   /** The arranged planar map, when anything overlaps. */
@@ -124,6 +137,10 @@ const initial: UpceState = {
   advisor: null,
   advisorStatus: null,
   advisorBusy: false,
+  conversation: [],
+  lastCitedValues: [],
+  askingBusy: false,
+  askError: null,
   repeatMeasurements: [],
   overlaps: [],
   fusion: null,
@@ -177,6 +194,9 @@ interface UpceContextValue extends UpceState {
   /** Ask the assistant to read the drawing. Never throws; reports instead. */
   askAdvisor: (drawingHint?: string) => void;
   dismissAdvisor: () => void;
+  /** Ask a question about the drawing. The answer changes nothing. */
+  askQuestion: (question: string) => void;
+  clearConversation: () => void;
   /** What accepting a suggestion would do, before it is done. */
   planFor: (suggestion: ReviewedSuggestion) => SuggestionPlan;
   /** Accept one suggestion. Goes through the same gates as any other change. */
@@ -903,6 +923,69 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     setS((prev) => ({ ...prev, advisor: null }));
   }, []);
 
+  /**
+   * Ask a question about the drawing.
+   *
+   * The facts are computed HERE, from the live sketch, and sent with the
+   * question — the model is never asked to work anything out, only to find the
+   * answer in what it was given and say it in a sentence. That is the whole
+   * safeguard, and it is why the question is cheap: nothing it says can reach
+   * the model of the drawing, because there is no path from a sentence to a
+   * constraint.
+   */
+  const askQuestion = React.useCallback(
+    (question: string) => {
+      const trimmed = question.trim();
+      if (!trimmed) return;
+
+      const facts = describeDrawing(s.sketch, {
+        names,
+        dof: s.dof,
+        overlaps: s.overlaps,
+        entityCount: authored.length,
+      });
+      const history = s.conversation;
+
+      setS((prev) => ({
+        ...prev,
+        askingBusy: true,
+        askError: null,
+        conversation: [...prev.conversation, { role: "question", text: trimmed }],
+      }));
+
+      fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: trimmed, facts, history }),
+      })
+        .then((r) => r.json())
+        .then((result: QaResult) => {
+          setS((prev) => ({
+            ...prev,
+            askingBusy: false,
+            askError: result.source === "unavailable" ? (result.unavailableReason ?? "No answer.") : null,
+            lastCitedValues: result.citedValues ?? [],
+            conversation:
+              result.source === "llm"
+                ? [...prev.conversation, { role: "answer", text: result.answer }]
+                : prev.conversation,
+          }));
+        })
+        .catch((err: unknown) => {
+          setS((prev) => ({
+            ...prev,
+            askingBusy: false,
+            askError: err instanceof Error ? err.message : String(err),
+          }));
+        });
+    },
+    [s.sketch, s.dof, s.overlaps, s.conversation, names, authored]
+  );
+
+  const clearConversation = React.useCallback(() => {
+    setS((prev) => ({ ...prev, conversation: [], lastCitedValues: [], askError: null }));
+  }, []);
+
   const planFor = React.useCallback(
     (suggestion: ReviewedSuggestion) => {
       const { entityIds } = abstractSketch(s.sketch, names);
@@ -1329,6 +1412,8 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     chainFor,
     askAdvisor,
     dismissAdvisor,
+    askQuestion,
+    clearConversation,
     planFor,
     acceptSuggestion,
     rejectSuggestion,

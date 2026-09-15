@@ -20,10 +20,10 @@
  */
 
 import React from "react";
-import { Sparkles, ShieldCheck, CircleAlert, Cpu, Check, X, Tag } from "lucide-react";
+import { Sparkles, ShieldCheck, CircleAlert, Cpu, Check, X, Tag, CornerDownLeft, MessageSquare } from "lucide-react";
 import { useUpce } from "@/features/parametric/upceContext";
 import type { ReviewedSuggestion } from "@/lib/ai/constraintAdvisor";
-import { Group, Pill, Stat } from "./ui/Disclosure";
+import { Group, Pill, Stat, Segmented } from "./ui/Disclosure";
 
 /**
  * Accept or dismiss one suggestion.
@@ -83,59 +83,179 @@ function Confidence({ value }: { value: number }) {
   return <Pill tone={tone}>{(value * 100).toFixed(0)}%</Pill>;
 }
 
-export function AssistantPanel() {
+/**
+ * A conversation about the drawing.
+ *
+ * Deliberately not where the suggestions are. A suggestion carries an Accept
+ * button and becomes part of the model; an answer is a sentence and becomes
+ * nothing. Putting them in one scrolling list would invite reading the second as
+ * if it were the first.
+ *
+ * The values an answer mentions are shown underneath it with the figures the
+ * KERNEL holds, so a sentence that drifts from the drawing is contradicted on
+ * the same screen, immediately, without anyone having to go and check.
+ */
+function AskPane() {
+  const {
+    conversation, lastCitedValues, askingBusy, askError, askQuestion, clearConversation, started,
+  } = useUpce();
+  const [draft, setDraft] = React.useState("");
+  const endRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [conversation.length, askingBusy]);
+
+  const send = () => {
+    if (!draft.trim() || askingBusy) return;
+    askQuestion(draft);
+    setDraft("");
+  };
+
+  const EXAMPLES = [
+    "What formulas are in this drawing?",
+    "Why can't I move that shape?",
+    "What is still free?",
+  ];
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5">
+        {conversation.length === 0 && (
+          <div className="flex flex-col gap-2">
+            <p className="text-[10.5px] leading-[1.55] text-(--fg-muted)">
+              Ask about the model — the values, the rules holding things, what freedom is left. It
+              answers from the drawing and changes nothing.
+            </p>
+            <div className="flex flex-col gap-1">
+              {EXAMPLES.map((q) => (
+                <button
+                  key={q}
+                  onClick={() => askQuestion(q)}
+                  disabled={!started}
+                  className="text-left px-2 py-1.5 rounded-[5px] border border-(--rule) text-[10.5px] text-(--fg-secondary) hover:border-(--pen) hover:text-(--fg-primary) disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {conversation.map((turn, i) =>
+          turn.role === "question" ? (
+            <div key={i} className="self-end max-w-[92%] rounded-[8px] rounded-br-[2px] bg-(--pen-soft) px-2.5 py-1.5">
+              <p className="text-[11px] leading-[1.5] text-(--fg-primary)">{turn.text}</p>
+            </div>
+          ) : (
+            <div key={i} className="max-w-[96%] flex flex-col gap-1">
+              <p className="text-[11px] leading-[1.6] text-(--fg-secondary) whitespace-pre-wrap">
+                {turn.text}
+              </p>
+              {i === conversation.length - 1 && lastCitedValues.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                  {lastCitedValues.map((v) => (
+                    <span
+                      key={v.name}
+                      title={`${v.role} · the figure the drawing holds`}
+                      className="text-[9.5px] px-1.5 py-0.5 rounded-[3px] bg-(--ink-raised) text-(--fg-secondary) font-mono"
+                    >
+                      {v.name} = {v.value} {v.unit}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        )}
+
+        {askingBusy && <p className="text-[10.5px] text-(--fg-muted)">Reading the model…</p>}
+
+        {askError && (
+          <div className="rounded-[6px] border border-(--warn) bg-(--warn-soft) px-2.5 py-1.5">
+            <p className="text-[10.5px] leading-[1.5] text-(--fg-primary)">{askError}</p>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <div className="border-t border-(--rule) px-3 py-2 flex flex-col gap-1.5">
+        <div className="flex items-end gap-1.5">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            rows={2}
+            placeholder={started ? "Ask about this drawing…" : "Analyse the drawing first"}
+            disabled={!started}
+            className="flex-1 min-w-0 resize-none px-2 py-1.5 text-[11px] leading-[1.45] rounded-[5px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary) disabled:opacity-40"
+          />
+          <button
+            onClick={send}
+            disabled={!draft.trim() || askingBusy || !started}
+            title="Send (Enter)"
+            className="w-[28px] h-[28px] shrink-0 rounded-[5px] bg-(--pen) text-(--ink-app) grid place-items-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:opacity-90"
+          >
+            <CornerDownLeft className="w-[13px] h-[13px]" strokeWidth={2.2} />
+          </button>
+        </div>
+        {conversation.length > 0 && (
+          <button
+            onClick={clearConversation}
+            className="self-start text-[10px] text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The structured pass: read the drawing, get things to accept.
+ */
+function ReviewPane({ hint, setHint }: { hint: string; setHint: (v: string) => void }) {
   const {
     advisor, advisorStatus, advisorBusy, askAdvisor, dismissAdvisor, started, acceptAllNames,
   } = useUpce();
-  const [hint, setHint] = React.useState("");
-
-  const configured = advisorStatus?.configured ?? false;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-      {/* Always-visible state: what it is, and whether it can run at all. */}
       <div className="px-3 py-2.5 border-b border-(--rule) flex flex-col gap-2">
-        <div className="flex items-center gap-1.5">
-          <Cpu className="w-[13px] h-[13px] text-(--pen)" strokeWidth={2} />
-          <span className="text-[11.5px] font-medium text-(--fg-primary)">Second opinion</span>
-          <span className="flex-1" />
-          {configured ? (
-            <Pill tone="good">ready</Pill>
-          ) : (
-            <Pill tone="attention">off</Pill>
-          )}
-        </div>
-
         <p className="text-[10.5px] leading-[1.55] text-(--fg-muted)">
           Reads the sizes, counts and nesting of what you have drawn and says which relationships an
-          engineer would expect it to hold.
+          engineer would expect it to hold — names, formulas between named values, and geometry to fix.
         </p>
 
-        {configured ? (
-          <>
-            <input
-              value={hint}
-              onChange={(e) => setHint(e.target.value)}
-              placeholder="What is this? e.g. RCC box culvert, half section"
-              className="h-[26px] px-2 text-[11px] rounded-[5px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
-            />
-            <button
-              onClick={() => askAdvisor(hint || undefined)}
-              disabled={advisorBusy || !started}
-              title={!started ? "Analyse the drawing first" : undefined}
-              className="h-[28px] rounded-[5px] bg-(--pen) text-(--ink-app) text-[11.5px] font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:opacity-90 transition-opacity"
-            >
-              <Sparkles className="w-[12px] h-[12px]" strokeWidth={2.1} />
-              {advisorBusy ? "Reading the drawing…" : "Read this drawing"}
-            </button>
-          </>
-        ) : (
-          <div className="rounded-[6px] border border-dashed border-(--rule) px-2.5 py-2">
-            <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
-              {advisorStatus?.detail ?? "Checking…"}
-            </p>
-          </div>
-        )}
+        {/* Labelled, not just placeholdered. An unlabelled box above a button
+            reads as a chat prompt, and people type questions into it. Questions
+            belong in Ask; this takes a description of the structure. */}
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wide text-(--fg-muted)">
+            What are you drawing? (optional)
+          </span>
+          <input
+            value={hint}
+            onChange={(e) => setHint(e.target.value)}
+            placeholder="RCC box culvert, single cell"
+            className="h-[26px] px-2 text-[11px] rounded-[5px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
+          />
+        </label>
+        <button
+          onClick={() => askAdvisor(hint || undefined)}
+          disabled={advisorBusy || !started}
+          title={!started ? "Analyse the drawing first" : undefined}
+          className="h-[28px] rounded-[5px] bg-(--pen) text-(--ink-app) text-[11.5px] font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:opacity-90 transition-opacity"
+        >
+          <Sparkles className="w-[12px] h-[12px]" strokeWidth={2.1} />
+          {advisorBusy ? "Reading the drawing…" : "Read this drawing"}
+        </button>
       </div>
 
       {/* What it is allowed to do. Worth saying once, plainly, where it is used. */}
@@ -145,7 +265,8 @@ export function AssistantPanel() {
           <p className="text-[10.5px] leading-[1.55] text-(--fg-muted)">
             It never sees coordinates — only sizes, edge counts and what sits inside what. It cannot
             produce a number that reaches the drawing: every value on a card below was measured here,
-            from your geometry. Nothing it suggests changes anything until you accept it.
+            from your geometry. A formula it proposes is checked against your drawing before you are
+            offered it. Nothing changes until you accept it.
           </p>
         </div>
         {advisorStatus?.model && (
@@ -264,6 +385,50 @@ export function AssistantPanel() {
             </Group>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+export function AssistantPanel() {
+  const { advisorStatus } = useUpce();
+  const [hint, setHint] = React.useState("");
+  const [mode, setMode] = React.useState<"review" | "ask">("review");
+  const configured = advisorStatus?.configured ?? false;
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="px-3 py-2.5 border-b border-(--rule) flex flex-col gap-2 shrink-0">
+        <div className="flex items-center gap-1.5">
+          <Cpu className="w-[13px] h-[13px] text-(--pen)" strokeWidth={2} />
+          <span className="text-[11.5px] font-medium text-(--fg-primary)">Assistant</span>
+          <span className="flex-1" />
+          {configured ? <Pill tone="good">ready</Pill> : <Pill tone="attention">off</Pill>}
+        </div>
+
+        {/* Two different things, kept apart. One produces changes you can accept;
+            the other produces sentences. In one list the second would be read as
+            though it were the first. */}
+        <Segmented
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "review", label: "Review", title: "A structured pass with things to accept" },
+            { value: "ask", label: "Ask", title: "A question about this drawing" },
+          ]}
+        />
+      </div>
+
+      {!configured ? (
+        <div className="m-3 rounded-[6px] border border-dashed border-(--rule) px-2.5 py-2">
+          <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
+            {advisorStatus?.detail ?? "Checking…"}
+          </p>
+        </div>
+      ) : mode === "ask" ? (
+        <AskPane />
+      ) : (
+        <ReviewPane hint={hint} setHint={setHint} />
       )}
     </div>
   );

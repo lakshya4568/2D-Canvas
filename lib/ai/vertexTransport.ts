@@ -71,12 +71,29 @@ export interface VertexStatus {
 /**
  * The model id, from the environment.
  *
- * Defaulted rather than hardcoded because model names move faster than this
- * file will. A wrong id is not guessed at or silently replaced: the request goes
- * out as configured and Google's own 404 comes back with the id in it, which is
- * the fastest possible way to find out.
+ * Defaulted rather than hardcoded because model names move faster than this file
+ * will. A wrong id is not guessed at or silently replaced: the request goes out
+ * as configured and Google's own error comes back with the id in it.
+ *
+ * The default is a LITE model, chosen by measurement rather than by size. On the
+ * advisor's own prompt, against a box culvert section:
+ *
+ *     gemini-3.1-flash-lite    2.6-3.8s   correct formula, three times running
+ *     gemini-3.8-flash         9s         correct, but not every time
+ *     gemini-3.5-flash        19s         correct, 3352 tokens of it thinking
+ *
+ * This is a classification job over a handful of measurements against a fixed
+ * schema — recognising that a box culvert's clear span is its width less two
+ * walls is recall, not reasoning — and the thinking models spend most of their
+ * latency re-deriving something the prompt already contains. Four times faster
+ * for the same answer is worth having on a control someone waits for.
+ *
+ * Not every lite model is equal, and the difference is not subtle:
+ * `gemini-3.5-flash-lite` returned a 1500-character run of capital letters in
+ * the expression field — its own reasoning, leaked into the output. It was
+ * refused (see `formulaCheck`), but a model that does that is not a candidate.
  */
-const DEFAULT_MODEL = "gemini-3.8-flash";
+const DEFAULT_MODEL = "gemini-3.1-flash-lite";
 const DEFAULT_LOCATION = "global";
 /**
  * Generous, because the current Gemini flash models think before they answer and
@@ -330,8 +347,15 @@ export interface GenerateRequest {
   systemPrompt: string;
   /** The abstracted payload. Never geometry, never coordinates. */
   payload: unknown;
-  /** Response schema Google will constrain the output to. */
-  schema: unknown;
+  /**
+   * Response schema Google will constrain the output to.
+   *
+   * Omit it for a prose answer. The two modes are not interchangeable: a
+   * structured reply becomes a change the author can accept, so it is worth
+   * constraining the decoding; an explanation becomes words on a screen and
+   * changes nothing, so constraining it would only make it read badly.
+   */
+  schema?: unknown;
   signal?: AbortSignal;
 }
 
@@ -350,12 +374,14 @@ export async function generateJson(
   const status = vertexStatus(config);
   if (!status.configured) throw new Error(status.detail);
 
-  const generationConfig = {
-    temperature: 0,
-    responseMimeType: "application/json",
-    responseSchema: request.schema,
-    maxOutputTokens: config.maxOutputTokens,
-  };
+  const generationConfig = request.schema
+    ? {
+        temperature: 0,
+        responseMimeType: "application/json",
+        responseSchema: request.schema,
+        maxOutputTokens: config.maxOutputTokens,
+      }
+    : { temperature: 0, maxOutputTokens: config.maxOutputTokens };
 
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: request.systemPrompt }] },

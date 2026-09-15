@@ -413,7 +413,16 @@ C. RELATE THE NAMED VALUES TO EACH OTHER with arithmetic ("derive_formula").
    one wall is rejected by the checker, and you will have wasted the suggestion.
 
 RULES
-1. Refer ONLY to entity ids and measurement ids given in the payload. Never invent an id.
+1. Refer ONLY to ids given in the payload, and use the RIGHT KIND of id in each field.
+   The payload has three separate namespaces and they are never interchangeable:
+     "entities"           -> ids like "e0". Use in the "entities" field.
+     "measurements"       -> ids like "m3". Use in the "measurements" field.
+     "existingParameters" -> names like "OverallWidth". Use in the "parameter" field,
+                             copied exactly, and inside a "derive_formula" expression.
+   A measurement's LABEL ("R1 height", "R2 width") is prose for a human. It is NOT a
+   parameter name and must never appear in "parameter" or in an expression.
+   If you want to relate a quantity that has no entry in existingParameters yet, propose
+   "name_measurement" for it — you cannot derive or rename something that does not exist.
 2. Never output a coordinate, a length, a thickness, or any other geometric number.
    The system measures values itself. You say WHAT relates to WHAT, and why.
 3. Suggest names in standard civil nomenclature: ClearSpan, ClearHeight, WallThickness,

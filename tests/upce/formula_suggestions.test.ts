@@ -84,6 +84,19 @@ describe("Checking a formula against the drawing", () => {
     expect(v.reason).toMatch(/constant rather than a relationship/);
   });
 
+  it("refuses a model's own reasoning leaking into the expression field", () => {
+    // Not hypothetical. `gemini-3.5-flash-lite`, on this exact prompt, returned
+    // 1500 characters of its own chain of thought as the "expression" — and it
+    // is all letters, so a character filter passes it. What stops it is the
+    // semantic check: that is not the name of anything.
+    const leaked =
+      "ClearSpan01INGENIOUSCLEARSUBEXPRNOTNEEDEDHEREWHATEVERVISUALIZERWANTSISFINE" +
+      "EXPRISOKHEREKEEPITJUSTRIGHTFORPARSERBUTWAITUSEFORMULAEXPRBELOWAREVALIDORNOT";
+    const v = verifyProposedFormula(culvert(), "ClearSpan", leaked);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/No parameter named/);
+  });
+
   it("leaves the sketch untouched whether it passes or fails", () => {
     const s = culvert();
     const before = JSON.stringify(s.parameters);
