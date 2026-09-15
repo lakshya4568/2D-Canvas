@@ -14,8 +14,16 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
   const { x, y } = snap.targetPoint;
   const isVertex = snap.snapType === "vertex";
   const isChamferRef = snap.category === "chamfer_ref";
+  // A guide is a different kind of statement from a position, so it gets its own
+  // colour: a relationship to something else on the sheet, not a point to land on.
+  const isGuide =
+    snap.category === "equal_length" ||
+    snap.category === "parallel" ||
+    snap.category === "extension";
   const strokeColor = isChamferRef
     ? "#f59e0b"
+    : isGuide
+    ? "#a78bfa"
     : snap.category === "perpendicular"
     ? "#10b981"
     : isVertex
@@ -89,6 +97,67 @@ export const SnapIndicator: React.FC<SnapIndicatorProps> = React.memo(({ snap, s
             </text>
           </g>
         </g>
+      )}
+
+      {/* Equal-length tick marks.
+          A drawing has always said "these two are the same" with a tick across
+          each of them, and the snap is meaningless without showing WHICH edge it
+          matched — otherwise a number appears from nowhere. Two ticks for the
+          reference edges, one for the edge being drawn. */}
+      {snap.category === "equal_length" &&
+        snap.referenceEdges?.map((e, idx) => {
+          const mx = (e.p1.x + e.p2.x) / 2;
+          const my = (e.p1.y + e.p2.y) / 2;
+          const dx = e.p2.x - e.p1.x;
+          const dy = e.p2.y - e.p1.y;
+          const len = Math.hypot(dx, dy) || 1;
+          // Across the edge, not along it.
+          const nx = (-dy / len) * (5 / scale);
+          const ny = (dx / len) * (5 / scale);
+          return (
+            <g key={`tick-${idx}`}>
+              <line
+                x1={e.p1.x}
+                y1={e.p1.y}
+                x2={e.p2.x}
+                y2={e.p2.y}
+                stroke="#a78bfa"
+                strokeWidth={1.5 / scale}
+                opacity={0.75}
+              />
+              <line
+                x1={mx - nx}
+                y1={my - ny}
+                x2={mx + nx}
+                y2={my + ny}
+                stroke="#a78bfa"
+                strokeWidth={2 / scale}
+              />
+            </g>
+          );
+        })}
+
+      {/* The tick on the edge being drawn, so the pair reads as a pair. */}
+      {snap.category === "equal_length" && snap.sourcePoint && (
+        (() => {
+          const mx = (snap.sourcePoint.x + x) / 2;
+          const my = (snap.sourcePoint.y + y) / 2;
+          const dx = x - snap.sourcePoint.x;
+          const dy = y - snap.sourcePoint.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const nx = (-dy / len) * (5 / scale);
+          const ny = (dx / len) * (5 / scale);
+          return (
+            <line
+              x1={mx - nx}
+              y1={my - ny}
+              x2={mx + nx}
+              y2={my + ny}
+              stroke="#a78bfa"
+              strokeWidth={2 / scale}
+            />
+          );
+        })()
       )}
 
       {/* Target Marker */}

@@ -131,6 +131,19 @@ function endpoints(sketch: AuthoringSketch, segId: string): [string, string] {
   return [s.p1, s.p2];
 }
 
+/**
+ * One coordinate of one point, held at a value.
+ *
+ * r = X[2i + axis] - target, so the gradient is a single 1. Nothing simpler
+ * exists in the file and nothing needed to: the whole content of "be here" is
+ * that one number.
+ */
+function coordinateRow(X: number[], idx: number, axis: 0 | 1, target: number): ConstraintEvaluationResult {
+  const jac = createMatrix(1, X.length);
+  jac[0][2 * idx + axis] = 1;
+  return { residuals: [X[2 * idx + axis] - target], jacobian: jac };
+}
+
 function fixRows(X: number[], idx: number, tx: number, ty: number): ConstraintEvaluationResult {
   const jac = createMatrix(2, X.length);
   jac[0][2 * idx] = 1;
@@ -331,6 +344,10 @@ export function evaluateConstraint(
       return axisDistanceRow(X, p(c.points[0]), p(c.points[1]), 0, target);
     case "distance_y":
       return axisDistanceRow(X, p(c.points[0]), p(c.points[1]), 1, target);
+    case "position_x":
+      return coordinateRow(X, p(c.points[0]), 0, target);
+    case "position_y":
+      return coordinateRow(X, p(c.points[0]), 1, target);
     case "point_line_distance": {
       const [a, b] = segPts(c.segments[0]);
       return evaluateWallThicknessConstraint(X, a, b, p(c.points[0]), target);

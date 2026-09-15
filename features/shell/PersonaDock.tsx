@@ -7,6 +7,7 @@ import { DraftPanel } from "../panels/DraftPanel";
 import { AuthorPanel } from "../panels/AuthorPanel";
 import { RunPanel } from "../panels/RunPanel";
 import { PropertiesPalette } from "../panels/PropertiesPalette";
+import { AssistantPanel } from "../panels/AssistantPanel";
 
 /**
  * The right dock. Supports both AutoCAD Properties Inspector and UPCE Persona Views.
@@ -42,12 +43,18 @@ export function PersonaDock({
   onToggleCollapse: () => void;
 }) {
   const { state } = useDrawing();
-  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric">("parametric");
+  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric" | "assistant">(
+    "parametric"
+  );
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
 
   React.useEffect(() => {
-    setActiveTab("parametric");
+    // Leaving author mode takes the assistant tab with it; staying in author
+    // mode should not yank the draftsman back out of whatever they were reading.
+    setActiveTab((prev) =>
+      prev === "assistant" && state.userMode !== "author" ? "parametric" : prev
+    );
   }, [state.userMode]);
 
   React.useEffect(() => {
@@ -121,6 +128,22 @@ export function PersonaDock({
           >
             {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
           </button>
+          {/* The assistant is not a step in the authoring sequence — you ask it
+              when you are stuck, at any point — so it gets a tab rather than a
+              place in the column. It also keeps its long answers from pushing
+              everything else off the screen. */}
+          {state.userMode === "author" && (
+            <button
+              onClick={() => setActiveTab("assistant")}
+              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                activeTab === "assistant"
+                  ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
+                  : "text-(--fg-muted) hover:text-(--fg-primary)"
+              }`}
+            >
+              Assistant
+            </button>
+          )}
         </div>
 
         <button
@@ -133,7 +156,9 @@ export function PersonaDock({
         </button>
       </div>
 
-      {activeTab === "properties" ? (
+      {activeTab === "assistant" ? (
+        <AssistantPanel />
+      ) : activeTab === "properties" ? (
         <PropertiesPalette />
       ) : (
         <>

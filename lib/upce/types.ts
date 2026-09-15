@@ -108,7 +108,23 @@ export type ConstraintKind =
   | "relative_x"        // midpoint separation of two segments along x
   | "relative_y"        // midpoint separation of two segments along y
   | "normal_offset"     // signed perpendicular offset of a segment from another
-  | "centroid_distance";// centre-to-centre distance between two closed loops
+  | "centroid_distance" // centre-to-centre distance between two closed loops
+  /**
+   * Where a point sits, absolutely, on each axis.
+   *
+   * Every other kind here is RELATIVE — a distance, an offset, an angle between
+   * two things — which is right for design intent and leaves one question with
+   * no way to ask it: "where is this?". A draftsman positions a datum, a
+   * centreline, the end of a line, by naming a coordinate; the notebook asks for
+   * it directly ("all lines should have (x,y) movement"). `fix` pins a point to
+   * two literals and cannot be driven by a parameter, so it answers "hold
+   * still", not "be here".
+   *
+   * One row each, gradient 1. The anchor rule (§18) still applies: these place
+   * geometry in the sheet's own frame, so a drawing wants very few of them.
+   */
+  | "position_x"
+  | "position_y";
 
 export type ConstraintStrength =
   /** Structural truth of the primitive itself. Not deletable in place. */

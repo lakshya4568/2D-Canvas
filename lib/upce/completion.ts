@@ -712,6 +712,72 @@ function sizeQuestions(sketch: AuthoringSketch, profiles: Profile[]): FreedomGro
 
     const options: IntentAction[] = [];
 
+    // A profile that is one straight line is not sized by a width and a height.
+    //
+    // Its x-extent and y-extent are the sides of its bounding box, and driving
+    // either of those changes the line's LENGTH and its ANGLE together — so a
+    // draftsman who names "the height" and types a number watches the line
+    // rotate. A line is sized by its length, along the direction it already has.
+    const loneSeg = profile.segmentIds.length === 1 ? sketch.segments[profile.segmentIds[0]] : null;
+    if (loneSeg && sketch.points[loneSeg.p1] && sketch.points[loneSeg.p2]) {
+      const a = sketch.points[loneSeg.p1];
+      const b = sketch.points[loneSeg.p2];
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (length >= 1 && !lengthParameterFor(sketch, loneSeg.p1, loneSeg.p2)) {
+        const paramName = `${cleanIdentifier(profile.label)}Length`;
+        groups.push({
+          id: `size_${profile.id}`,
+          question: `What should control ${profile.label}'s length?`,
+          motion: `${profile.label} can still change length.`,
+          options: [
+            {
+              id: `size_${profile.id}_len`,
+              title: `Name ${profile.label}'s length and drive it`,
+              rationale: `A line has a length and a direction, not a width and a height. Naming the length lets it be typed without turning the line.`,
+              createsParameters: [
+                {
+                  name: paramName,
+                  value: Math.round(length * 100) / 100,
+                  role: "DRIVING",
+                  unit: "mm",
+                  uiGroup: "Overall size",
+                  description: `${profile.label}'s length, measured end to end when the parameter was created.`,
+                },
+              ],
+              createsConstraints: [
+                {
+                  kind: "distance",
+                  points: [loneSeg.p1, loneSeg.p2],
+                  segments: [],
+                  paramRef: paramName,
+                  strength: "hard",
+                  driving: true,
+                  state: "active",
+                  label: `${profile.label} length = ${paramName}`,
+                  provenance: makeProvenance(
+                    "completion-assistant",
+                    `Created when the author chose to drive ${profile.label}'s length by a named value.`
+                  ),
+                },
+              ],
+              evidence: [`Measured ${length.toFixed(2)} mm end to end`],
+              dofRemoved: 0,
+            },
+            {
+              id: `size_${profile.id}_free`,
+              title: `Leave ${profile.label}'s length free`,
+              rationale: "Something else decides how long it is, or it is meant to stay adjustable.",
+              createsParameters: [],
+              createsConstraints: [],
+              evidence: [],
+              dofRemoved: 0,
+            },
+          ],
+        });
+      }
+      continue;
+    }
+
     for (const axis of ["x", "y"] as const) {
       // Already named? Then there is nothing to decide here. Offering it again
       // would create a second parameter driving the same span, which is
@@ -1685,6 +1751,17 @@ function spanIsFree(sketch: AuthoringSketch, profile: Profile, axis: "x" | "y"):
   const before = countDof(sketch);
   const after = countDof({ ...sketch, constraints: [...sketch.constraints, probe] });
   return after < before;
+}
+
+/** A driven length already holding these two points apart, if there is one. */
+function lengthParameterFor(sketch: AuthoringSketch, p1: string, p2: string): string | null {
+  for (const c of sketch.constraints) {
+    if (c.kind !== "distance" || c.state === "suppressed") continue;
+    if (c.points.length !== 2) continue;
+    const same = (c.points[0] === p1 && c.points[1] === p2) || (c.points[0] === p2 && c.points[1] === p1);
+    if (same) return c.paramRef ?? "literal";
+  }
+  return null;
 }
 
 function spanParameterFor(

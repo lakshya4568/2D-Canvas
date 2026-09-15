@@ -33,8 +33,11 @@ import {
   Hand,
   Slash,
   FolderUp,
+  Boxes,
+  Ungroup,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
+import { useUpce } from "@/features/parametric/upceContext";
 import { ModeSwitch } from "./ModeSwitch";
 import { CadCommandRegistry } from "@/lib/commands/CommandRegistry";
 import { exportDxf } from "@/lib/io/dxfExporter";
@@ -65,6 +68,19 @@ export function CadHeader({ onOpenTemplates, onOpenHelp, onImportDxf }: CadHeade
     setThemeMode,
     clearAll,
   } = useDrawing();
+
+  const upce = useUpce();
+
+  const selection = state.selectedIds.length > 0
+    ? state.selectedIds
+    : state.selectedId
+      ? [state.selectedId]
+      : [];
+
+  const rigidUnits = upce.sketch.components.filter((c) => c.rigid);
+
+  const groupRigid = () => upce.groupSelectionRigid(selection);
+  const releaseRigid = () => upce.releaseAllRigid();
 
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTab>("home");
   const [appMenuOpen, setAppMenuOpen] = useState(false);
@@ -498,6 +514,44 @@ export function CadHeader({ onOpenTemplates, onOpenHelp, onImportDxf }: CadHeade
             </button>
           </div>
           <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Modify</span>
+        </div>
+
+        {/* Parametric Panel — grouping is a modelling decision, not a panel step.
+            Buried in the authoring panel it was reachable only by draftsmen who
+            already knew it existed; here it sits beside Move and Rotate, which
+            is where the question "can I treat these as one thing?" is asked. */}
+        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={groupRigid}
+              disabled={selection.length === 0}
+              className="flex flex-col items-center justify-center w-[52px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer text-(--fg-secondary) disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                selection.length === 0
+                  ? "Select the geometry that makes up one piece first"
+                  : `Group ${selection.length} selected into one rigid piece — three freedoms, no internal distortion`
+              }
+            >
+              <Boxes className="w-4 h-4" />
+              <span className="text-[9.5px]">Group</span>
+            </button>
+            <button
+              onClick={releaseRigid}
+              disabled={rigidUnits.length === 0}
+              className="flex flex-col items-center justify-center w-[52px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer text-(--fg-secondary) disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                rigidUnits.length === 0
+                  ? "Nothing is held rigid"
+                  : `Let ${rigidUnits.length === 1 ? `"${rigidUnits[0].name}"` : `${rigidUnits.length} units`} change shape again`
+              }
+            >
+              <Ungroup className="w-4 h-4" />
+              <span className="text-[9.5px]">Release</span>
+            </button>
+          </div>
+          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">
+            Parametric
+          </span>
         </div>
 
         {/* Annotation & Measure Panel */}

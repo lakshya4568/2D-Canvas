@@ -167,7 +167,37 @@ export type SnapCategory =
   | "intersection"
   | "edge"
   | "chamfer_ref"
+  /** The length being dragged matches an edge already on the sheet. */
+  | "equal_length"
+  /** The direction being dragged matches an existing edge's direction. */
+  | "parallel"
+  /** Lined up with a vertex elsewhere on the sheet, along an axis. */
+  | "extension"
   | "grid";
+
+/**
+ * The relationship a snap is evidence for.
+ *
+ * A snap is a gesture, and the geometry it produces is exact — which means the
+ * relationship it implies is not a guess. Carrying it out of the snap lets the
+ * canvas say WHY it snapped, in the same words the authoring panel will later
+ * use when it proposes the constraint.
+ *
+ * It deliberately does not create the constraint. The geometry is now exactly
+ * equal (or parallel, or aligned), so the detector that reads the drawing will
+ * find it on its own with full confidence; emitting it here as well would put
+ * the same rule into the model twice by two different routes.
+ */
+export interface SnapInference {
+  kind: "equal_length" | "parallel" | "horizontal" | "vertical" | "coincident";
+  /** The shape the snap measured against, when there is one. */
+  referenceShapeId?: string;
+  referenceEdgeIndex?: number;
+  /** The matched quantity — a length in mm, or an angle in degrees. */
+  value?: number;
+  /** One phrase, for the badge under the cursor. */
+  label: string;
+}
 
 export interface SnapResult {
   point: Point;
@@ -178,6 +208,17 @@ export interface SnapResult {
   sourcePoint?: Point;
   snapLabel?: string;
   guideLines?: { x1: number; y1: number; x2: number; y2: number }[];
+  /** What this snap is evidence for, if anything. */
+  inference?: SnapInference;
+  /**
+   * Edges the snap matched against, so the canvas can tick them.
+   *
+   * A draftsman needs to see WHICH edge the new one is equal to, not just that
+   * it is equal to something — the tick marks are how a drawing has always said
+   * this, and without them an equal-length snap is a number appearing from
+   * nowhere.
+   */
+  referenceEdges?: { p1: Point; p2: Point }[];
 }
 
 export interface LineMetricsResult {

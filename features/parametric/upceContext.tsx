@@ -36,11 +36,20 @@ import { assessReadiness, publish, buildManifest, ReadinessReport, TemplateManif
 import { createComponent, createRepeat, measureUnit, RepeatDraft, RepeatMeasurement, UnitMeasurement } from "@/lib/upce/repeat";
 import { setComponentRigid, rigidConflict } from "@/lib/upce/rigid";
 import type { OverlapPair, FusionSummary } from "@/lib/upce/fusion";
+import {
+  inversionOptions, applyInversion, explainChain,
+  InversionReport, InversionOption,
+} from "@/lib/upce/inverse";
+import type { AdvisorResult, ReviewedSuggestion, SuggestionPlan } from "@/lib/ai/constraintAdvisor";
+import { abstractSketch, planSuggestion } from "@/lib/ai/constraintAdvisor";
+import { renameParameters } from "@/lib/upce/parameters";
+import { verifyProposedFormula } from "@/lib/upce/formulaCheck";
 import { buildSystem } from "@/lib/upce/residuals";
 import { dependentsOf, validateExpression, uniqueParameterName, makeProvenance } from "@/lib/upce/parameters";
 import {
   measurablesIn, nameMeasurement, linkParameter, unlinkParameter,
   edgesIn, loopsIn, lineRelationOptions, relateLines, relateCentroids,
+  shapesAtRisk, holdShapes,
   Measurable, MeasureMode, SelectableEdge, LineRelationKind, LineRelationOption,
 } from "@/lib/upce/link";
 import type { InvariantCheck } from "@/lib/upce/solve";
@@ -70,6 +79,25 @@ interface UpceState {
   invariants: InvariantCheck[];
   /** What each repeat rule measured off its unit on the last rebuild. */
   repeatMeasurements: RepeatMeasurement[];
+  /**
+   * Shapes a rule just created could deform, and the rule that could do it.
+   *
+   * Kept in state rather than only shown as a notice, because the remedy is one
+   * click and the click needs to know which shapes to hold.
+   */
+  shapeRisk: { message: string; shapeIds: string[] } | null;
+  /**
+   * A derived value the author typed into, and what could produce that number.
+   *
+   * Held in state because it is a QUESTION, not an action: several inputs can
+   * usually reach the same answer and only the author knows which one they meant
+   * to change.
+   */
+  inversion: InversionReport | null;
+  /** The assistant's last reading of the drawing, and whether it is switched on. */
+  advisor: AdvisorResult | null;
+  advisorStatus: { configured: boolean; model: string; detail: string } | null;
+  advisorBusy: boolean;
   /** Solids currently standing in each other's way. */
   overlaps: OverlapPair[];
   /** The arranged planar map, when anything overlaps. */
@@ -91,6 +119,11 @@ const initial: UpceState = {
   completion: null,
   readiness: null,
   invariants: [],
+  shapeRisk: null,
+  inversion: null,
+  advisor: null,
+  advisorStatus: null,
+  advisorBusy: false,
   repeatMeasurements: [],
   overlaps: [],
   fusion: null,
@@ -134,6 +167,31 @@ interface UpceContextValue extends UpceState {
   relationOptionsFor: (segA: string, segB: string) => LineRelationOption[];
   relateTwoLines: (segA: string, segB: string, kind: LineRelationKind) => void;
   relateTwoCentres: (loopA: string[], loopB: string[], labelA: string, labelB: string) => void;
+  /** Freeze the shapes a rule could deform, so it moves them instead. */
+  holdShapesOf: (shapeIds: string[]) => void;
+  /** Take one of the offered ways to make a derived value read what was typed. */
+  applyInversionOption: (option: InversionOption) => void;
+  dismissInversion: () => void;
+  /** The chain of formulas a value came down, for a refusal that explains itself. */
+  chainFor: (name: string) => string[];
+  /** Ask the assistant to read the drawing. Never throws; reports instead. */
+  askAdvisor: (drawingHint?: string) => void;
+  dismissAdvisor: () => void;
+  /** What accepting a suggestion would do, before it is done. */
+  planFor: (suggestion: ReviewedSuggestion) => SuggestionPlan;
+  /** Accept one suggestion. Goes through the same gates as any other change. */
+  acceptSuggestion: (suggestion: ReviewedSuggestion) => void;
+  /** Drop a suggestion from the list without acting on it. */
+  rejectSuggestion: (id: string) => void;
+  /** Apply every name the assistant proposed, in one go. */
+  acceptAllNames: () => void;
+  /** Ribbon: make the selection one rigid piece, analysing first if needed. */
+  groupSelectionRigid: (shapeIds: string[]) => void;
+  /** Ribbon: let every rigid unit change shape again. */
+  releaseAllRigid: () => void;
+  /** Which of the given shapes can still change shape. */
+  shapeRiskFor: (shapeIds: string[]) => string | null;
+  dismissShapeRisk: () => void;
   deleteConstraint: (id: string) => void;
   toggleConstraint: (id: string) => void;
   makeComponent: (name: string, shapeIds: string[]) => void;
@@ -465,6 +523,23 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     (name: string, value: number) => {
       const p = s.sketch.parameters[name];
       if (!p) return;
+
+      // A derived value is still a number on the drawing, and usually the one
+      // the brief specifies. Typing into it used to do nothing, because it is
+      // downstream — which left the author doing the upstream arithmetic by
+      // hand. Instead, ask which input would produce it. The graph is not
+      // touched: one input holds a different number and everything downstream
+      // still follows exactly as it did.
+      if (p.role === "DERIVED") {
+        const report = inversionOptions(s.sketch, name, value);
+        if (report.refused) {
+          push({ notice: { kind: "warn", text: report.refused } });
+          return;
+        }
+        setS((prev) => ({ ...prev, inversion: report }));
+        return;
+      }
+
       // Bounds are advisory, not a gate. §26: a value outside a standards range
       // turns the field amber and cites the clause; only a value the geometry
       // physically cannot take is refused, and that refusal comes from the
@@ -640,12 +715,20 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
         const seg = s.sketch.segments[id];
         return seg ? (names[seg.shapeId] ?? seg.shapeId) : id;
       };
-      const { sketch: next, refused } = relateLines(s.sketch, segA, segB, kind, labelOf(segA), labelOf(segB));
+      const { sketch: next, refused, warning, atRisk } = relateLines(
+        s.sketch, segA, segB, kind, labelOf(segA), labelOf(segB), names
+      );
       if (refused) {
         push({ notice: { kind: "error", text: refused } });
         return;
       }
-      if (commit(next, "Related two edges", s.sketch)) reanalyse(next);
+      if (commit(next, "Related two edges", s.sketch)) {
+        reanalyse(next);
+        setS((prev) => ({
+          ...prev,
+          shapeRisk: warning && atRisk ? { message: warning, shapeIds: atRisk } : null,
+        }));
+      }
     },
     [s.sketch, names, commit, push, reanalyse]
   );
@@ -653,15 +736,369 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
   /** Tie two shapes by the distance between their centres (notebook page 9). */
   const relateTwoCentres = React.useCallback(
     (loopA: string[], loopB: string[], labelA: string, labelB: string) => {
-      const { sketch: next, refused } = relateCentroids(s.sketch, loopA, loopB, labelA, labelB);
+      const { sketch: next, refused, warning, atRisk } = relateCentroids(
+        s.sketch, loopA, loopB, labelA, labelB, undefined, names
+      );
       if (refused) {
         push({ notice: { kind: "error", text: refused } });
         return;
       }
-      if (commit(next, `Tied ${labelA} and ${labelB} centre to centre`, s.sketch)) reanalyse(next);
+      if (commit(next, `Tied ${labelA} and ${labelB} centre to centre`, s.sketch)) {
+        reanalyse(next);
+        setS((prev) => ({
+          ...prev,
+          shapeRisk: warning && atRisk ? { message: warning, shapeIds: atRisk } : null,
+        }));
+      }
     },
-    [s.sketch, commit, push, reanalyse]
+    [s.sketch, names, commit, push, reanalyse]
   );
+
+  /**
+   * Hold the shapes a rule could deform.
+   *
+   * The remedy that goes with the warning. Every profile among the given shapes
+   * that can still change shape becomes a unit that moves as one piece, so the
+   * rule that is already in force starts moving them instead of squashing them —
+   * no need to undo it and start again.
+   */
+  const holdShapesOf = React.useCallback(
+    (shapeIds: string[]) => {
+      const { sketch: next, held } = holdShapes(s.sketch, authored, shapeIds, names);
+      if (held.length === 0) {
+        push({ notice: { kind: "info", text: "Those shapes are already held." } });
+        setS((prev) => ({ ...prev, shapeRisk: null }));
+        return;
+      }
+      if (commit(next, `${held.join(" and ")} now move as one piece`, s.sketch)) {
+        reanalyse(next);
+        setS((prev) => ({ ...prev, shapeRisk: null }));
+      }
+    },
+    [s.sketch, authored, names, commit, push, reanalyse]
+  );
+
+  /**
+   * The ribbon's Group button, as ONE state transition.
+   *
+   * It was two — analyse, then hold — and that was wrong in a way worth
+   * recording: every callback in this file closes over `s.sketch` as it stood
+   * when the component last rendered, so the second call in a handler operates
+   * on the sketch from BEFORE the first one ran. Chaining them silently threw
+   * the first result away. Anything the ribbon does in one press has to be
+   * computed in one pass, from one sketch.
+   */
+  const groupSelectionRigid = React.useCallback(
+    (shapeIds: string[]) => {
+      if (shapeIds.length === 0) {
+        push({ notice: { kind: "warn", text: "Select the geometry that makes up one piece first." } });
+        return;
+      }
+
+      // Grouping is a reasonable first thing to want, so a drawing that has not
+      // been analysed is analysed here rather than refused.
+      let base = s.sketch;
+      if (!s.started) {
+        const first = regenerate(authored, s.sketch, { shapeNames: names, source: "geometry" });
+        if (first.rejection) {
+          push({ notice: { kind: "error", text: first.rejection } });
+          return;
+        }
+        base = first.sketch;
+      }
+
+      const { sketch: next, held } = holdShapes(base, authored, shapeIds, names);
+      if (held.length === 0) {
+        push({
+          notice: {
+            kind: "info",
+            text: "That selection is already held, or has no closed shape to hold.",
+          },
+        });
+        return;
+      }
+      if (commit(next, `${held.join(" and ")} now move as one piece`, s.sketch)) {
+        setS((prev) => ({ ...prev, started: true, shapeRisk: null }));
+        reanalyse(next);
+      }
+    },
+    [s.sketch, s.started, authored, names, commit, push, reanalyse]
+  );
+
+  /** Every rigid unit released in one pass, for the same reason as above. */
+  const releaseAllRigid = React.useCallback(() => {
+    const rigid = s.sketch.components.filter((c) => c.rigid);
+    if (rigid.length === 0) {
+      push({ notice: { kind: "info", text: "Nothing is held rigid." } });
+      return;
+    }
+    const next: AuthoringSketch = {
+      ...s.sketch,
+      components: s.sketch.components.map((c) => (c.rigid ? { ...c, rigid: false } : c)),
+    };
+    if (commit(next, `${rigid.length} unit${rigid.length === 1 ? "" : "s"} can change shape again`, s.sketch)) {
+      reanalyse(next);
+    }
+  }, [s.sketch, commit, push, reanalyse]);
+
+  const applyInversionOption = React.useCallback(
+    (option: InversionOption) => {
+      const next = applyInversion(s.sketch, option);
+      if (commit(next, `${option.parameter} = ${option.to.toFixed(2)}`, s.sketch)) {
+        setS((prev) => ({ ...prev, inversion: null }));
+      }
+    },
+    [s.sketch, commit]
+  );
+
+  const dismissInversion = React.useCallback(() => {
+    setS((prev) => ({ ...prev, inversion: null }));
+  }, []);
+
+  const chainFor = React.useCallback(
+    (name: string) => explainChain(s.sketch, name),
+    [s.sketch]
+  );
+
+  /**
+   * Ask the assistant what it makes of the drawing.
+   *
+   * Everything it returns is a SUGGESTION on a card. Nothing it says reaches the
+   * model without the author accepting it, and the value on any suggestion it
+   * makes is measured here rather than supplied by it — so the worst case is a
+   * card nobody wants, never a drawing that moved on its own.
+   */
+  const askAdvisor = React.useCallback(
+    (drawingHint?: string) => {
+      setS((prev) => ({ ...prev, advisorBusy: true }));
+      const body = JSON.stringify({ sketch: s.sketch, names, drawingHint });
+
+      fetch("/api/ai/suggest", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      })
+        .then((r) => r.json())
+        .then((result: AdvisorResult) => {
+          setS((prev) => ({ ...prev, advisor: result, advisorBusy: false }));
+        })
+        .catch((err: unknown) => {
+          setS((prev) => ({
+            ...prev,
+            advisorBusy: false,
+            advisor: {
+              suggestions: [],
+              source: "unavailable",
+              unavailableReason: err instanceof Error ? err.message : String(err),
+              elapsedMs: 0,
+              rejected: [],
+            },
+          }));
+        });
+    },
+    [s.sketch, names]
+  );
+
+  const dismissAdvisor = React.useCallback(() => {
+    setS((prev) => ({ ...prev, advisor: null }));
+  }, []);
+
+  const planFor = React.useCallback(
+    (suggestion: ReviewedSuggestion) => {
+      const { entityIds } = abstractSketch(s.sketch, names);
+      return planSuggestion(suggestion, entityIds, s.candidates, (target, expr) =>
+        // Without the shapes: the arithmetic is checked, the re-solve is not.
+        // This runs while a card is being drawn, and re-solving the drawing on
+        // every render would make the panel crawl.
+        verifyProposedFormula(s.sketch, target, expr)
+      );
+    },
+    [s.sketch, s.candidates, names]
+  );
+
+  const rejectSuggestion = React.useCallback((id: string) => {
+    setS((prev) => ({
+      ...prev,
+      advisor: prev.advisor
+        ? { ...prev.advisor, suggestions: prev.advisor.suggestions.filter((x) => x.id !== id) }
+        : prev.advisor,
+    }));
+  }, []);
+
+  /**
+   * Accept one suggestion.
+   *
+   * Nothing here is a special path for the assistant. A name goes through the
+   * same `nameMeasurement` a draftsman uses, a rename through the same rewrite,
+   * and a geometric relationship through the same candidate acceptance as a card
+   * the detectors produced — which means the admissibility gate and the solver's
+   * own refusal apply to the model's ideas exactly as they do to anyone's.
+   */
+  const acceptSuggestion = React.useCallback(
+    (suggestion: ReviewedSuggestion) => {
+      const plan = planFor(suggestion);
+
+      if (plan.kind === "unavailable") {
+        push({ notice: { kind: "warn", text: plan.blocked ?? "There is nothing to apply." } });
+        return;
+      }
+
+      if (plan.kind === "rename") {
+        const { sketch: next, applied } = renameParameters(s.sketch, {
+          [suggestion.parameter!]: suggestion.suggestedName!,
+        });
+        if (applied.length === 0) return;
+        if (commit(next, `Renamed ${applied[0].from} to ${applied[0].to}`, s.sketch)) {
+          rejectSuggestion(suggestion.id);
+        }
+        return;
+      }
+
+      if (plan.kind === "formula") {
+        // The full check this time, shapes included, so a formula that is
+        // arithmetically fine but leaves the drawing unsolvable is caught before
+        // it is committed rather than after.
+        const verdict = verifyProposedFormula(s.sketch, suggestion.parameter!, suggestion.expression!, {
+          shapes: authored,
+          shapeNames: names,
+        });
+        if (!verdict.ok) {
+          push({ notice: { kind: "warn", text: verdict.reason ?? "That formula does not hold here." } });
+          return;
+        }
+        const existing = s.sketch.parameters[suggestion.parameter!];
+        const next: AuthoringSketch = {
+          ...s.sketch,
+          parameters: {
+            ...s.sketch.parameters,
+            [suggestion.parameter!]: {
+              ...existing,
+              role: "DERIVED",
+              expr: suggestion.expression!,
+              dependencies: verdict.dependencies,
+              provenance: makeProvenance(
+                "completion-assistant",
+                `Proposed by the assistant and accepted by the author. Checked against the drawing first: ${verdict.agreement}.`
+              ),
+            },
+          },
+        };
+        if (commit(next, `${suggestion.parameter} now follows ${suggestion.expression}`, s.sketch)) {
+          reanalyse(next);
+          rejectSuggestion(suggestion.id);
+        }
+        return;
+      }
+
+      if (plan.kind === "name") {
+        const { measurements } = abstractSketch(s.sketch, names);
+        const target = (suggestion.measurements ?? [])
+          .map((m) => measurements.get(m))
+          .find((m): m is NonNullable<typeof m> => Boolean(m));
+        if (!target) {
+          push({ notice: { kind: "warn", text: "That measurement is no longer in the drawing." } });
+          return;
+        }
+        const { sketch: next, refused } = nameMeasurement(
+          s.sketch,
+          target,
+          suggestion.suggestedName!,
+          "driving"
+        );
+        if (refused) {
+          push({ notice: { kind: "warn", text: refused } });
+          return;
+        }
+        if (commit(next, `Named ${suggestion.suggestedName}`, s.sketch)) {
+          reanalyse(next);
+          rejectSuggestion(suggestion.id);
+        }
+        return;
+      }
+
+      // Geometric: accept the detector candidates this suggestion matched.
+      let next = s.sketch;
+      let applied = 0;
+      for (const id of plan.candidateIds) {
+        const candidate = s.candidates.find((c) => c.id === id);
+        if (!candidate) continue;
+        next = addConstraint(next, candidate.constraint);
+        applied++;
+      }
+      if (applied === 0) return;
+      if (commit(next, `Accepted ${applied} relationship${applied === 1 ? "" : "s"}`, s.sketch)) {
+        reanalyse(next);
+        rejectSuggestion(suggestion.id);
+      }
+    },
+    [s.sketch, s.candidates, authored, names, planFor, commit, push, reanalyse, rejectSuggestion]
+  );
+
+  /**
+   * Apply every proposed name at once.
+   *
+   * Renames are the suggestions people want in bulk — a drawing arrives with a
+   * dozen `R1Width`s and nobody wants to press Accept a dozen times. They are
+   * also the safest to batch: not one of them moves a millimetre.
+   */
+  const acceptAllNames = React.useCallback(() => {
+    const renames = (s.advisor?.suggestions ?? []).filter(
+      (x) => x.kind === "rename_parameter" && x.parameter && x.suggestedName
+    );
+    if (renames.length === 0) return;
+
+    const map: Record<string, string> = {};
+    for (const r of renames) map[r.parameter!] = r.suggestedName!;
+
+    const { sketch: next, applied } = renameParameters(s.sketch, map);
+    if (applied.length === 0) return;
+    if (commit(next, `Renamed ${applied.length} value${applied.length === 1 ? "" : "s"}`, s.sketch)) {
+      const done = new Set(renames.map((r) => r.id));
+      setS((prev) => ({
+        ...prev,
+        advisor: prev.advisor
+          ? { ...prev.advisor, suggestions: prev.advisor.suggestions.filter((x) => !done.has(x.id)) }
+          : prev.advisor,
+      }));
+    }
+  }, [s.sketch, s.advisor, commit]);
+
+  // Ask once, on mount, whether the assistant is switched on at all, so the
+  // panel can say how to switch it on instead of offering a button that fails.
+  React.useEffect(() => {
+    let live = true;
+    fetch("/api/ai/suggest")
+      .then((r) => r.json())
+      .then((status: { configured: boolean; model: string; detail: string }) => {
+        if (live) setS((prev) => ({ ...prev, advisorStatus: status }));
+      })
+      .catch(() => {
+        if (live) {
+          setS((prev) => ({
+            ...prev,
+            advisorStatus: { configured: false, model: "", detail: "The assistant endpoint is not reachable." },
+          }));
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const shapeRiskFor = React.useCallback(
+    (shapeIds: string[]) => {
+      if (shapeIds.length === 0) return null;
+      const risks = shapesAtRisk(s.sketch, shapeIds, names);
+      if (risks.length === 0) return null;
+      const labels = risks.map((r) => r.label).join(" and ");
+      return `${labels} can still change shape.`;
+    },
+    [s.sketch, names]
+  );
+
+  const dismissShapeRisk = React.useCallback(() => {
+    setS((prev) => ({ ...prev, shapeRisk: null }));
+  }, []);
 
   const deleteConstraint = React.useCallback(
     (id: string) => {
@@ -886,6 +1323,20 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     relationOptionsFor,
     relateTwoLines,
     relateTwoCentres,
+    holdShapesOf,
+    applyInversionOption,
+    dismissInversion,
+    chainFor,
+    askAdvisor,
+    dismissAdvisor,
+    planFor,
+    acceptSuggestion,
+    rejectSuggestion,
+    acceptAllNames,
+    groupSelectionRigid,
+    releaseAllRigid,
+    shapeRiskFor,
+    dismissShapeRisk,
     deleteConstraint,
     toggleConstraint,
     makeComponent,

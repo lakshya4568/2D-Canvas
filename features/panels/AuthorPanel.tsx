@@ -51,7 +51,8 @@ import {
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "../parametric/upceContext";
-import { PanelBody, Empty } from "./DraftPanel";
+import { Group, Pill, Segmented } from "./ui/Disclosure";
+import { Empty } from "./DraftPanel";
 import type { ConstraintCandidate, DerivedCandidate, SketchParameter } from "@/lib/upce/types";
 import type { IntentAction } from "@/lib/upce/completion";
 import type { Measurable, LineRelationKind } from "@/lib/upce/link";
@@ -110,10 +111,14 @@ const ROLE_TONE: Record<string, string> = {
  * Both halves work off the canvas selection, because pointing at the geometry is
  * how a draftsman says which things they mean.
  */
-function AssertRelationSection() {
+/** One of the two ways to assert a relationship between two pieces of geometry. */
+function AssertRelationSection({ pane }: { pane: "edge" | "centre" }) {
   const upce = useUpce();
   const { state } = useDrawing();
-  const { edgesFor, loopsFor, relationOptionsFor, relateTwoLines, relateTwoCentres } = upce;
+  const {
+    edgesFor, loopsFor, relationOptionsFor, relateTwoLines, relateTwoCentres,
+    shapeRisk, shapeRiskFor, holdShapesOf, dismissShapeRisk,
+  } = upce;
 
   const selection = React.useMemo(
     () => (state.selectedIds.length > 0 ? state.selectedIds : state.selectedId ? [state.selectedId] : []),
@@ -131,16 +136,45 @@ function AssertRelationSection() {
     () => (edgeA && edgeB && edgeA !== edgeB ? relationOptionsFor(edgeA, edgeB) : []),
     [edgeA, edgeB, relationOptionsFor]
   );
+  const riskNow = React.useMemo(
+    () => (selection.length ? shapeRiskFor(selection) : null),
+    [selection, shapeRiskFor]
+  );
   const chosen = options.find((o) => o.kind === kind);
 
   return (
-    <Section title="Step 4c · Relate two things" count={loops.length > 1 ? `${edges.length} edges` : undefined}>
-      <p className="text-[10.5px] leading-[1.55] text-(--fg-muted)">
-        For a relationship the drawing shows no evidence for. Select the geometry on the canvas,
-        then say how the two should be held. Moving one afterwards brings the other with it.
-      </p>
+    <>
 
-      {/* ---- Line to line: notebook pages 4, 5, 6 ---- */}
+      {/* The rule was created and something it touches can still change shape. */}
+      {shapeRisk && (
+        <div className="rounded-[6px] border border-(--warn) bg-(--warn-soft) px-2.5 py-2 flex flex-col gap-1.5">
+          <p className="text-[10.5px] leading-[1.5] text-(--fg-primary)">{shapeRisk.message}</p>
+          <div className="flex items-center gap-1.5">
+            <Button onClick={() => holdShapesOf(shapeRisk.shapeIds)} icon={Lock} tone="primary">
+              Hold their shape
+            </Button>
+            <Button onClick={dismissShapeRisk} tone="quiet">
+              Leave them free
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Before the rule is made, so it can be prevented rather than repaired. */}
+      {!shapeRisk && selection.length > 0 && riskNow && (
+        <div className="rounded-[6px] border border-dashed border-(--rule) px-2.5 py-2 flex flex-col gap-1.5">
+          <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
+            {riskNow} A rule that moves {selection.length === 1 ? "it" : "them"} may squash{" "}
+            {selection.length === 1 ? "it" : "them"} instead — deforming a loose outline costs the
+            solver less than carrying it across the sheet.
+          </p>
+          <Button onClick={() => holdShapesOf(selection)} icon={Lock}>
+            Hold their shape first
+          </Button>
+        </div>
+      )}
+
+      {pane === "edge" && (
       <div className="rounded-[6px] border border-(--rule) overflow-hidden">
         <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
           <GitCompare className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
@@ -209,7 +243,9 @@ function AssertRelationSection() {
         )}
       </div>
 
-      {/* ---- Centre to centre: notebook page 9 ---- */}
+      )}
+
+      {pane === "centre" && (
       <div className="rounded-[6px] border border-(--rule) overflow-hidden">
         <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
           <Crosshair className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
@@ -237,11 +273,13 @@ function AssertRelationSection() {
           </div>
         )}
       </div>
-    </Section>
+      )}
+    </>
   );
 }
 
-function RelationshipSection() {
+/** One of the two ways to turn a measurement into a named, driven value. */
+function RelationshipSection({ pane }: { pane: "measure" | "formula" }) {
   const upce = useUpce();
   const { state } = useDrawing();
   const { sketch, measurablesFor, nameMeasurementAs, linkValue, unlinkValue } = upce;
@@ -285,15 +323,8 @@ function RelationshipSection() {
   }, [expr, target, sketch.parameters]);
 
   return (
-    <Section title="Step 4b · Relationships you assert" count={linkable.filter((p) => p.role === "DERIVED").length}>
-      <p className="text-[10.5px] leading-[1.55] text-(--fg-muted)">
-        For a relationship the drawing shows no evidence for — this abutment follows that pier,
-        this bay repeats a width from elsewhere. Measure a thing, name it, then make one name follow
-        the others. Works on anything that lowers: rectangles, circles, and profiles built from
-        loose lines alike.
-      </p>
-
-      {/* ---- Measure ---- */}
+    <>
+      {pane === "measure" && (
       <div className="rounded-[6px] border border-(--rule) overflow-hidden">
         <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
           <Ruler className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
@@ -356,7 +387,9 @@ function RelationshipSection() {
         )}
       </div>
 
-      {/* ---- Link ---- */}
+      )}
+
+      {pane === "formula" && (
       <div className="rounded-[6px] border border-(--rule) overflow-hidden">
         <div className="px-2.5 h-[26px] flex items-center gap-1.5 bg-(--ink-raised) border-b border-(--rule)">
           <Link2 className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
@@ -438,34 +471,91 @@ function RelationshipSection() {
           </div>
         )}
       </div>
-    </Section>
+      )}
+    </>
   );
 }
 
-function Section({
-  title,
-  count,
-  children,
-  action,
-}: {
-  title: string;
-  count?: number | string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
-}) {
+/**
+ * Every way of relating two things, in one place, choosing between them.
+ *
+ * These were four separate boxes stacked down the column, each with its own
+ * heading and its own pair of dropdowns, all open at once. They are alternatives
+ * — you are doing exactly one of them — so a control that says so takes a
+ * quarter of the room and asks one question instead of four.
+ */
+/**
+ * The remaining freedoms, a few at a time.
+ *
+ * An under-defined drawing can have a dozen of these, and printing all twelve
+ * turns the most useful panel in the app into a wall. The first few are the ones
+ * worth acting on — the list is ordered by how simple the movement is — and the
+ * rest are one click away for anyone who wants them.
+ */
+function FreedomList({ motions }: { motions: { description: string }[] }) {
+  const [all, setAll] = React.useState(false);
+  const SHOWN = 4;
+  const shown = all ? motions : motions.slice(0, SHOWN);
+  const hidden = motions.length - shown.length;
+
   return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="label">{title}</h3>
-        <div className="flex items-center gap-2">
-          {count !== undefined && (
-            <span className="num text-[10px] text-(--fg-muted)">{count}</span>
-          )}
-          {action}
-        </div>
-      </div>
-      {children}
-    </section>
+    <div className="px-2.5 py-2 flex flex-col gap-1">
+      <ul className="flex flex-col gap-1">
+        {shown.map((m, i) => (
+          <li key={i} className="text-[10.5px] leading-[1.5] text-(--fg-secondary)">
+            · {m.description}
+          </li>
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <button
+          onClick={() => setAll(true)}
+          className="self-start text-[10px] text-(--pen) hover:underline cursor-pointer"
+        >
+          {hidden} more
+        </button>
+      )}
+      {all && motions.length > SHOWN && (
+        <button
+          onClick={() => setAll(false)}
+          className="self-start text-[10px] text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
+        >
+          Show fewer
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RelationshipsGroup() {
+  const [mode, setMode] = React.useState<"measure" | "formula" | "edge" | "centre">("measure");
+  const { sketch } = useUpce();
+  const derived = Object.values(sketch.parameters).filter((p) => p.role === "DERIVED").length;
+
+  const blurb: Record<typeof mode, string> = {
+    measure: "Measure something and give it a name, so it can be typed and published.",
+    formula: "Make one named value follow others, with a formula you write.",
+    edge: "Hold one edge against another. Move the first and the second comes with it.",
+    centre: "Drive two closed shapes together or apart by the distance between their centres.",
+  };
+
+  return (
+    <Group id="author.relationships" title="Relationships" count={derived > 0 ? derived : undefined}>
+      <Segmented
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "measure", label: "Measure", title: "Measure something and name it" },
+          { value: "formula", label: "Formula", title: "Make one value follow others" },
+          { value: "edge", label: "Edge", title: "Hold one edge relative to another" },
+          { value: "centre", label: "Centre", title: "Drive the gap between two centres" },
+        ]}
+      />
+      <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">{blurb[mode]}</p>
+
+      {(mode === "measure" || mode === "formula") && <RelationshipSection pane={mode} />}
+      {(mode === "edge" || mode === "centre") && <AssertRelationSection pane={mode} />}
+    </Group>
   );
 }
 
@@ -946,6 +1036,7 @@ export function AuthorPanel() {
     canUndoIntent,
   } = upce;
 
+  const { inversion, applyInversionOption, dismissInversion } = upce;
   const parameters = Object.values(sketch.parameters);
   const selection = state.selectedIds.length > 0 ? state.selectedIds : state.selectedId ? [state.selectedId] : [];
 
@@ -956,12 +1047,17 @@ export function AuthorPanel() {
   const [repeatGap, setRepeatGap] = React.useState<number | null>(null);
 
   return (
-    <PanelBody>
-      <NoticeBar />
+    // Not `PanelBody`: the groups are full-bleed and separated by their own
+    // rules, so a padded, gapped container would draw a second set of edges
+    // inside the first and leave the panel looking like a list of boxes in a box.
+    <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+      <div className="px-3 pt-3 flex flex-col gap-2.5 empty:hidden">
+        <NoticeBar />
+      </div>
 
       {/* Selected Entity Inspector Banner in Author Mode */}
       {selectedShapes.length > 0 && (
-        <div className="rounded-[6px] border border-(--rule) bg-(--ink-raised) p-2.5 flex flex-col gap-2">
+        <div className="mx-3 mt-2.5 rounded-[6px] border border-(--rule) bg-(--ink-raised) p-2.5 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-(--fg-primary) flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-(--pen)" />
@@ -1002,27 +1098,61 @@ export function AuthorPanel() {
         </div>
       )}
 
-      <Section
-        title="Step 1 · Read the drawing"
-        action={
-          canUndoIntent ? (
-            <Button onClick={undoIntent} icon={Undo2} tone="quiet" title="Step back one design decision">
+      {/* The status strip. It never collapses and never scrolls away, because it
+          is the one thing a draftsman checks constantly — and because a panel
+          whose groups can all be shut must never be able to hide that something
+          is wrong. */}
+      <div className="px-3 py-2.5 border-b border-(--rule) flex flex-col gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {!started ? (
+            <Pill>not analysed</Pill>
+          ) : dof ? (
+            <>
+              <Pill
+                tone={dof.status === "well" ? "good" : dof.status === "over" ? "bad" : "neutral"}
+                title={
+                  dof.status === "well"
+                    ? "Nothing can move on its own"
+                    : dof.status === "over"
+                      ? "Some requirements disagree"
+                      : "Movements remain that nothing decides"
+                }
+              >
+                {dof.status === "well"
+                  ? "fully defined"
+                  : dof.status === "over"
+                    ? "conflict"
+                    : `${dof.dof} free`}
+              </Pill>
+              <Pill title="Rules in force">{sketch.constraints.length} rules</Pill>
+              <Pill title="Named values">{parameters.length} values</Pill>
+            </>
+          ) : null}
+          <span className="flex-1" />
+          {canUndoIntent && (
+            <button
+              onClick={undoIntent}
+              title="Step back one design decision"
+              className="text-[10px] text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer whitespace-nowrap"
+            >
               Step back
-            </Button>
-          ) : undefined
-        }
-      >
-        <p className="text-[11px] leading-[1.55] text-(--fg-muted)">
-          Nothing is changed by this. The drawing is measured, relationships are proposed, and the
-          remaining freedom is worked out from the constraint system itself.
-        </p>
-        <Button onClick={analyse} icon={Scan} tone="primary">
-          Analyse geometry
+            </button>
+          )}
+        </div>
+
+        <Button onClick={analyse} icon={Scan} tone={started ? "default" : "primary"}>
+          {started ? "Re-read the drawing" : "Analyse geometry"}
         </Button>
-      </Section>
+      </div>
 
       {started && dof && (
-        <Section title="What is still free" count={`${dof.dof} DOF`}>
+        <Group
+          id="author.freedom"
+          title="What is still free"
+          count={`${dof.dof} DOF`}
+          tone={dof.status === "over" ? "bad" : dof.status === "under" ? "attention" : "good"}
+          defaultOpen
+        >
           <div className="rounded-[6px] border border-(--rule) overflow-hidden">
             <div
               className={`px-2.5 py-2 text-[11.5px] font-medium ${
@@ -1039,15 +1169,7 @@ export function AuthorPanel() {
                   ? "Requirements conflict"
                   : `Under-defined — ${dof.dof} independent movement${dof.dof === 1 ? "" : "s"} remain`}
             </div>
-            {dof.motions.length > 0 && (
-              <ul className="px-2.5 py-2 flex flex-col gap-1">
-                {dof.motions.map((m, i) => (
-                  <li key={i} className="text-[11px] leading-[1.5] text-(--fg-secondary)">
-                    · {m.description}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {dof.motions.length > 0 && <FreedomList motions={dof.motions} />}
             {dof.diagnoses.filter((d) => d.status !== "active").map((d) => (
               <div
                 key={d.constraintId}
@@ -1069,13 +1191,16 @@ export function AuthorPanel() {
               This freedom is intended — do not treat it as unfinished
             </label>
           )}
-        </Section>
+        </Group>
       )}
 
       {started && candidates.length > 0 && (
-        <Section
-          title="Step 2 · Relationships found"
+        <Group
+          id="author.found"
+          title="Found in the drawing"
           count={candidates.length}
+          tone={candidates.length > 0 ? "attention" : "neutral"}
+          defaultOpen
           action={
             candidates.some((c) => c.admissible) ? (
               <Button
@@ -1100,22 +1225,23 @@ export function AuthorPanel() {
               <CandidateCard key={c.id} candidate={c} />
             ))}
           </div>
-        </Section>
+        </Group>
       )}
 
       {started && candidates.length === 0 && (
-        <Section title="Step 2 · Relationships found" count={0}>
+        <Group id="author.found" title="Found in the drawing" count={0}>
           <Empty
             icon={Sparkles}
             title="Nothing left to propose"
             body="Every relationship the detectors can see is either already in the model or already implied by what is there. Anything else is a design decision, which is the next section."
           />
-        </Section>
+        </Group>
       )}
 
       {started && completion && completion.groups.length + completion.quickFixes.length > 0 && (
-        <Section
-          title="Step 3 · Decide the design"
+        <Group
+          id="author.decisions"
+          title="Decisions to make"
           count={completion.groups.length + completion.quickFixes.length}
           action={
             completion.quickFixes.length > 0 ? (
@@ -1163,12 +1289,14 @@ export function AuthorPanel() {
               </div>
             </div>
           ))}
-        </Section>
+        </Group>
       )}
 
       {started && (
-        <Section
-          title="Step 4 · Values"
+        <Group
+          id="author.values"
+          title="Values"
+          defaultOpen
           count={parameters.length}
           action={
             <Button onClick={refreshDerived} icon={Sparkles} tone="quiet" disabled={busy}>
@@ -1183,6 +1311,34 @@ export function AuthorPanel() {
               ))}
             </div>
           )}
+          {/* A derived value was typed into. Which input should move? */}
+          {inversion && (
+            <div className="rounded-[6px] border border-(--pen) bg-(--pen-soft) px-2.5 py-2 flex flex-col gap-2">
+              <p className="text-[10.5px] leading-[1.5] text-(--fg-primary)">
+                <span className="font-mono">{inversion.target}</span> is worked out from other
+                values, so it cannot be typed into directly. To make it{" "}
+                <span className="font-mono">{inversion.requested}</span>, one of these would change:
+              </p>
+              <div className="flex flex-col gap-1">
+                {inversion.options.map((o) => (
+                  <button
+                    key={o.parameter}
+                    onClick={() => applyInversionOption(o)}
+                    className="text-left px-2 py-1.5 rounded-[5px] border border-(--rule) hover:border-(--pen) bg-(--ink-raised) cursor-pointer"
+                  >
+                    <span className="block text-[11px] text-(--fg-primary) font-mono">
+                      {o.parameter}: {o.from.toFixed(1)} → {o.to.toFixed(1)}
+                    </span>
+                    <span className="block text-[10px] text-(--fg-muted)">{o.note}</span>
+                  </button>
+                ))}
+              </div>
+              <Button onClick={dismissInversion} tone="quiet">
+                Leave it as it is
+              </Button>
+            </div>
+          )}
+
           {parameters.length === 0 ? (
             <Empty
               icon={Lock}
@@ -1197,25 +1353,27 @@ export function AuthorPanel() {
             </div>
           )}
 
-        </Section>
+        </Group>
       )}
 
-      {started && <RelationshipSection />}
-
-      {started && <AssertRelationSection />}
+      {started && <RelationshipsGroup />}
 
       {started && sketch.constraints.length > 0 && (
-        <Section title="Rules in force" count={sketch.constraints.length}>
+        <Group id="author.rules" title="Rules in force" count={sketch.constraints.length}>
           <div className="rounded-[6px] border border-(--rule) overflow-hidden max-h-[260px] overflow-y-auto">
             {sketch.constraints.map((c) => (
               <ConstraintRow key={c.id} id={c.id} />
             ))}
           </div>
-        </Section>
+        </Group>
       )}
 
       {started && (
-        <Section title="Step 5 · Reuse and repeat" count={`${sketch.components.length}/${sketch.repeats.length}`}>
+        <Group
+          id="author.units"
+          title="Units and repeats"
+          count={sketch.components.length > 0 ? `${sketch.components.length}` : undefined}
+        >
           <p className="text-[11px] leading-[1.55] text-(--fg-muted)">
             A count is not something the solver can solve — it changes how many pieces exist. Changing
             it rebuilds the drawing from the rule, then hands the result to the solver.
@@ -1458,12 +1616,12 @@ export function AuthorPanel() {
               </div>
             );
           })}
-        </Section>
+        </Group>
       )}
 
       {/* Notebook page 7 — solids that have run into each other. */}
       {started && overlaps.length > 0 && (
-        <Section title="Step 5b · Solids that meet" count={overlaps.length}>
+        <Group id="author.overlaps" title="Solids that meet" count={overlaps.length} tone="attention" defaultOpen>
           <p className="text-[11px] leading-[1.55] text-(--fg-muted)">
             Two pours running into each other is a real situation with two real answers: one
             monolithic pour, or a joint between them. Nothing is refused and nothing is rewritten —
@@ -1524,11 +1682,11 @@ export function AuthorPanel() {
               ))}
             </div>
           )}
-        </Section>
+        </Group>
       )}
 
       {started && (
-        <Section title="Step 6 · Publish">
+        <Group id="author.publish" title="Publish">
           <input
             value={sketch.meta.name}
             onChange={(e) => setTemplateName(e.target.value)}
@@ -1583,8 +1741,8 @@ export function AuthorPanel() {
               </p>
             </div>
           )}
-        </Section>
+        </Group>
       )}
-    </PanelBody>
+    </div>
   );
 }

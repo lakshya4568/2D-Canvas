@@ -185,3 +185,75 @@ export function uniqueParameterName(base: string, parameters: Record<string, Ske
   while (parameters[`${head}${i}`]) i++;
   return `${head}${i}`;
 }
+
+/**
+ * Renames parameters, any number of them, in one pass.
+ *
+ * A name is referenced from four places — other parameters' expressions, a
+ * constraint's `paramRef`, a constraint's label, and a repeat rule's count and
+ * spacing — and every one of them has to move at the same instant or the model
+ * is briefly inconsistent. Doing that one name at a time through a React
+ * callback also reads the sketch as it was at last render, so a second rename in
+ * the same handler silently throws the first away.
+ *
+ * So the whole map is applied at once, and the substitution is done against the
+ * ORIGINAL names: renaming {A -> B, B -> C} must not turn A into C by applying
+ * the first rule and then the second to its own output.
+ */
+export function renameParameters(
+  sketch: AuthoringSketch,
+  renames: Record<string, string>
+): { sketch: AuthoringSketch; applied: { from: string; to: string }[] } {
+  const applied: { from: string; to: string }[] = [];
+  const taken = new Set(Object.keys(sketch.parameters));
+  const map = new Map<string, string>();
+
+  for (const [from, requested] of Object.entries(renames)) {
+    if (!sketch.parameters[from] || from === requested || !requested) continue;
+    taken.delete(from);
+    // Build a throwaway record so `uniqueParameterName` sees the names already
+    // claimed by this same batch, not just the ones the sketch started with.
+    const claimed: Record<string, SketchParameter> = {};
+    for (const n of taken) claimed[n] = sketch.parameters[n] ?? sketch.parameters[from];
+    for (const n of map.values()) claimed[n] = sketch.parameters[from];
+    const clean = uniqueParameterName(requested, claimed);
+    map.set(from, clean);
+    taken.add(clean);
+    applied.push({ from, to: clean });
+  }
+
+  if (map.size === 0) return { sketch, applied };
+
+  /** Substitutes identifiers in one pass, so a rename cannot cascade. */
+  const rewrite = (expr: string): string =>
+    expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, (token) => map.get(token) ?? token);
+
+  const parameters: Record<string, SketchParameter> = {};
+  for (const [name, p] of Object.entries(sketch.parameters)) {
+    const next = map.get(name) ?? name;
+    parameters[next] = {
+      ...p,
+      name: next,
+      expr: p.expr ? rewrite(p.expr) : p.expr,
+      dependencies: p.dependencies?.map((d) => map.get(d) ?? d),
+    };
+  }
+
+  const constraints = sketch.constraints.map((c) => {
+    const to = c.paramRef ? map.get(c.paramRef) : undefined;
+    if (!to || !c.paramRef) return c;
+    return {
+      ...c,
+      paramRef: to,
+      label: c.label.split(c.paramRef).join(to),
+    };
+  });
+
+  const repeats = sketch.repeats.map((r) => ({
+    ...r,
+    countParam: map.get(r.countParam) ?? r.countParam,
+    spacingParam: map.get(r.spacingParam) ?? r.spacingParam,
+  }));
+
+  return { sketch: { ...sketch, parameters, constraints, repeats }, applied };
+}

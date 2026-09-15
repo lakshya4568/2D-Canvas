@@ -18,6 +18,49 @@ export function PropertiesPalette() {
     });
   };
 
+  /**
+   * Rewrites a line from the properties a draftsman actually thinks in.
+   *
+   * A line has a length, a direction and two ends — not a width and a height.
+   * Typing a length must lengthen it ALONG the direction it already has, and
+   * typing an angle must swing it about its start, or the number that was typed
+   * is not the number that results. Both are derived from the current geometry
+   * and written back as endpoint coordinates, which is the only thing the
+   * drawing model stores.
+   *
+   * The solver still has the last word: these go through `UPDATE_SHAPE` like a
+   * drag, so a rule that holds this line will pull it back and say so.
+   */
+  const updateLineByPolar = (field: "length" | "angle" | "midX" | "midY", val: number) => {
+    if (!selectedShape || selectedShape.type !== "line") return;
+    const l = selectedShape as LineShape;
+    const dx = l.x2 - l.x1;
+    const dy = l.y2 - l.y1;
+    const len = Math.hypot(dx, dy);
+    const ang = Math.atan2(dy, dx);
+
+    let updates: Record<string, number>;
+    if (field === "length") {
+      if (!Number.isFinite(val) || val <= 0) return;
+      // Grows from the start point, along the direction it already has. A line
+      // of zero length has no direction to keep, so it is laid out along +x.
+      const dir = len < 1e-9 ? { x: 1, y: 0 } : { x: dx / len, y: dy / len };
+      updates = { x2: l.x1 + dir.x * val, y2: l.y1 + dir.y * val };
+    } else if (field === "angle") {
+      const r = (val * Math.PI) / 180;
+      updates = { x2: l.x1 + Math.cos(r) * len, y2: l.y1 + Math.sin(r) * len };
+    } else {
+      // Position: slide the whole line so its midpoint lands on the value.
+      const mx = (l.x1 + l.x2) / 2;
+      const my = (l.y1 + l.y2) / 2;
+      const sx = field === "midX" ? val - mx : 0;
+      const sy = field === "midY" ? val - my : 0;
+      updates = { x1: l.x1 + sx, y1: l.y1 + sy, x2: l.x2 + sx, y2: l.y2 + sy };
+    }
+
+    dispatch({ type: "UPDATE_SHAPE", id: selectedShape.id, updates });
+  };
+
   const handleUpdateString = (field: string, val: string) => {
     if (!selectedShape) return;
     dispatch({
@@ -169,6 +212,28 @@ export function PropertiesPalette() {
                 unit="mm"
                 onChange={(v) => handleUpdateNumber("height", v)}
               />
+              <EditablePropertyRow
+                label="Centre X"
+                value={(s as RectangleShape).x + (s as RectangleShape).width / 2}
+                unit="mm"
+                onChange={(v) =>
+                  handleUpdateNumber("x", v - (s as RectangleShape).width / 2)
+                }
+              />
+              <EditablePropertyRow
+                label="Centre Y"
+                value={(s as RectangleShape).y + (s as RectangleShape).height / 2}
+                unit="mm"
+                onChange={(v) =>
+                  handleUpdateNumber("y", v - (s as RectangleShape).height / 2)
+                }
+              />
+              <EditablePropertyRow
+                label="Rotation"
+                value={(s as RectangleShape).rotation ?? 0}
+                unit="°"
+                onChange={(v) => handleUpdateNumber("rotation", v)}
+              />
               <div className="flex items-center justify-between px-2.5 py-1 bg-(--ink-panel)">
                 <span className="text-(--fg-muted)">Area</span>
                 <span className="font-mono text-(--pen) font-semibold">
@@ -204,15 +269,40 @@ export function PropertiesPalette() {
                 unit="mm"
                 onChange={(v) => handleUpdateNumber("y2", v)}
               />
-              <div className="flex items-center justify-between px-2.5 py-1 bg-(--ink-panel)">
-                <span className="text-(--fg-muted)">Length</span>
-                <span className="font-mono text-(--pen) font-semibold">
-                  {Math.hypot(
-                    (s as LineShape).x2 - (s as LineShape).x1,
-                    (s as LineShape).y2 - (s as LineShape).y1
-                  ).toFixed(1)} mm
-                </span>
-              </div>
+              <EditablePropertyRow
+                label="Length"
+                value={Math.hypot(
+                  (s as LineShape).x2 - (s as LineShape).x1,
+                  (s as LineShape).y2 - (s as LineShape).y1
+                )}
+                unit="mm"
+                onChange={(v) => updateLineByPolar("length", v)}
+              />
+              <EditablePropertyRow
+                label="Angle"
+                value={
+                  (Math.atan2(
+                    (s as LineShape).y2 - (s as LineShape).y1,
+                    (s as LineShape).x2 - (s as LineShape).x1
+                  ) *
+                    180) /
+                  Math.PI
+                }
+                unit="°"
+                onChange={(v) => updateLineByPolar("angle", v)}
+              />
+              <EditablePropertyRow
+                label="Mid X"
+                value={((s as LineShape).x1 + (s as LineShape).x2) / 2}
+                unit="mm"
+                onChange={(v) => updateLineByPolar("midX", v)}
+              />
+              <EditablePropertyRow
+                label="Mid Y"
+                value={((s as LineShape).y1 + (s as LineShape).y2) / 2}
+                unit="mm"
+                onChange={(v) => updateLineByPolar("midY", v)}
+              />
             </>
           )}
 

@@ -23,6 +23,7 @@ import {
   rowCount,
   CompiledSystem,
   referencedPoints,
+  isActive,
 } from "./residuals";
 import { condensationFor } from "./rigid";
 
@@ -330,6 +331,74 @@ export function countDof(sketch: AuthoringSketch): number {
   const q = cond.reduce(sys.X);
   const reduced = cond.condenseJacobian(jacobian, q);
   return cond.reducedSize - rankOf(reduced, cond.reducedSize, 1e-9);
+}
+
+/**
+ * Whether a profile can still change SHAPE, as opposed to change place.
+ *
+ * This is the question behind the failure the notebook keeps returning to:
+ * relate two shapes by their centres, drive the gap, and instead of sliding
+ * together they squash into trapezoids. Nothing is wrong with the solver — a
+ * quadrilateral drawn from four loose lines has eight coordinates and nothing
+ * holding its corners square, so deforming it satisfies the new rule with LESS
+ * total movement than carrying it across the sheet. Least squares takes the
+ * cheaper answer, correctly, because the drawing never said the shape mattered.
+ *
+ * So it has to be asked BEFORE the rule is created, while it can still be
+ * answered. Rows are counted over the profile's own points only, and placement
+ * rules are left out of the count: an anchor removes freedom to MOVE, not
+ * freedom to deform, and including it would report a pinned floppy shape as
+ * settled. What is left over after the three freedoms every rigid body has is
+ * freedom to change shape.
+ */
+export interface ShapeFreedom {
+  profileId: string;
+  label: string;
+  /** Freedoms beyond the three of a rigid body. Zero means the shape is settled. */
+  internal: number;
+  /** True when the profile already belongs to a unit that moves as one piece. */
+  rigid: boolean;
+}
+
+export function shapeFreedomOf(
+  sketch: AuthoringSketch,
+  profile: { id: string; label: string; pointIds: string[]; shapeIds: string[] },
+  policy: TolerancePolicy = DEFAULT_TOLERANCE_POLICY
+): ShapeFreedom {
+  const rigid = sketch.components.some(
+    (c) => c.rigid && profile.shapeIds.every((id) => c.shapeIds.includes(id))
+  );
+
+  const local = profile.pointIds.filter((id) => sketch.points[id]);
+  const base: ShapeFreedom = { profileId: profile.id, label: profile.label, internal: 0, rigid };
+  if (rigid || local.length < 2) return base;
+
+  const inside = new Set(local);
+  const index: Record<string, number> = {};
+  local.forEach((id, i) => (index[id] = i));
+  const X: number[] = [];
+  for (const id of local) X.push(sketch.points[id].x, sketch.points[id].y);
+
+  const rows: number[][] = [];
+  for (const c of sketch.constraints) {
+    if (!isActive(c)) continue;
+    // Placement, not shape. Counting these would call a pinned floppy shape rigid.
+    if (c.kind === "fix" || c.kind === "position_x" || c.kind === "position_y") continue;
+    const refs = referencedPoints(sketch, c);
+    if (refs.length === 0 || !refs.every((r) => inside.has(r))) continue;
+    try {
+      const { jacobian } = evaluateConstraint(sketch, c, X, index);
+      for (const row of jacobian) rows.push(row);
+    } catch {
+      // A row this subsystem cannot express tells us nothing; it is not evidence
+      // that the shape is held.
+    }
+  }
+
+  const n = 2 * local.length;
+  const dof = n - rankOf(rows, n, policy.singular_value_eps);
+  // Three of those are the body's own freedom to sit anywhere; the rest is slack.
+  return { ...base, internal: Math.max(0, dof - 3) };
 }
 
 /**

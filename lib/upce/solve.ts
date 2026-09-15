@@ -455,7 +455,11 @@ function isDimensional(c: SketchConstraint): boolean {
     c.kind === "relative_x" ||
     c.kind === "relative_y" ||
     c.kind === "normal_offset" ||
-    c.kind === "centroid_distance"
+    c.kind === "centroid_distance" ||
+    // An absolute coordinate is a dimension like any other — and a big jump in
+    // one is exactly the case the direct solve settles badly.
+    c.kind === "position_x" ||
+    c.kind === "position_y"
   );
 }
 

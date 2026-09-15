@@ -29,6 +29,10 @@ import { AuthoringSketch, SketchConstraint, SketchParameter } from "./types";
 import { findProfiles, profileLoopIds, Profile } from "./profile";
 import { applyAction, IntentAction } from "./completion";
 import { makeProvenance, uniqueParameterName, validateExpression } from "./parameters";
+import { shapeFreedomOf, ShapeFreedom } from "./dof";
+import { createComponent } from "./repeat";
+import { setComponentRigid } from "./rigid";
+import { Shape } from "../geometry/types";
 
 /**
  * `reference` measures without holding: the row never reaches the solver, so it
@@ -40,13 +44,47 @@ export type MeasureMode = "driving" | "reference";
 
 export interface Measurable {
   id: string;
-  /** "Outer_Frame width", "gap between Deck and Pier, across". */
+  /** "Outer_Frame width", "gap between Deck and Pier, across", "L1 length". */
   label: string;
-  kind: "distance_x" | "distance_y" | "distance";
-  points: [string, string];
+  kind: "distance_x" | "distance_y" | "distance" | "position_x" | "position_y";
+  /** Two points for a distance, one for a position. */
+  points: string[];
   /** What it measures right now, in mm. */
   value: number;
   suggestedName: string;
+}
+
+/**
+ * A profile that is one straight line and nothing else.
+ *
+ * It needs its own answer because the generic one is wrong for it, not merely
+ * unhelpful. A profile's "width" is the shadow it casts on the x axis, which for
+ * a closed shape is a reasonable thing to drive and for a single line is not: a
+ * line has no width and no height, and driving its vertical shadow changes its
+ * LENGTH and its ANGLE at the same time, which is exactly the surprise a
+ * draftsman reports as "I drove the height and the line went somewhere else".
+ *
+ * What a line has is a length, a direction, and two ends.
+ */
+function loneSegmentOf(sketch: AuthoringSketch, profile: Profile): { p1: string; p2: string } | null {
+  if (profile.segmentIds.length !== 1) return null;
+  const seg = sketch.segments[profile.segmentIds[0]];
+  if (!seg) return null;
+  if (!sketch.points[seg.p1] || !sketch.points[seg.p2]) return null;
+  return { p1: seg.p1, p2: seg.p2 };
+}
+
+/**
+ * The vertex that stands for where a profile IS.
+ *
+ * Lowest, then leftmost, then by id — the same rule a component's local origin
+ * uses, so "position" means the same corner every time it is asked for and does
+ * not wander when the shape is edited.
+ */
+function anchorVertexOf(sketch: AuthoringSketch, profile: Profile): string | null {
+  const pts = profile.pointIds.map((id) => sketch.points[id]).filter(Boolean);
+  if (pts.length === 0) return null;
+  return [...pts].sort((a, b) => a.y - b.y || a.x - b.x || (a.id < b.id ? -1 : 1))[0].id;
 }
 
 function cleanName(raw: string): string {
@@ -79,6 +117,60 @@ export function measurablesIn(
   const out: Measurable[] = [];
 
   for (const profile of profiles) {
+    const lone = loneSegmentOf(sketch, profile);
+
+    if (lone) {
+      // A line: length, and where each end is. No width, no height.
+      const a = sketch.points[lone.p1];
+      const b = sketch.points[lone.p2];
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (length > 1e-6) {
+        out.push({
+          id: `len_${profile.id}`,
+          label: `${profile.label} length`,
+          kind: "distance",
+          points: [lone.p1, lone.p2],
+          value: length,
+          suggestedName: `${cleanName(profile.label)}Length`,
+        });
+      }
+      const ends: [string, string, { x: number; y: number }][] = [
+        ["start", lone.p1, a],
+        ["end", lone.p2, b],
+      ];
+      for (const [which, pid, pt] of ends) {
+        for (const axis of ["x", "y"] as const) {
+          out.push({
+            id: `pos_${pid}_${axis}`,
+            label: `${profile.label} ${which} ${axis.toUpperCase()}`,
+            kind: axis === "x" ? "position_x" : "position_y",
+            points: [pid],
+            value: pt[axis],
+            suggestedName: `${cleanName(profile.label)}${which === "start" ? "Start" : "End"}${axis.toUpperCase()}`,
+          });
+        }
+      }
+      continue;
+    }
+
+    // Where the profile sits. Offered for everything that is not a lone line,
+    // which already got its two ends above — a closed shape has one position,
+    // not one per corner.
+    const anchor = anchorVertexOf(sketch, profile);
+    if (anchor) {
+      const p = sketch.points[anchor];
+      for (const axis of ["x", "y"] as const) {
+        out.push({
+          id: `pos_${profile.id}_${axis}`,
+          label: `${profile.label} position ${axis.toUpperCase()}`,
+          kind: axis === "x" ? "position_x" : "position_y",
+          points: [anchor],
+          value: p[axis],
+          suggestedName: `${cleanName(profile.label)}${axis.toUpperCase()}`,
+        });
+      }
+    }
+
     for (const axis of ["x", "y"] as const) {
       const e = extremes(sketch, profile, axis);
       if (!e) continue;
@@ -464,8 +556,9 @@ export function relateLines(
   segB: string,
   kind: LineRelationKind,
   labelA: string,
-  labelB: string
-): { sketch: AuthoringSketch; refused?: string } {
+  labelB: string,
+  names: Record<string, string> = {}
+): { sketch: AuthoringSketch; refused?: string; warning?: string; atRisk?: string[] } {
   if (segA === segB) return { sketch, refused: "Those are the same edge." };
   const option = lineRelationOptions(sketch, segA, segB).find((o) => o.kind === kind);
   if (!option) return { sketch, refused: "Those two edges cannot be related." };
@@ -504,7 +597,88 @@ export function relateLines(
       refused: `${labelB}'s position relative to ${labelA} is already decided by the rules in force, so this would be a second answer to the same question.`,
     };
   }
-  return { sketch: next };
+
+  // Holding one edge against another moves that edge. Whether the rest of the
+  // shape comes with it is a question about the SHAPE, not about the rule, and
+  // it is worth answering before the author discovers it from a skewed outline.
+  const involved = [sketch.segments[segA]?.shapeId, sketch.segments[segB]?.shapeId].filter(
+    (v): v is string => Boolean(v)
+  );
+  const risks = shapesAtRisk(next, involved, names);
+  return {
+    sketch: next,
+    warning: shapeRiskWarning(risks) ?? undefined,
+    atRisk: risks.length > 0 ? involved : undefined,
+  };
+}
+
+/**
+ * Profiles in a relationship that can still change shape.
+ *
+ * Returned rather than refused. A relationship between two floppy shapes is
+ * perfectly legal and sometimes exactly what is wanted — a rubber band between
+ * two things that are both still being designed. What is NOT wanted is finding
+ * out afterwards, from a trapezoid, so the caller is told and can offer to hold
+ * the shapes first.
+ */
+export function shapesAtRisk(
+  sketch: AuthoringSketch,
+  shapeIds: string[],
+  names: Record<string, string> = {}
+): ShapeFreedom[] {
+  const wanted = new Set(shapeIds);
+  return findProfiles(sketch, names)
+    .filter((p) => p.shapeIds.some((id) => wanted.has(id)))
+    .map((p) => shapeFreedomOf(sketch, p))
+    .filter((f) => f.internal > 0);
+}
+
+/** One sentence naming what will deform, or null when nothing will. */
+export function shapeRiskWarning(risks: ShapeFreedom[]): string | null {
+  if (risks.length === 0) return null;
+  const names = risks.map((r) => r.label);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${list} can still change shape, so this rule may squash ${
+    names.length === 1 ? "it" : "them"
+  } instead of moving ${names.length === 1 ? "it" : "them"}. Hold the shape first to be sure ${
+    names.length === 1 ? "it moves" : "they move"
+  } as drawn.`;
+}
+
+/**
+ * Makes each named profile a unit that moves as one piece.
+ *
+ * The remedy that goes with the warning, in one call, so agreeing to it is a
+ * click rather than a detour through Step 5 with the selection rebuilt by hand.
+ * A profile already inside a rigid unit is left alone.
+ */
+export function holdShapes(
+  sketch: AuthoringSketch,
+  shapes: Shape[],
+  shapeIds: string[],
+  names: Record<string, string> = {}
+): { sketch: AuthoringSketch; held: string[] } {
+  const wanted = new Set(shapeIds);
+  let next = sketch;
+  const held: string[] = [];
+
+  for (const profile of findProfiles(sketch, names)) {
+    if (!profile.shapeIds.some((id) => wanted.has(id))) continue;
+    const freedom = shapeFreedomOf(next, profile);
+    if (freedom.rigid || freedom.internal === 0) continue;
+    // A profile whose shapes are already claimed by another rigid unit cannot
+    // have a second frame; skip it rather than throwing.
+    const claimed = next.components.some(
+      (c) => c.rigid && c.shapeIds.some((id) => profile.shapeIds.includes(id))
+    );
+    if (claimed) continue;
+
+    const made = createComponent(next, shapes, profile.shapeIds, profile.label);
+    next = setComponentRigid(made.sketch, made.component.id, true);
+    held.push(profile.label);
+  }
+
+  return { sketch: next, held };
 }
 
 /**
@@ -522,8 +696,9 @@ export function relateCentroids(
   loopB: string[],
   labelA: string,
   labelB: string,
-  paramName?: string
-): { sketch: AuthoringSketch; refused?: string } {
+  paramName?: string,
+  names: Record<string, string> = {}
+): { sketch: AuthoringSketch; refused?: string; warning?: string; atRisk?: string[] } {
   if (loopA.length < 3 || loopB.length < 3) {
     return { sketch, refused: "A centre needs a closed shape with at least three corners on each side." };
   }
@@ -594,7 +769,18 @@ export function relateCentroids(
       refused: `The distance between those two centres is already decided by the rules in force, so naming it would be a second answer to one question.`,
     };
   }
-  return { sketch: next };
+
+  // The centre of a shape that can change shape is a moving target. Driving the
+  // gap between two of them has more than one answer, and the cheapest is
+  // usually the one nobody wants: deform both until the centres are where they
+  // were asked to be. Say so now, while it is one click to prevent.
+  const involved = [...loopA, ...loopB].flatMap((id) => sketch.points[id]?.owners ?? []);
+  const risks = shapesAtRisk(next, involved, names);
+  return {
+    sketch: next,
+    warning: shapeRiskWarning(risks) ?? undefined,
+    atRisk: risks.length > 0 ? [...new Set(involved)] : undefined,
+  };
 }
 
 /** An edge the author can point at, with a name they will recognise. */

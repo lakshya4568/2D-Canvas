@@ -935,6 +935,11 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           zoomScale: state.viewport.scale,
           startPoint: startPt,
           vertexThresholdPx: 20,
+          // Drawing is the one gesture where "the same length as that one" is a
+          // question worth answering. Ortho and polar have already had their
+          // say above; the guides refine what is left.
+          draftingGuides: true,
+          excludeId: state.draft.id,
         });
 
         const currentPt = snapResult.point;
@@ -1114,6 +1119,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           zoomScale: state.viewport.scale,
           startPoint: startPt,
           vertexThresholdPx: 20,
+          // The same rules as the preview, or the shape would land somewhere
+          // other than where the guide said it would.
+          draftingGuides: true,
+          excludeId: state.draft.id,
         });
 
         const endPt = finalSnap.point;

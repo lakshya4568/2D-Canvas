@@ -1,4 +1,5 @@
 import { Point, Shape, SnapResult, SnapCategory } from "./types";
+import { collectReferences, combinedGuideSnap, extensionSnap } from "./draftingGuides";
 import { getShapeCenter, rotatePoint, getPolygonPoints, getStarPoints } from "./metrics";
 import { getChamferReferenceSnap } from "./chamferReference";
 
@@ -198,6 +199,15 @@ export function getShapeKeyVertices(shape: Shape): Point[] {
 /**
  * Evaluates snapping for a raw cursor point against other shapes, perpendicular angles, edges, and grid.
  */
+/**
+ * How far off parallel still counts as parallel, while dragging.
+ *
+ * Two degrees: tight enough that a deliberately skewed line is left alone, loose
+ * enough to catch at a normal drawing zoom, where a degree is a couple of pixels
+ * of cursor travel at the far end of a long edge.
+ */
+const GUIDE_ANGLE_TOLERANCE = (2 * Math.PI) / 180;
+
 export function applySnapping(
   rawPoint: Point,
   options: {
@@ -209,6 +219,12 @@ export function applySnapping(
     vertexThresholdPx?: number;
     zoomScale?: number;
     startPoint?: Point | null;
+    /**
+     * Compare the length and direction being dragged against what is already
+     * drawn. Off by default so existing callers — moving a selection, picking a
+     * base point — keep exactly the behaviour they had; drawing turns it on.
+     */
+    draftingGuides?: boolean;
   }
 ): SnapResult {
   const {
@@ -220,6 +236,7 @@ export function applySnapping(
     vertexThresholdPx = 20,
     zoomScale = 1,
     startPoint = null,
+    draftingGuides = false,
   } = options;
 
   const worldThreshold = vertexThresholdPx / Math.max(0.01, zoomScale);
@@ -307,6 +324,33 @@ export function applySnapping(
       }
     }
 
+    // 2b. Drafting guides: equal length, parallel, and alignment with a corner
+    //     elsewhere on the sheet.
+    //
+    //     Below the key-point and intersection snaps, because a vertex the
+    //     draftsman is pointing at is a stronger statement than a length that
+    //     happens to match. Above edge snapping, because landing anywhere on a
+    //     line is the weakest of the three and should not beat "this is the
+    //     same length as that".
+    if (draftingGuides && startPoint) {
+      const refs = collectReferences(shapes, excludeId);
+      const hit = combinedGuideSnap(startPoint, rawPoint, refs, worldThreshold, GUIDE_ANGLE_TOLERANCE);
+      if (hit) {
+        return {
+          point: hit.point,
+          snapped: true,
+          snapType: "vertex",
+          category: hit.category,
+          targetPoint: hit.point,
+          sourcePoint: startPoint,
+          snapLabel: hit.label,
+          guideLines: hit.guideLines,
+          inference: hit.inference,
+          referenceEdges: hit.referenceEdges,
+        };
+      }
+    }
+
     // 3. Snap to Edge / Along Line
     let closestEdgePoint: Point | null = null;
     let minEdgeDist = worldThreshold * 0.75;
@@ -376,6 +420,28 @@ export function applySnapping(
         snapType: "vertex",
         category: "perpendicular",
         targetPoint: { x: snapX, y: snapY },
+      };
+    }
+  }
+
+  // 4b. Lining up with a corner elsewhere on the sheet.
+  //
+  //     After the ortho pass, because a line the draftsman is deliberately
+  //     holding horizontal from its own start should stay horizontal rather
+  //     than jumping to align with something across the drawing.
+  if (draftingGuides && objectSnapEnabled) {
+    const refs = collectReferences(shapes, excludeId);
+    const hit = extensionSnap(rawPoint, refs, worldThreshold);
+    if (hit) {
+      return {
+        point: hit.point,
+        snapped: true,
+        snapType: "vertex",
+        category: hit.category,
+        targetPoint: hit.point,
+        snapLabel: hit.label,
+        guideLines: hit.guideLines,
+        inference: hit.inference,
       };
     }
   }
