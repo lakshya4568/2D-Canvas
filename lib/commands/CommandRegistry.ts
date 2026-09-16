@@ -95,6 +95,11 @@ export const COMMAND_ALIASES: CommandAlias[] = [
   { alias: "SNAP", commandName: "SNAP", description: "Toggles grid snap mode (F9)", category: "utility" },
   { alias: "DYN", commandName: "DYNAMIC_INPUT", description: "Toggles dynamic input display (F12)", category: "utility" },
   { alias: "DYNMODE", commandName: "DYNAMIC_INPUT", description: "Toggles dynamic input display (F12)", category: "utility" },
+
+  // CAD Agent v2 Tools
+  { alias: "AGENT", commandName: "CAD_AGENT", description: "Generates CAD drawing via CAD Agent v2", category: "utility" },
+  { alias: "AI", commandName: "CAD_AGENT", description: "Generates CAD drawing via CAD Agent v2", category: "utility" },
+  { alias: "DRAW", commandName: "CAD_AGENT", description: "Generates CAD drawing via CAD Agent v2", category: "utility" },
 ];
 
 export class CadCommandRegistry {
@@ -497,6 +502,38 @@ export class CadCommandRegistry {
           return { success: true, message: "Opening AutoCAD DXF import..." };
         }
         return { success: false, message: "DXF import handler not available" };
+
+      case "CAD_AGENT": {
+        const promptText = args?.trim();
+        if (!promptText) {
+          return { success: false, message: "Usage: AGENT <drawing description>" };
+        }
+        fetch("/api/ai/agent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: promptText }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success && data.shapes) {
+              ctx.dispatch({ type: "LOAD_SHAPES", shapes: data.shapes });
+              ctx.notify?.({
+                text: `CAD Agent v2: Rendered ${data.shapes.length} CAD entities`,
+                type: "success",
+              });
+            } else if (data.error) {
+              ctx.notify?.({ text: `CAD Agent error: ${data.error}`, type: "error" });
+            }
+          })
+          .catch((err) => {
+            ctx.notify?.({ text: `CAD Agent failed: ${err.message}`, type: "error" });
+          });
+
+        return {
+          success: true,
+          message: `CAD Agent v2 processing: "${promptText}"...`,
+        };
+      }
 
       case "SELECT":
       default:
