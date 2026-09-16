@@ -339,6 +339,14 @@ async function tokenFromCredentialFile(path: string, timeoutMs: number): Promise
   return parsed.access_token;
 }
 
+export async function resolveAccessToken(config: VertexConfig): Promise<string | undefined> {
+  if (config.accessToken) return config.accessToken;
+  if (config.credentialsPath) {
+    return await tokenFromCredentialFile(config.credentialsPath, config.timeoutMs);
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // The call
 // ---------------------------------------------------------------------------
