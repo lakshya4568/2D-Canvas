@@ -4,6 +4,34 @@
 
 ---
 
+## 🤖 Production-Grade 2D CAD FastMCP Server (Python / STDIO)
+
+In addition to the web canvas studio, this repository houses the **UPCE 2D CAD FastMCP Server** (`src/server.py`) — a local Model Context Protocol server allowing LLMs (Claude Desktop, Claude Code, Cursor) to autonomously create, modify, inspect, and export 2D CAD engineering drawings with a self-verification visual loop.
+
+### Key Capabilities
+- **7 Unified Tools (multiCAD-mcp pattern):** `draw_entities`, `manage_layers`, `manage_blocks`, `transform_entities`, `query_drawing` (read-only), `manage_session`, `render_preview` (read-only).
+- **Self-Verification Loop:** Intent → Draw → Query JSON Extents → Render Visual PNG → Correct → Export DXF.
+- **Headless & Cross-Platform:** Pure headless `ezdxf` with modular `CADBackend` ABC (zero Windows COM dependency).
+- **Transactional Undo Stack:** 50-step in-memory DXF snapshot history with atomic rollback on partial batch failure.
+- **Path Sandboxing:** Enforces strict boundary checks inside `./output` preventing path traversal.
+
+```bash
+# 1. Install & sync Python environment
+uv sync --all-extras
+
+# 2. Run test suite (16 tests covering all primitives, undo, and DXF round-trips)
+uv run pytest tests/test_mcp_server.py tests/test_mcp_edge_cases.py -v
+
+# 3. Run autonomous pipeline demo (Title block 180x277 + 8-hole bolt pattern)
+uv run python scripts/demo_cad_mcp.py
+
+# 4. Start FastMCP server over STDIO
+uv run python -m server
+```
+For full architecture diagrams, tool schemas, and Claude Desktop registration configs, see [README_CAD_MCP.md](file:///Users/proximus/Documents/Aagento%20Systems/2D%20Canvas/README_CAD_MCP.md) and [docs/MCP_CAD_ARCHITECTURE.md](file:///Users/proximus/Documents/Aagento%20Systems/2D%20Canvas/docs/MCP_CAD_ARCHITECTURE.md).
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
