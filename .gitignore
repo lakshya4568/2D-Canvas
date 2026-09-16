@@ -32,3 +32,15 @@ AGENTS.md
 .omo
 
 tmp
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Runtime outputs, logs and scratch
+logs/
+output/
+scratch/
+*.log

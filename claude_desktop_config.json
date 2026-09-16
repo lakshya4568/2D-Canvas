@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "cad": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/proximus/Documents/Aagento Systems/2D Canvas",
+        "python",
+        "-m",
+        "server"
+      ]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "server_name": "upce-cad-mcp",
+  "version": "1.0.0",
+  "output_dir": "./output",
+  "allow_arbitrary_paths": false,
+  "logging_level": "INFO",
+  "log_file": "./logs/cad_mcp.log",
+  "command_delay_ms": 0,
+  "max_entities_per_call": 500,
+  "max_undo_steps": 50,
+  "default_units": "mm",
+  "default_dxf_version": "R2010",
+  "coordinate_system": {
+    "units": "millimeters (mm)",
+    "axes": "Y-up Cartesian",
+    "origin": "bottom-left (0,0)"
+  }
+}
