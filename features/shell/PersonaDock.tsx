@@ -49,13 +49,6 @@ export function PersonaDock({
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
 
-  React.useEffect(() => {
-    // Leaving author mode takes the assistant tab with it; staying in author
-    // mode should not yank the draftsman back out of whatever they were reading.
-    setActiveTab((prev) =>
-      prev === "assistant" && state.userMode !== "author" ? "parametric" : prev
-    );
-  }, [state.userMode]);
 
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -132,18 +125,16 @@ export function PersonaDock({
               when you are stuck, at any point — so it gets a tab rather than a
               place in the column. It also keeps its long answers from pushing
               everything else off the screen. */}
-          {state.userMode === "author" && (
-            <button
-              onClick={() => setActiveTab("assistant")}
-              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
-                activeTab === "assistant"
-                  ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
-                  : "text-(--fg-muted) hover:text-(--fg-primary)"
-              }`}
-            >
-              Assistant
-            </button>
-          )}
+          <button
+            onClick={() => setActiveTab("assistant")}
+            className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+              activeTab === "assistant"
+                ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
+                : "text-(--fg-muted) hover:text-(--fg-primary)"
+            }`}
+          >
+            CAD Agent
+          </button>
         </div>
 
         <button
