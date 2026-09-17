@@ -73,6 +73,61 @@ export const ParametricDimensionOverlay: React.FC<ParametricDimensionOverlayProp
       };
     }
 
+    // A position has one point and no second one to span to. The badge sits
+    // beside the point, and the witness runs to the axis it is measured from
+    // only as far as a short tick — a line to the sheet origin would cross the
+    // whole drawing.
+    if (c.kind === "position_x" || c.kind === "position_y") {
+      const p = pt(c.points[0]);
+      if (!p) return null;
+      const tick = 18 / scale;
+      const horizontal = c.kind === "position_y";
+      return {
+        x: p.x + (horizontal ? 3 * tick : 0),
+        y: p.y - (horizontal ? 0 : 1.5 * tick),
+        measured: horizontal ? p.y : p.x,
+        witness: horizontal
+          ? { a: { x: p.x, y: p.y }, b: { x: p.x + 2 * tick, y: p.y } }
+          : { a: { x: p.x, y: p.y }, b: { x: p.x, y: p.y - tick } },
+      };
+    }
+
+    // Relationships between two whole edges: the witness joins their middles.
+    if (c.kind === "relative_x" || c.kind === "relative_y" || c.kind === "normal_offset" || c.kind === "angle") {
+      const mid = (segId: string) => {
+        const seg = sketch.segments[segId];
+        const a = seg && pt(seg.p1);
+        const b = seg && pt(seg.p2);
+        return a && b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : null;
+      };
+      const m1 = mid(c.segments[0]);
+      const m2 = mid(c.segments[1]);
+      if (!m1 || !m2) return null;
+      return {
+        x: (m1.x + m2.x) / 2,
+        y: (m1.y + m2.y) / 2 - 12 / scale,
+        measured: Math.hypot(m2.x - m1.x, m2.y - m1.y),
+        witness: { a: m1, b: m2 },
+      };
+    }
+
+    if (c.kind === "centroid_distance" && c.loopA && c.loopB) {
+      const centre = (loop: string[]) => {
+        const ps = loop.map(pt).filter(Boolean) as { x: number; y: number }[];
+        if (ps.length === 0) return null;
+        return { x: ps.reduce((s, q) => s + q.x, 0) / ps.length, y: ps.reduce((s, q) => s + q.y, 0) / ps.length };
+      };
+      const a = centre(c.loopA);
+      const b = centre(c.loopB);
+      if (!a || !b) return null;
+      return {
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2 - 12 / scale,
+        measured: Math.hypot(b.x - a.x, b.y - a.y),
+        witness: { a, b },
+      };
+    }
+
     if (c.kind === "point_line_distance") {
       const p = pt(c.points[0]);
       const seg = sketch.segments[c.segments[0]];

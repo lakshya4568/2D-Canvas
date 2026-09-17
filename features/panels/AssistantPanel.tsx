@@ -390,7 +390,7 @@ function ReviewPane({ hint, setHint }: { hint: string; setHint: (v: string) => v
   );
 }
 
-import { CadAgentPanel } from "./CadAgentPanel";
+import { DrafterPanel } from "./DrafterPanel";
 
 export function AssistantPanel() {
   const { advisorStatus } = useUpce();
@@ -405,20 +405,14 @@ export function AssistantPanel() {
           <Cpu className="w-[13px] h-[13px] text-(--pen)" strokeWidth={2} />
           <span className="text-[11.5px] font-medium text-(--fg-primary)">CAD Agent</span>
           <span className="flex-1" />
-          {mode === "agent" ? (
-            <Pill tone="good">v2 · Multi-Model</Pill>
-          ) : configured ? (
-            <Pill tone="good">ready</Pill>
-          ) : (
-            <Pill tone="attention">off</Pill>
-          )}
+          {mode !== "agent" && (configured ? <Pill tone="good">ready</Pill> : <Pill tone="attention">off</Pill>)}
         </div>
 
         <Segmented
           value={mode}
           onChange={setMode}
           options={[
-            { value: "agent", label: "CAD Agent", title: "Generate drawings with Gemini 3.8 Flash, C3Dv0, or Auto Router" },
+            { value: "agent", label: "Draw", title: "The drafting agent draws, constrains, parametrizes and verifies" },
             { value: "ask", label: "Ask", title: "A question about this drawing" },
             { value: "review", label: "Review", title: "A structured pass with things to accept" },
           ]}
@@ -426,7 +420,7 @@ export function AssistantPanel() {
       </div>
 
       {mode === "agent" ? (
-        <CadAgentPanel />
+        <DrafterPanel />
       ) : !configured ? (
         <div className="m-3 rounded-[6px] border border-dashed border-(--rule) px-2.5 py-2">
           <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">

@@ -25,6 +25,8 @@ import { applyOrthoProjection, applyPolarTrackingProjection } from "@/lib/geomet
 import { GridLayer } from "./GridLayer";
 import { ShapeRenderer } from "./ShapeRenderer";
 import { DraftPreview } from "./DraftPreview";
+import { AgentPreviewLayer } from "./AgentPreviewLayer";
+import { useAgentPreview } from "../agent/agentPreview";
 import { SelectionOverlay, HandleType } from "./SelectionOverlay";
 import { SnapIndicator } from "./SnapIndicator";
 import { ConstraintOverlays } from "./ConstraintOverlays";
@@ -51,6 +53,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
     duplicateSelected,
     selectedShapes,
   } = useDrawing();
+  const agentPreview = useAgentPreview();
 
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -1442,16 +1445,21 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             showGrid={state.showGrid}
           />
 
-          {/* Committed Shapes */}
-          <ShapeRenderer
-            shapes={state.shapes}
-            selectedIds={state.selectedIds}
-            showDimensions={state.showDimensions}
-            scale={scale}
-            isSelectTool={state.tool === "select" || state.tool === "move"}
-            themeMode={state.themeMode}
-            onSelectShape={handleShapeSelect}
-          />
+          {/* Committed Shapes — dimmed while the agent's pen is drawing over them */}
+          <g opacity={agentPreview?.running ? 0.25 : 1}>
+            <ShapeRenderer
+              shapes={state.shapes}
+              selectedIds={state.selectedIds}
+              showDimensions={state.showDimensions}
+              scale={scale}
+              isSelectTool={state.tool === "select" || state.tool === "move"}
+              themeMode={state.themeMode}
+              onSelectShape={handleShapeSelect}
+            />
+          </g>
+
+          {/* The drafting agent's work in progress */}
+          <AgentPreviewLayer scale={scale} />
 
           {/* In-Progress Live Draft */}
           <DraftPreview draft={state.draft} scale={scale} />

@@ -41,14 +41,20 @@ function advisoryFor(entry: ManifestEntry): string | undefined {
   return undefined;
 }
 
+/**
+ * A value as a person types it. The solver settles to about 1e-10 mm, and
+ * showing that residue ("50.000000000155") in an input box reads as a bug.
+ */
+const shown = (v: number) => String(Number(v.toFixed(4)));
+
 function Field({ entry }: { entry: ManifestEntry }) {
   const { setParameterValue } = useUpce();
-  const [draft, setDraft] = React.useState(String(entry.value));
+  const [draft, setDraft] = React.useState(shown(entry.value));
   const [focused, setFocused] = React.useState(false);
   const advisory = advisoryFor(entry);
 
   React.useEffect(() => {
-    if (!focused) setDraft(String(entry.value));
+    if (!focused) setDraft(shown(entry.value));
   }, [entry.value, focused]);
 
   const outOfRange =
@@ -70,14 +76,14 @@ function Field({ entry }: { entry: ManifestEntry }) {
             onBlur={() => {
               setFocused(false);
               const v = Number(draft);
-              if (Number.isFinite(v) && v !== entry.value) setParameterValue(entry.name, v);
-              else setDraft(String(entry.value));
+              if (Number.isFinite(v) && draft !== shown(entry.value)) setParameterValue(entry.name, v);
+              else setDraft(shown(entry.value));
             }}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               if (e.key === "Escape") {
-                setDraft(String(entry.value));
+                setDraft(shown(entry.value));
                 e.currentTarget.blur();
               }
             }}
