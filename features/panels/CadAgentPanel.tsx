@@ -24,6 +24,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileJson,
+  Activity,
+  Eye,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import type { Shape } from "@/lib/geometry/types";
@@ -89,6 +91,16 @@ interface AgentResult {
   dxf: string;
   svg: string;
   previewPng?: string;
+  progressTrace?: Array<{
+    iteration: number;
+    phase: "observe" | "reason" | "act" | "inspect" | "verify" | "correct";
+    observation?: string;
+    thought?: string;
+    toolCall?: { tool: string; args: Record<string, any> };
+    toolResult?: { success: boolean; data?: any; error?: string };
+    verification?: { passed: boolean; message: string; checks?: any[] };
+    timestamp: number;
+  }>;
   response?: string;
   explanation?: string;
   thinking?: string;
@@ -180,6 +192,7 @@ export function CadAgentPanel() {
   // Execution state
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AgentResult | null>(null);
+  const [liveTrace, setLiveTrace] = useState<any[]>([]);
   const [errorText, setErrorText] = useState("");
   const [copiedDxf, setCopiedDxf] = useState(false);
   const [copiedIr, setCopiedIr] = useState(false);
@@ -189,6 +202,8 @@ export function CadAgentPanel() {
   const [showTools, setShowTools] = useState(true);
   const [showValidation, setShowValidation] = useState(true);
   const [showBoq, setShowBoq] = useState(false);
+  const [showTrace, setShowTrace] = useState(true);
+  const [traceFilter, setTraceFilter] = useState<"all" | "act" | "inspect" | "verify" | "correct">("all");
 
   // Load available models on mount
   useEffect(() => {
@@ -237,11 +252,13 @@ export function CadAgentPanel() {
     setLoading(true);
     setErrorText("");
     setResult(null);
+    setLiveTrace([]);
 
     try {
       const payload: any = {
         prompt: trimmedPrompt,
         modelOverride: selectedModel,
+        stream: true,
       };
 
       if (imageFile) {
@@ -253,20 +270,61 @@ export function CadAgentPanel() {
 
       const res = await fetch("/api/ai/agent", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream, application/json",
+        },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Execution failed");
-      }
+      const contentType = res.headers.get("content-type") || "";
 
-      setResult(data);
+      if (contentType.includes("text/event-stream") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-      // Load generated UPCE Shapes into CAD Canvas
-      if (data.shapes && data.shapes.length > 0) {
-        dispatch({ type: "LOAD_SHAPES", shapes: data.shapes });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data:")) {
+              const dataStr = trimmed.slice(5).trim();
+              if (!dataStr) continue;
+              try {
+                const event = JSON.parse(dataStr);
+                if (event.type === "step") {
+                  setLiveTrace((prev) => [...prev, event.step]);
+                } else if (event.type === "result") {
+                  setResult(event.result);
+                  if (event.result.shapes && event.result.shapes.length > 0) {
+                    dispatch({ type: "LOAD_SHAPES", shapes: event.result.shapes });
+                  }
+                } else if (event.type === "error") {
+                  throw new Error(event.error);
+                }
+              } catch (parseErr: any) {
+                if (parseErr.message && !parseErr.message.includes("JSON")) {
+                  throw parseErr;
+                }
+              }
+            }
+          }
+        }
+      } else {
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Execution failed");
+        }
+        setResult(data);
+        if (data.shapes && data.shapes.length > 0) {
+          dispatch({ type: "LOAD_SHAPES", shapes: data.shapes });
+        }
       }
     } catch (err: any) {
       setErrorText(err.message || String(err));
@@ -432,7 +490,7 @@ export function CadAgentPanel() {
                 {selectedModel === "fastmcp"
                   ? "FastMCP ezdxf Drafting & Rendering..."
                   : selectedModel === "gemini-3.8-flash"
-                  ? "Gemini 3.8 Flash Reasoning..."
+                  ? "Autonomous Loop (Observe → Reason → Act → Verify)..."
                   : "CAD Agent Processing..."}
               </span>
             </>
@@ -448,6 +506,77 @@ export function CadAgentPanel() {
           <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-[10.5px] flex items-start gap-1.5">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span className="leading-tight">{errorText}</span>
+          </div>
+        )}
+
+        {/* Live Autonomous Progress Trace while streaming */}
+        {loading && liveTrace.length > 0 && !result && (
+          <div className="rounded-[6px] border border-sky-500/30 bg-sky-500/5 overflow-hidden">
+            <div className="w-full px-2.5 py-1.5 bg-(--ink-panel) flex items-center justify-between text-[10px] font-medium text-(--fg-muted)">
+              <span className="flex items-center gap-1.5 text-(--pen) font-semibold">
+                <Activity className="w-3.5 h-3.5 text-(--pen) animate-spin" />
+                Live Autonomous Loop Trace ({liveTrace.length} steps in progress…)
+              </span>
+              <span className="px-1.5 py-0.2 rounded font-mono text-[8.5px] font-semibold text-sky-400 bg-sky-500/10">
+                STREAMING
+              </span>
+            </div>
+            <div className="p-2 space-y-1.5 max-h-64 overflow-y-auto pr-1">
+              {liveTrace.map((step, idx) => {
+                const phaseColors: Record<string, string> = {
+                  observe: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+                  reason: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+                  act: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+                  inspect: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+                  correct: "bg-rose-500/10 text-rose-400 border-rose-500/20",
+                  verify: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                };
+                return (
+                  <div key={idx} className="p-1.5 rounded bg-(--ink-panel) border border-(--rule) space-y-1 text-[9.5px]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[8.5px] font-mono px-1 rounded bg-(--ink-app) text-(--fg-muted)">Turn {step.iteration}</span>
+                        <span className={`text-[8.5px] font-mono px-1.5 py-0.2 rounded border font-semibold uppercase ${phaseColors[step.phase] || "bg-gray-500/10 text-gray-400"}`}>
+                          {step.phase}
+                        </span>
+                      </div>
+                      {step.toolResult && (
+                        <span className={`text-[8.5px] font-mono px-1 rounded ${step.toolResult.success ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+                          {step.toolResult.success ? "✓ Executed" : "✗ Error"}
+                        </span>
+                      )}
+                    </div>
+                    {step.observation && (
+                      <div className="text-(--fg-muted) font-mono leading-tight pl-1 border-l-2 border-sky-500/30">{step.observation}</div>
+                    )}
+                    {step.thought && (
+                      <div className="text-(--fg-primary) italic pl-1 border-l-2 border-purple-500/40">{step.thought}</div>
+                    )}
+                    {step.toolCall && (
+                      <div className="font-mono text-[9px] text-(--pen) bg-(--ink-app) p-1 rounded border border-(--rule)">
+                        <span className="font-semibold">{step.toolCall.tool}</span>(
+                        {Object.entries(step.toolCall.args || {}).slice(0, 3).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")}
+                        {Object.keys(step.toolCall.args || {}).length > 3 ? ", …" : ""})
+                      </div>
+                    )}
+                    {step.verification && (
+                      <div className="mt-1 p-1.5 rounded bg-(--ink-app) border border-(--rule) space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-(--fg-primary) flex items-center gap-1">
+                            {step.verification.passed ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <AlertTriangle className="w-3 h-3 text-amber-400" />}
+                            Goal Verification
+                          </span>
+                          <span className={`px-1.5 py-0.2 rounded font-mono text-[8.5px] font-semibold ${step.verification.passed ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+                            {step.verification.passed ? "ALL GOALS PASSED" : "UNSATISFIED"}
+                          </span>
+                        </div>
+                        <div className="text-(--fg-muted) text-[9px]">{step.verification.message}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -505,6 +634,171 @@ export function CadAgentPanel() {
                   className="w-full h-auto max-h-48 object-contain rounded shadow-xs"
                 />
               </div>
+            </div>
+          )}
+
+          {/* Autonomous Agentic Progress Trace (Observe -> Reason -> Act -> Inspect -> Correct -> Verify) */}
+          {result.progressTrace && result.progressTrace.length > 0 && (
+            <div className="rounded-[6px] border border-(--rule) bg-(--ink-app) overflow-hidden">
+              <button
+                onClick={() => setShowTrace(!showTrace)}
+                className="w-full px-2.5 py-1.5 bg-(--ink-panel) flex items-center justify-between text-[10px] font-medium text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5 text-(--pen) font-semibold">
+                  <Activity className="w-3.5 h-3.5 text-(--pen) animate-pulse" />
+                  Autonomous Agentic Loop Trace ({result.progressTrace.length} steps)
+                </span>
+                {showTrace ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+
+              {showTrace && (
+                <div className="p-2 space-y-2">
+                  {/* Phase Filter Chips */}
+                  <div className="flex items-center gap-1 flex-wrap pb-1 border-b border-(--rule)">
+                    {(["all", "act", "inspect", "verify", "correct"] as const).map((filter) => {
+                      const count =
+                        filter === "all"
+                          ? result.progressTrace?.length
+                          : result.progressTrace?.filter((s) => s.phase === filter).length;
+                      return (
+                        <button
+                          key={filter}
+                          onClick={() => setTraceFilter(filter)}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer transition-colors ${
+                            traceFilter === filter
+                              ? "bg-(--pen) text-(--ink-app) font-semibold"
+                              : "bg-(--ink-panel) text-(--fg-muted) hover:text-(--fg-primary)"
+                          }`}
+                        >
+                          {filter.toUpperCase()} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Steps Timeline */}
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                    {result.progressTrace
+                      .filter((s) => traceFilter === "all" || s.phase === traceFilter)
+                      .map((step, idx) => {
+                        const phaseColors: Record<string, string> = {
+                          observe: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+                          reason: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+                          act: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+                          inspect: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+                          correct: "bg-rose-500/10 text-rose-400 border-rose-500/20",
+                          verify: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                        };
+
+                        return (
+                          <div
+                            key={idx}
+                            className="p-1.5 rounded bg-(--ink-panel) border border-(--rule) space-y-1 text-[9.5px]"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[8.5px] font-mono px-1 rounded bg-(--ink-app) text-(--fg-muted)">
+                                  Turn {step.iteration}
+                                </span>
+                                <span
+                                  className={`text-[8.5px] font-mono px-1.5 py-0.2 rounded border font-semibold uppercase ${
+                                    phaseColors[step.phase] || "bg-gray-500/10 text-gray-400"
+                                  }`}
+                                >
+                                  {step.phase}
+                                </span>
+                              </div>
+                              {step.toolResult && (
+                                <span
+                                  className={`text-[8.5px] font-mono px-1 rounded ${
+                                    step.toolResult.success
+                                      ? "text-emerald-400 bg-emerald-500/10"
+                                      : "text-rose-400 bg-rose-500/10"
+                                  }`}
+                                >
+                                  {step.toolResult.success ? "✓ Executed" : "✗ Error"}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Observation / Thought Text */}
+                            {step.observation && (
+                              <div className="text-(--fg-muted) font-mono leading-tight pl-1 border-l-2 border-sky-500/30">
+                                {step.observation}
+                              </div>
+                            )}
+                            {step.thought && (
+                              <div className="text-(--fg-primary) italic pl-1 border-l-2 border-purple-500/40">
+                                {step.thought}
+                              </div>
+                            )}
+
+                            {/* Tool Call Representation */}
+                            {step.toolCall && (
+                              <div className="font-mono text-[9px] text-(--pen) bg-(--ink-app) p-1 rounded border border-(--rule)">
+                                <span className="font-semibold">{step.toolCall.tool}</span>(
+                                {Object.entries(step.toolCall.args)
+                                  .slice(0, 3)
+                                  .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+                                  .join(", ")}
+                                {Object.keys(step.toolCall.args).length > 3 ? ", …" : ""})
+                              </div>
+                            )}
+
+                            {/* Verification Chip & Itemized Checks */}
+                            {step.verification && (
+                              <div className="mt-1 p-1.5 rounded bg-(--ink-app) border border-(--rule) space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-semibold text-(--fg-primary) flex items-center gap-1">
+                                    {step.verification.passed ? (
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                    )}
+                                    Goal Verification
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded font-mono text-[8.5px] font-semibold ${
+                                      step.verification.passed
+                                        ? "text-emerald-400 bg-emerald-500/10"
+                                        : "text-rose-400 bg-rose-500/10"
+                                    }`}
+                                  >
+                                    {step.verification.passed ? "ALL GOALS PASSED" : "UNSATISFIED"}
+                                  </span>
+                                </div>
+                                <div className="text-(--fg-muted) text-[9px]">
+                                  {step.verification.message}
+                                </div>
+                                {step.verification.checks && step.verification.checks.length > 0 && (
+                                  <div className="space-y-0.5 pt-0.5 border-t border-(--rule)">
+                                    {step.verification.checks.map((chk: any, cIdx: number) => (
+                                      <div
+                                        key={cIdx}
+                                        className="flex items-center justify-between font-mono text-[8.5px]"
+                                      >
+                                        <span className="truncate">{chk.name}</span>
+                                        <span
+                                          className={
+                                            chk.status === "PASS"
+                                              ? "text-emerald-400"
+                                              : "text-rose-400 font-semibold"
+                                          }
+                                        >
+                                          {chk.status}: {String(chk.actual)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

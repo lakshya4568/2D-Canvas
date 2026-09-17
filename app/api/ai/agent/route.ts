@@ -47,6 +47,70 @@ export async function POST(request: Request) {
     );
   }
 
+  const wantsStream =
+    (body as any).stream === true ||
+    request.headers.get("accept") === "text/event-stream";
+
+  if (wantsStream) {
+    const encoder = new TextEncoder();
+    const customStream = new ReadableStream({
+      async start(controller) {
+        try {
+          const result = await agent.execute({
+            prompt,
+            image: body.image,
+            modelOverride: body.modelOverride,
+            activeParameters: body.activeParameters,
+            operations: body.operations,
+            onProgress: (step) => {
+              const payload = JSON.stringify({ type: "step", step });
+              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+            },
+          });
+
+          const finalPayload = JSON.stringify({
+            type: "result",
+            result: {
+              success: true,
+              prompt: result.prompt,
+              routerDecision: result.routerDecision,
+              plan: result.plan,
+              toolResults: result.toolResults,
+              sceneGraph: result.sceneGraph,
+              shapes: result.shapes,
+              dxf: result.dxf,
+              svg: result.svg,
+              previewPng: result.previewPng,
+              logs: result.logs,
+              progressTrace: result.progressTrace,
+              response: result.response,
+              explanation: result.explanation,
+              thinking: result.thinking,
+              executionTimeMs: result.executionTimeMs,
+            },
+          });
+          controller.enqueue(encoder.encode(`data: ${finalPayload}\n\n`));
+          controller.close();
+        } catch (err: any) {
+          const errPayload = JSON.stringify({
+            type: "error",
+            error: err?.message || String(err),
+          });
+          controller.enqueue(encoder.encode(`data: ${errPayload}\n\n`));
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(customStream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
+  }
+
   try {
     const result = await agent.execute({
       prompt,
@@ -68,6 +132,7 @@ export async function POST(request: Request) {
       svg: result.svg,
       previewPng: result.previewPng,
       logs: result.logs,
+      progressTrace: result.progressTrace,
       response: result.response,
       explanation: result.explanation,
       thinking: result.thinking,
