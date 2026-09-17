@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aagento.cad/schemas/gad-model.schema.json",
+  "title": "GADModel",
+  "description": "Canonical data model for civil General Arrangement Drawings (GAD) with parametric constraints and views",
+  "type": "object",
+  "required": [
+    "id",
+    "project",
+    "views",
+    "parameters",
+    "constraints",
+    "entities",
+    "formulas"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "project": {
+      "type": "object",
+      "required": ["name", "type", "units"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": {
+          "enum": ["bridge", "culvert", "building", "foundation", "road", "retaining_wall", "other"]
+        },
+        "units": {
+          "enum": ["mm", "m"]
+        },
+        "standardsReference": {
+          "type": "string",
+          "default": "IRC:SP:13 / IRC:112 / IS 456"
+        }
+      }
+    },
+    "views": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "sheet_index", "transform"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": {
+            "enum": ["plan", "elevation", "cross_section", "longitudinal_section", "detail"]
+          },
+          "sheet_index": { "type": "integer", "default": 0 },
+          "bbox_pixels": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "transform": {
+            "type": "object",
+            "required": ["pixel_to_world", "world_origin", "scale"],
+            "properties": {
+              "pixel_to_world": {
+                "type": "array",
+                "items": { "type": "number" }
+              },
+              "world_origin": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "scale": { "type": "number", "default": 1.0 }
+            }
+          },
+          "entities": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "value", "unit", "kind"],
+        "properties": {
+          "name": { "type": "string" },
+          "value": { "type": "number" },
+          "unit": { "enum": ["mm", "m", "deg", "rad", "count", "ratio"] },
+          "kind": { "enum": ["scalar", "vector", "enum"] },
+          "role": { "enum": ["DRIVING", "DERIVED", "FIXED", "MEASURED"], "default": "DRIVING" },
+          "minValue": { "type": "number" },
+          "maxValue": { "type": "number" },
+          "expr": { "type": "string" },
+          "description": { "type": "string" },
+          "source": {
+            "type": "object",
+            "properties": {
+              "entity_id": { "type": "string" },
+              "text": { "type": "string" },
+              "confidence": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "entities"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": {
+            "enum": [
+              "distance",
+              "coincident",
+              "parallel",
+              "perpendicular",
+              "aligned_to_grid",
+              "equal",
+              "symmetry",
+              "rigid_anchor",
+              "horizontal",
+              "vertical"
+            ]
+          },
+          "entities": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "distance": { "type": "number" },
+              "angle": { "type": "number" },
+              "ref": { "type": "string" }
+            }
+          },
+          "status": {
+            "enum": ["active", "violated", "redundant", "suppressed"],
+            "default": "active"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "entity_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "geom"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": {
+            "enum": [
+              "GridLine",
+              "Column",
+              "Beam",
+              "Slab",
+              "Foundation",
+              "Pier",
+              "Abutment",
+              "CulvertBarrel",
+              "Haunch",
+              "Cushion",
+              "WingWall",
+              "TextNote",
+              "Dimension",
+              "GenericShape"
+            ]
+          },
+          "view_id": { "type": "string" },
+          "geom": {
+            "type": "object",
+            "required": ["kind", "coords"],
+            "properties": {
+              "kind": { "enum": ["Point", "Line", "Polyline", "Rectangle", "Circle", "Arc", "Region"] },
+              "coords": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            }
+          },
+          "params": {
+            "type": "object"
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "level": { "type": "string" },
+              "material": { "type": "string" },
+              "role": { "type": "string" }
+            }
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "sheet_index": { "type": "integer" },
+              "bbox_pixels": { "type": "array", "items": { "type": "number" } },
+              "text_refs": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "formulas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "expression", "depends_on", "defines"],
+        "properties": {
+          "id": { "type": "string" },
+          "expression": { "type": "string" },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "defines": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "domain": { "type": "string" },
+          "source": {
+            "type": "object",
+            "properties": {
+              "doc": { "type": "string" },
+              "section": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "image_file": { "type": "string" },
+        "generated_at": { "type": "string" },
+        "pipeline_version": { "type": "string" }
+      }
+    }
+  }
+}

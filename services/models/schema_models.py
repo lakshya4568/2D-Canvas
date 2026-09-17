@@ -94,3 +94,82 @@ class TemplateDefinitionModel(BaseModel):
     provenance: List[Any]
     repeats: Optional[List[Any]] = None
     components: Optional[List[Any]] = None
+
+# ===========================================================================
+# Civil General Arrangement Drawing (GAD) Models (§56, gad-model.schema.json)
+# ===========================================================================
+
+class GADProjectModel(BaseModel):
+    name: str
+    type: Literal["bridge", "culvert", "building", "foundation", "road", "retaining_wall", "other"]
+    units: Literal["mm", "m"] = "mm"
+    standardsReference: Optional[str] = "IRC:SP:13 / IRC:112 / IS 456"
+
+class GADViewModel(BaseModel):
+    id: str
+    type: Literal["plan", "elevation", "cross_section", "longitudinal_section", "detail"]
+    sheet_index: int = 0
+    bbox_pixels: Optional[List[float]] = None
+    transform: Dict[str, Any] = Field(default_factory=lambda: {
+        "pixel_to_world": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        "world_origin": [0.0, 0.0],
+        "scale": 1.0
+    })
+    entities: List[str] = Field(default_factory=list)
+
+class GADParameterModel(BaseModel):
+    name: str
+    value: float
+    unit: Literal["mm", "m", "deg", "rad", "count", "ratio"] = "mm"
+    kind: Literal["scalar", "vector", "enum"] = "scalar"
+    role: Literal["DRIVING", "DERIVED", "FIXED", "MEASURED"] = "DRIVING"
+    minValue: Optional[float] = None
+    maxValue: Optional[float] = None
+    expr: Optional[str] = None
+    description: Optional[str] = None
+    source: Optional[Dict[str, Any]] = None
+
+class GADConstraintModel(BaseModel):
+    id: str
+    type: Literal[
+        "distance", "coincident", "parallel", "perpendicular",
+        "aligned_to_grid", "equal", "symmetry", "rigid_anchor",
+        "horizontal", "vertical"
+    ]
+    entities: List[str]
+    params: Optional[Dict[str, Any]] = None
+    status: Literal["active", "violated", "redundant", "suppressed"] = "active"
+    source: Optional[Dict[str, Any]] = None
+
+class GADEntityModel(BaseModel):
+    id: str
+    type: Literal[
+        "GridLine", "Column", "Beam", "Slab", "Foundation", "Pier",
+        "Abutment", "CulvertBarrel", "Haunch", "Cushion", "WingWall",
+        "TextNote", "Dimension", "GenericShape"
+    ]
+    view_id: Optional[str] = None
+    geom: Dict[str, Any]  # {"kind": "Line"|"Rectangle"|..., "coords": [[x, y], ...]}
+    params: Optional[Dict[str, Any]] = None
+    tags: Optional[List[str]] = None
+    meta: Optional[Dict[str, Any]] = None
+    source: Optional[Dict[str, Any]] = None
+
+class GADFormulaModel(BaseModel):
+    id: str
+    expression: str
+    depends_on: List[str]
+    defines: List[str]
+    domain: Optional[str] = None
+    source: Optional[Dict[str, Any]] = None
+
+class GADModel(BaseModel):
+    id: str
+    project: GADProjectModel
+    views: List[GADViewModel] = Field(default_factory=list)
+    parameters: Dict[str, GADParameterModel] = Field(default_factory=dict)
+    constraints: List[GADConstraintModel] = Field(default_factory=list)
+    entities: List[GADEntityModel] = Field(default_factory=list)
+    formulas: List[GADFormulaModel] = Field(default_factory=list)
+    provenance: Optional[Dict[str, Any]] = None
+
