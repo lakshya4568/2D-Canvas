@@ -31,6 +31,7 @@ import {
   Sliders,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
+import { useUpce } from "../parametric/upceContext";
 import type { Shape } from "@/lib/geometry/types";
 
 interface ModelInfo {
@@ -207,7 +208,11 @@ export function CadAgentPanel() {
   const [showBoq, setShowBoq] = useState(false);
   const [showTrace, setShowTrace] = useState(true);
   const [showParams, setShowParams] = useState(true);
+  const [autoPublishOnVerify, setAutoPublishOnVerify] = useState(false);
+  const [publishedNotice, setPublishedNotice] = useState<string | null>(null);
   const [traceFilter, setTraceFilter] = useState<"all" | "act" | "inspect" | "verify" | "correct">("all");
+
+  const { adoptAndPublishAgentDrawing } = useUpce();
 
   // Load available models on mount
   useEffect(() => {
@@ -308,6 +313,9 @@ export function CadAgentPanel() {
                   setResult(event.result);
                   if (event.result.shapes && event.result.shapes.length > 0) {
                     dispatch({ type: "LOAD_SHAPES", shapes: event.result.shapes });
+                    if (autoPublishOnVerify && event.result.sceneGraph) {
+                      adoptAndPublishAgentDrawing(event.result.sceneGraph, event.result.shapes, { autoPublish: true });
+                    }
                   }
                 } else if (event.type === "error") {
                   throw new Error(event.error);
@@ -328,6 +336,9 @@ export function CadAgentPanel() {
         setResult(data);
         if (data.shapes && data.shapes.length > 0) {
           dispatch({ type: "LOAD_SHAPES", shapes: data.shapes });
+          if (autoPublishOnVerify && data.sceneGraph) {
+            adoptAndPublishAgentDrawing(data.sceneGraph, data.shapes, { autoPublish: true });
+          }
         }
       }
     } catch (err: any) {
@@ -335,6 +346,14 @@ export function CadAgentPanel() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleApproveAndPublish = () => {
+    if (!result?.sceneGraph || !result?.shapes) return;
+    adoptAndPublishAgentDrawing(result.sceneGraph, result.shapes, { autoPublish: true });
+    dispatch({ type: "SET_USER_MODE", mode: "user" });
+    setPublishedNotice("Published to Run Mode! Switch to Run tab to adjust parameters.");
+    setTimeout(() => setPublishedNotice(null), 6000);
   };
 
   const handleLoadShapes = () => {
@@ -468,17 +487,34 @@ export function CadAgentPanel() {
           className="w-full resize-none bg-(--ink-panel) border border-(--rule) rounded-[4px] p-2 text-[11px] placeholder:text-(--fg-muted)/60 focus:outline-hidden focus:border-(--pen)"
         />
 
-        {/* Quick Suggestion Chips */}
-        <div className="flex flex-wrap gap-1">
-          {EXAMPLE_PROMPTS.map((ex, idx) => (
-            <button
-              key={idx}
-              onClick={() => setPrompt(ex)}
-              className="text-[9.5px] px-1.5 py-0.5 rounded bg-(--ink-panel) border border-(--rule) text-(--fg-muted) hover:text-(--pen) hover:border-(--pen)/40 transition-colors cursor-pointer truncate max-w-full"
-            >
-              {ex}
-            </button>
-          ))}
+        {/* Quick Suggestion Chips (Default vs Active Adjustment) */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[9px] uppercase font-semibold text-(--fg-muted) tracking-wider">
+            <span>{result ? "Adjust Active Drawing" : "Prompt Presets"}</span>
+            {result && (
+              <span className="text-emerald-400 font-normal capitalize">Active Drawing Active</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(result
+              ? [
+                  "Change wall thickness to 900 mm",
+                  "Make clear span 12000 mm",
+                  "Adjust clear height to 4500 mm",
+                  "Set cushion depth to 3500 mm",
+                  "Add 700 mm corner haunches",
+                ]
+              : EXAMPLE_PROMPTS
+            ).map((ex, idx) => (
+              <button
+                key={idx}
+                onClick={() => setPrompt(ex)}
+                className="text-[9.5px] px-1.5 py-0.5 rounded bg-(--ink-panel) border border-(--rule) text-(--fg-muted) hover:text-(--pen) hover:border-(--pen)/40 transition-colors cursor-pointer truncate max-w-full"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Execution Action */}
@@ -501,7 +537,7 @@ export function CadAgentPanel() {
           ) : (
             <>
               <Play className="w-3 h-3 fill-current" />
-              <span>Generate & Draw on Canvas</span>
+              <span>{result ? "Update & Re-solve Drawing" : "Generate & Draw on Canvas"}</span>
             </>
           )}
         </button>
@@ -612,6 +648,51 @@ export function CadAgentPanel() {
               <div>
                 Bounds: <span className="text-(--fg-primary) font-mono">{result.sceneGraph.bounds.width.toFixed(0)} × {result.sceneGraph.bounds.height.toFixed(0)} mm</span>
               </div>
+            </div>
+          </div>
+
+          {/* Human-in-the-Loop Review & Run Mode Publisher */}
+          <div className="rounded-[6px] border border-(--pen)/40 bg-(--ink-panel) p-2.5 space-y-2.5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-(--fg-primary) flex items-center gap-1.5">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-(--pen)" />
+                Human-in-the-Loop Verification
+              </span>
+              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-(--pen)/10 text-(--pen) font-semibold">
+                SEAL & RUN
+              </span>
+            </div>
+
+            <p className="text-[10px] text-(--fg-muted) leading-relaxed">
+              Verify the drawing on the canvas. If adjustments are needed, enter a follow-up prompt above. When satisfied, publish to <strong>Run Mode</strong> to drive geometry parametrically.
+            </p>
+
+            {publishedNotice && (
+              <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{publishedNotice}</span>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 pt-0.5">
+              <button
+                onClick={handleApproveAndPublish}
+                className="w-full h-[30px] rounded bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                title="Seal this parametric drawing and publish it as an active template in Run Mode"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>✓ Approve & Publish to Run Mode</span>
+              </button>
+
+              <label className="flex items-center gap-2 text-[10px] text-(--fg-muted) cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoPublishOnVerify}
+                  onChange={(e) => setAutoPublishOnVerify(e.target.checked)}
+                  className="rounded border-(--rule) text-(--pen) focus:ring-0 focus:outline-hidden"
+                />
+                <span>Auto-publish to Run Mode once agent loop verifies goal</span>
+              </label>
             </div>
           </div>
 
