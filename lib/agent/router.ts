@@ -162,7 +162,7 @@ export class CadRouter {
 
     // Specific parameter recognition:
     // Span
-    const spanMatch = lower.match(/\bspan\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const spanMatch = lower.match(/\bspan\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (spanMatch) {
       const rawVal = parseFloat(spanMatch[1]);
       const unit = spanMatch[2]?.toLowerCase() || (rawVal < 100 ? "m" : "mm");
@@ -171,7 +171,7 @@ export class CadRouter {
     }
 
     // Height / Clear height
-    const heightMatch = lower.match(/\b(?:clear\s+)?height\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const heightMatch = lower.match(/\b(?:clear\s+)?height\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (heightMatch) {
       const rawVal = parseFloat(heightMatch[1]);
       const unit = heightMatch[2]?.toLowerCase() || (rawVal < 50 ? "m" : "mm");
@@ -180,7 +180,7 @@ export class CadRouter {
     }
 
     // Depth
-    const depthMatch = lower.match(/\b(?:effective\s+)?depth\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const depthMatch = lower.match(/\b(?:effective\s+)?depth\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (depthMatch) {
       const rawVal = parseFloat(depthMatch[1]);
       const unit = depthMatch[2]?.toLowerCase() || (rawVal < 50 ? "m" : "mm");
@@ -189,7 +189,7 @@ export class CadRouter {
     }
 
     // Width
-    const widthMatch = lower.match(/\bwidth\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const widthMatch = lower.match(/\bwidth\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (widthMatch) {
       const rawVal = parseFloat(widthMatch[1]);
       const unit = widthMatch[2]?.toLowerCase() || (rawVal < 50 ? "m" : "mm");
@@ -198,7 +198,7 @@ export class CadRouter {
     }
 
     // Radius
-    const radiusMatch = lower.match(/\bradius\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const radiusMatch = lower.match(/\bradius\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (radiusMatch) {
       const rawVal = parseFloat(radiusMatch[1]);
       const unit = radiusMatch[2]?.toLowerCase() || "mm";
@@ -207,7 +207,7 @@ export class CadRouter {
     }
 
     // Haunch
-    const haunchMatch = lower.match(/\bhaunch(?:es)?\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)(?:\s*[xX]\s*(\d+(?:\.\d+)?))?\s*(mm|m)?\b/i);
+    const haunchMatch = lower.match(/\bhaunch(?:es)?\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)(?:\s*[xX]\s*(\d+(?:\.\d+)?))?\s*(mm|m)?\b/i);
     if (haunchMatch) {
       const rawVal = parseFloat(haunchMatch[1]);
       const unit = haunchMatch[3]?.toLowerCase() || (rawVal < 10 ? "m" : "mm");
@@ -216,7 +216,7 @@ export class CadRouter {
     }
 
     // Wall thickness
-    const wallMatch = lower.match(/\b(?:outer\s+)?wall(?:s)?(?:\s+thickness|\s+thk)?\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const wallMatch = lower.match(/\b(?:outer\s+)?wall(?:s)?(?:\s+thickness|\s+thk)?\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (wallMatch) {
       const rawVal = parseFloat(wallMatch[1]);
       const unit = wallMatch[2]?.toLowerCase() || (rawVal < 10 ? "m" : "mm");
@@ -225,7 +225,7 @@ export class CadRouter {
     }
 
     // Slab thickness
-    const slabMatch = lower.match(/\b(?:top\s+|deck\s+)?slab(?:s)?(?:\s+thickness|\s+thk)?\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const slabMatch = lower.match(/\b(?:top\s+|deck\s+)?slab(?:s)?(?:\s+thickness|\s+thk)?\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (slabMatch) {
       const rawVal = parseFloat(slabMatch[1]);
       const unit = slabMatch[2]?.toLowerCase() || (rawVal < 10 ? "m" : "mm");
@@ -234,7 +234,7 @@ export class CadRouter {
     }
 
     // Cushion
-    const cushionMatch = lower.match(/\bcushion\s*(?:thickness|thk)?\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
+    const cushionMatch = lower.match(/\bcushion\s*(?:depth|thickness|thk)?\s*(?:of|=|:|to)?\s*(\d+(?:\.\d+)?)\s*(m|mm|cm)?\b/i);
     if (cushionMatch) {
       const rawVal = parseFloat(cushionMatch[1]);
       const unit = cushionMatch[2]?.toLowerCase() || (rawVal < 20 ? "m" : "mm");

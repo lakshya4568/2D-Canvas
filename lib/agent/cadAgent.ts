@@ -193,6 +193,33 @@ export class CadAgent {
     if (routerDecision.intent === "dimension" && this.activePlan && plan.steps.length > 0) {
       this.activePlan.steps.push(...plan.steps);
       plan = this.activePlan;
+    } else if (routerDecision.intent === "modify" && this.activePlan) {
+      // Iterative parameter modification on active plan
+      for (const p of plan.parameters) {
+        const existing = this.activePlan.parameters.find((ep) => ep.name === p.name);
+        if (existing) {
+          existing.value = p.value;
+        } else {
+          this.activePlan.parameters.push(p);
+        }
+        const step = this.activePlan.steps.find(
+          (s) =>
+            (s.tool === "create_parameter" || s.tool === "define_parameter") &&
+            ((s.args as any).name === p.name || (s.args as any).paramName === p.name)
+        );
+        if (step) {
+          (step.args as any).value = p.value;
+        }
+      }
+      for (const s of this.activePlan.steps) {
+        if (s.tool === "add_dimension") {
+          const dArgs = s.args as any;
+          if (dArgs.expression) {
+            dArgs.text = undefined;
+          }
+        }
+      }
+      plan = this.activePlan;
     } else if (routerDecision.intent !== "query" && routerDecision.intent !== "explain") {
       this.activePlan = plan;
     }
@@ -416,6 +443,14 @@ export class CadAgent {
     return this.activeSceneGraph;
   }
 
+  public getLastShapes(): Shape[] {
+    return this.lastShapes || [];
+  }
+
+  public getActivePlan(): Plan | undefined {
+    return this.activePlan;
+  }
+
   /**
    * Generates structural and code-compliance explanations under IRC:112, IRC:SP:13, and IS 456.
    */
@@ -580,11 +615,20 @@ export class CadAgent {
           "- VERIFY: Call verify_goal to verify all design goals.\n" +
           "- COMPLETE: Call complete_drawing with status GOAL_SATISFIED.";
 
+        const activeContext =
+          this.activeSceneGraph && Object.keys(this.activeSceneGraph.parameters || {}).length > 0
+            ? `\n\n[Active Canvas State]: An active drawing exists with ${this.activeSceneGraph.nodes.length} entities. Active parameters: ${JSON.stringify(
+                Object.fromEntries(
+                  Object.entries(this.activeSceneGraph.parameters).map(([k, v]) => [k, v.value])
+                )
+              )}. If the user prompt is an adjustment or modification to an existing drawing, modify/update that parameter or feature rather than drawing from scratch.`
+            : "";
+
         const messages: ModelMessage[] = [
           { role: "system", content: systemPrompt },
           {
             role: "user",
-            content: request.prompt || "Generate 2D CAD drawing",
+            content: (request.prompt || "Generate 2D CAD drawing") + activeContext,
             images: request.image?.base64
               ? [{ data: request.image.base64, mimeType: request.image.mimeType || "image/png" }]
               : undefined,
