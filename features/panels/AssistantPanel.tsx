@@ -419,18 +419,25 @@ export function AssistantPanel() {
         />
       </div>
 
-      {mode === "agent" ? (
+      <div className={mode === "agent" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
         <DrafterPanel />
-      ) : !configured ? (
+      </div>
+
+      {!configured && mode !== "agent" ? (
         <div className="m-3 rounded-[6px] border border-dashed border-(--rule) px-2.5 py-2">
           <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
             {advisorStatus?.detail ?? "Checking…"}
           </p>
         </div>
-      ) : mode === "ask" ? (
-        <AskPane />
       ) : (
-        <ReviewPane hint={hint} setHint={setHint} />
+        <>
+          <div className={mode === "ask" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+            <AskPane />
+          </div>
+          <div className={mode === "review" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+            <ReviewPane hint={hint} setHint={setHint} />
+          </div>
+        </>
       )}
     </div>
   );

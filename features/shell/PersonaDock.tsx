@@ -8,6 +8,7 @@ import { AuthorPanel } from "../panels/AuthorPanel";
 import { RunPanel } from "../panels/RunPanel";
 import { PropertiesPalette } from "../panels/PropertiesPalette";
 import { AssistantPanel } from "../panels/AssistantPanel";
+import { useAgentPreview } from "../agent/agentPreview";
 
 /**
  * The right dock. Supports both AutoCAD Properties Inspector and UPCE Persona Views.
@@ -43,16 +44,23 @@ export function PersonaDock({
   onToggleCollapse: () => void;
 }) {
   const { state } = useDrawing();
+  const agentPreview = useAgentPreview();
   const [activeTab, setActiveTab] = React.useState<"properties" | "parametric" | "assistant">(
     "parametric"
   );
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
+  const prevUserMode = React.useRef(state.userMode);
 
   React.useEffect(() => {
-    setActiveTab("parametric");
-  }, [state.userMode]);
-
+    if (prevUserMode.current !== state.userMode) {
+      prevUserMode.current = state.userMode;
+      // Do not yank the user away from CAD Agent if the agent is actively drawing
+      if (!agentPreview?.running) {
+        setActiveTab("parametric");
+      }
+    }
+  }, [state.userMode, agentPreview?.running]);
 
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -72,91 +80,91 @@ export function PersonaDock({
     };
   }, [onWidthChange]);
 
-  if (collapsed) {
-    return (
-      <button
-        onClick={onToggleCollapse}
-        title="Show panel"
-        aria-label="Show panel"
-        className="absolute top-2 right-2 z-20 w-[28px] h-[28px] rounded-[5px] grid place-items-center bg-(--ink-panel) border border-(--rule) text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
-      >
-        <PanelRightOpen className="w-[14px] h-[14px]" strokeWidth={1.9} />
-      </button>
-    );
-  }
-
   return (
-    <aside
-      style={{ width }}
-      className="shrink-0 h-full bg-(--ink-panel) border-l border-(--rule) flex flex-col relative z-20 shadow-lg"
-    >
-      {/* Drag handle */}
-      <div
-        onMouseDown={() => {
-          draggingRef.current = true;
-          document.body.style.cursor = "col-resize";
-        }}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize panel"
-        className="absolute left-[-3px] top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-(--pen-line) transition-colors duration-100 z-10"
-      />
+    <>
+      {collapsed && (
+        <button
+          onClick={onToggleCollapse}
+          title="Show panel"
+          aria-label="Show panel"
+          className="absolute top-2 right-2 z-20 w-[28px] h-[28px] rounded-[5px] grid place-items-center bg-(--ink-panel) border border-(--rule) text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
+        >
+          <PanelRightOpen className="w-[14px] h-[14px]" strokeWidth={1.9} />
+        </button>
+      )}
 
-      {/* Dock Mode Tabs: AutoCAD Properties vs Parametric Intent */}
-      <div className="h-[30px] border-b border-(--rule) bg-(--ink-app)/60 flex items-center justify-between px-2 text-[11px]">
-        <div className="flex items-center gap-1">
+      <aside
+        style={{ width: collapsed ? 0 : width, display: collapsed ? "none" : undefined }}
+        className="shrink-0 h-full bg-(--ink-panel) border-l border-(--rule) flex flex-col relative z-20 shadow-lg"
+      >
+        {/* Drag handle */}
+        <div
+          onMouseDown={() => {
+            draggingRef.current = true;
+            document.body.style.cursor = "col-resize";
+          }}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize panel"
+          className="absolute left-[-3px] top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-(--pen-line) transition-colors duration-100 z-10"
+        />
+
+        {/* Dock Mode Tabs: AutoCAD Properties vs Parametric Intent */}
+        <div className="h-[30px] border-b border-(--rule) bg-(--ink-app)/60 flex items-center justify-between px-2 text-[11px]">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setActiveTab("properties")}
+              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                activeTab === "properties"
+                  ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
+                  : "text-(--fg-muted) hover:text-(--fg-primary)"
+              }`}
+            >
+              Properties
+            </button>
+            <button
+              onClick={() => setActiveTab("parametric")}
+              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                activeTab === "parametric"
+                  ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
+                  : "text-(--fg-muted) hover:text-(--fg-primary)"
+              }`}
+            >
+              {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
+            </button>
+            {/* The assistant is not a step in the authoring sequence — you ask it
+                when you are stuck, at any point — so it gets a tab rather than a
+                place in the column. It also keeps its long answers from pushing
+                everything else off the screen. */}
+            <button
+              onClick={() => setActiveTab("assistant")}
+              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                activeTab === "assistant"
+                  ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
+                  : "text-(--fg-muted) hover:text-(--fg-primary)"
+              }`}
+            >
+              CAD Agent
+            </button>
+          </div>
+
           <button
-            onClick={() => setActiveTab("properties")}
-            className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
-              activeTab === "properties"
-                ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
-                : "text-(--fg-muted) hover:text-(--fg-primary)"
-            }`}
+            onClick={onToggleCollapse}
+            title="Hide panel"
+            aria-label="Hide panel"
+            className="w-[22px] h-[22px] rounded grid place-items-center text-(--fg-muted) hover:bg-(--ink-raised) hover:text-(--fg-primary) shrink-0 cursor-pointer"
           >
-            Properties
-          </button>
-          <button
-            onClick={() => setActiveTab("parametric")}
-            className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
-              activeTab === "parametric"
-                ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
-                : "text-(--fg-muted) hover:text-(--fg-primary)"
-            }`}
-          >
-            {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
-          </button>
-          {/* The assistant is not a step in the authoring sequence — you ask it
-              when you are stuck, at any point — so it gets a tab rather than a
-              place in the column. It also keeps its long answers from pushing
-              everything else off the screen. */}
-          <button
-            onClick={() => setActiveTab("assistant")}
-            className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
-              activeTab === "assistant"
-                ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
-                : "text-(--fg-muted) hover:text-(--fg-primary)"
-            }`}
-          >
-            CAD Agent
+            <PanelRightClose className="w-[13px] h-[13px]" strokeWidth={1.9} />
           </button>
         </div>
 
-        <button
-          onClick={onToggleCollapse}
-          title="Hide panel"
-          aria-label="Hide panel"
-          className="w-[22px] h-[22px] rounded grid place-items-center text-(--fg-muted) hover:bg-(--ink-raised) hover:text-(--fg-primary) shrink-0 cursor-pointer"
-        >
-          <PanelRightClose className="w-[13px] h-[13px]" strokeWidth={1.9} />
-        </button>
-      </div>
-
-      {activeTab === "assistant" ? (
-        <AssistantPanel />
-      ) : activeTab === "properties" ? (
-        <PropertiesPalette />
-      ) : (
-        <>
+        <div className={activeTab === "assistant" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+          <AssistantPanel />
+        </div>
+        <div className={activeTab === "properties" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+          <PropertiesPalette />
+        </div>
+        <div className={activeTab === "parametric" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
           <div className="px-3.5 pt-2.5 pb-2 border-b border-(--rule)">
             <h2 className="text-[12px] font-semibold text-(--fg-primary)">{heading.title}</h2>
             <p className="text-[10.5px] leading-snug text-(--fg-muted) mt-0.5 max-w-[34ch]">
@@ -164,11 +172,17 @@ export function PersonaDock({
             </p>
           </div>
 
-          {state.userMode === "draftsman" && <DraftPanel />}
-          {state.userMode === "author" && <AuthorPanel />}
-          {state.userMode === "user" && <RunPanel />}
-        </>
-      )}
-    </aside>
+          <div className={state.userMode === "draftsman" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+            <DraftPanel />
+          </div>
+          <div className={state.userMode === "author" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+            <AuthorPanel />
+          </div>
+          <div className={state.userMode === "user" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+            <RunPanel />
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }

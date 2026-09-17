@@ -33,6 +33,7 @@ import { BASE_TOOLS, ToolContext, ToolStage, checkReport, lookReport, macroDecla
 import { DRAFTER_SYSTEM_PROMPT, initialMessage, nudgeMessage } from "./prompt";
 import type { TemplateManifest } from "../../upce/template";
 import type { Shape } from "../../geometry/types";
+import type { AuthoringSketch } from "../../upce/types";
 
 export type DrafterEvent =
   | { type: "start"; model: string; thinkingLevel: string; label: string }
@@ -40,7 +41,7 @@ export type DrafterEvent =
   | { type: "message"; turn: number; text: string }
   | { type: "tool"; turn: number; id: string; name: string; args: Record<string, unknown>; stage: ToolStage }
   | { type: "result"; turn: number; id: string; name: string; ok: boolean; text: string; stage: ToolStage; image?: string }
-  | { type: "snapshot"; shapes: Shape[]; dof: number; values: { name: string; value: number; role: string; unit: string }[] }
+  | { type: "snapshot"; shapes: Shape[]; sketch?: AuthoringSketch; dof: number; values: { name: string; value: number; role: string; unit: string }[] }
   | { type: "retry"; attempt: number; waitSeconds: number; reason: string }
   | { type: "usage"; turn: number; latencyMs: number; promptTokens: number; outputTokens: number; thoughtTokens: number }
   | { type: "sources"; turn: number; sources: { title: string; uri: string }[] }
@@ -93,6 +94,7 @@ function snapshot(ws: DraftingWorkspace): Extract<DrafterEvent, { type: "snapsho
   return {
     type: "snapshot",
     shapes: ws.displayShapes(),
+    sketch: ws.sketch,
     dof: ws.dof().dof,
     values: Object.values(ws.sketch.parameters).map((p) => ({ name: p.name, value: p.value, role: p.role, unit: p.unit })),
   };

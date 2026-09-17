@@ -27,6 +27,7 @@ import { ShapeRenderer } from "./ShapeRenderer";
 import { DraftPreview } from "./DraftPreview";
 import { AgentPreviewLayer } from "./AgentPreviewLayer";
 import { useAgentPreview } from "../agent/agentPreview";
+import { useUpce } from "../parametric/upceContext";
 import { SelectionOverlay, HandleType } from "./SelectionOverlay";
 import { SnapIndicator } from "./SnapIndicator";
 import { ConstraintOverlays } from "./ConstraintOverlays";
@@ -54,6 +55,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
     selectedShapes,
   } = useDrawing();
   const agentPreview = useAgentPreview();
+  const upce = useUpce();
 
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -1314,6 +1316,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       // Undo / Redo
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
+        if ((state.userMode === "user" || state.userMode === "author") && upce.canUndoIntent) {
+          upce.undoIntent();
+          return;
+        }
         dispatch({ type: "UNDO" });
       } else if (
         ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z") ||

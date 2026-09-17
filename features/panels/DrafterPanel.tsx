@@ -304,6 +304,7 @@ export function DrafterPanel() {
   const lastShapes = React.useRef<Map<string, string>>(new Map());
   // What the sheet held before the run, so the run can be taken back whole.
   const before = React.useRef<{ shapes: Shape[]; sketch: AuthoringSketch } | null>(null);
+  const latestSnapshotRef = React.useRef<{ shapes: Shape[]; sketch?: AuthoringSketch } | null>(null);
   const fitted = React.useRef<string>("");
 
   const authored = React.useMemo(() => authoredOnly(state.shapes), [state.shapes]);
@@ -336,8 +337,10 @@ export function DrafterPanel() {
   }, [running]);
 
   React.useEffect(() => () => {
-    abortRef.current?.abort();
-    setAgentPreview(null);
+    if (abortRef.current) {
+      abortRef.current.abort();
+      setAgentPreview(null);
+    }
   }, []);
 
   const chooseModel = (id: string) => {
@@ -415,6 +418,7 @@ export function DrafterPanel() {
           const next = new Map(shapes.map((sh) => [sh.id, JSON.stringify(sh)]));
           const changed = shapes.filter((sh) => lastShapes.current.get(sh.id) !== next.get(sh.id)).map((sh) => sh.id);
           lastShapes.current = next;
+          latestSnapshotRef.current = { shapes, sketch: e.sketch as AuthoringSketch | undefined };
           setAgentPreview({ shapes, lastIds: changed, running: true });
           setValues(e.values as typeof values);
           setDof(e.dof as number);
@@ -445,6 +449,7 @@ export function DrafterPanel() {
     setRunning(true);
     setStartedAt(Date.now());
     lastShapes.current = new Map(authored.map((sh) => [sh.id, JSON.stringify(sh)]));
+    latestSnapshotRef.current = null;
     fitted.current = "";
     before.current = { shapes: authored, sketch: upce.sketch };
     if (hasDrawing) setAgentPreview({ shapes: authored, lastIds: [], running: true });
@@ -498,6 +503,9 @@ export function DrafterPanel() {
       setAgentPreview(null);
       if (finalEvent && mutated.current && finalEvent.state.shapes.length > 0) {
         upce.adoptDrawing(finalEvent.state.shapes, finalEvent.state.sketch);
+        setTimeout(() => dispatch({ type: "ZOOM_EXTENTS" }), 60);
+      } else if (!finalEvent && mutated.current && latestSnapshotRef.current && latestSnapshotRef.current.shapes.length > 0) {
+        upce.adoptDrawing(latestSnapshotRef.current.shapes, latestSnapshotRef.current.sketch ?? upce.sketch);
         setTimeout(() => dispatch({ type: "ZOOM_EXTENTS" }), 60);
       }
       if (!text) setPrompt("");

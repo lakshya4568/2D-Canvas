@@ -18,7 +18,7 @@
  */
 
 import React from "react";
-import { SlidersHorizontal, Lock, TriangleAlert, ShieldCheck } from "lucide-react";
+import { SlidersHorizontal, Lock, TriangleAlert, ShieldCheck, Undo2, X } from "lucide-react";
 import { useUpce } from "../parametric/upceContext";
 import { PanelBody, Empty } from "./DraftPanel";
 import type { ManifestEntry } from "@/lib/upce/template";
@@ -48,7 +48,7 @@ function advisoryFor(entry: ManifestEntry): string | undefined {
 const shown = (v: number) => String(Number(v.toFixed(4)));
 
 function Field({ entry }: { entry: ManifestEntry }) {
-  const { setParameterValue } = useUpce();
+  const { setParameterValue, dismissNotice } = useUpce();
   const [draft, setDraft] = React.useState(shown(entry.value));
   const [focused, setFocused] = React.useState(false);
   const advisory = advisoryFor(entry);
@@ -76,15 +76,30 @@ function Field({ entry }: { entry: ManifestEntry }) {
             onBlur={() => {
               setFocused(false);
               const v = Number(draft);
-              if (Number.isFinite(v) && draft !== shown(entry.value)) setParameterValue(entry.name, v);
-              else setDraft(shown(entry.value));
+              if (Number.isFinite(v) && draft !== shown(entry.value)) {
+                const ok = setParameterValue(entry.name, v);
+                if (!ok) {
+                  // Solver rejected the change; revert input to valid model value
+                  setDraft(shown(entry.value));
+                }
+              } else {
+                setDraft(shown(entry.value));
+              }
             }}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               if (e.key === "Escape") {
                 setDraft(shown(entry.value));
+                dismissNotice();
                 e.currentTarget.blur();
+              }
+              if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+                if (draft !== shown(entry.value)) {
+                  e.preventDefault();
+                  setDraft(shown(entry.value));
+                  dismissNotice();
+                }
               }
             }}
             className={[
@@ -119,7 +134,7 @@ function Field({ entry }: { entry: ManifestEntry }) {
 }
 
 export function RunPanel() {
-  const { manifest, invariants, notice } = useUpce();
+  const { manifest, invariants, notice, dismissNotice, undoIntent, canUndoIntent } = useUpce();
 
   if (!manifest) {
     return (
@@ -144,17 +159,60 @@ export function RunPanel() {
 
   return (
     <PanelBody>
-      <div>
-        <p className="text-[12px] font-medium text-(--fg-primary)">{manifest.name}</p>
-        <p className="text-[10.5px] text-(--fg-muted)">
-          version {manifest.version} · {manifest.driving.length} value
-          {manifest.driving.length === 1 ? "" : "s"} you can change
-        </p>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[12px] font-medium text-(--fg-primary)">{manifest.name}</p>
+          <p className="text-[10.5px] text-(--fg-muted)">
+            version {manifest.version} · {manifest.driving.length} value
+            {manifest.driving.length === 1 ? "" : "s"} you can change
+          </p>
+        </div>
+        {canUndoIntent && (
+          <button
+            onClick={undoIntent}
+            title="Undo last parameter change"
+            aria-label="Undo last parameter change"
+            className="h-[24px] px-2 rounded-[5px] border border-(--rule) text-[11px] text-(--fg-secondary) hover:text-(--fg-primary) hover:bg-(--ink-raised) inline-flex items-center gap-1 cursor-pointer shrink-0"
+          >
+            <Undo2 className="w-[12px] h-[12px]" strokeWidth={2} />
+            Undo
+          </button>
+        )}
       </div>
 
       {notice?.kind === "error" && (
-        <div className="rounded-[6px] border border-(--crit) bg-(--crit-soft) px-2.5 py-2">
-          <p className="text-[11px] leading-[1.5] text-(--crit)">{notice.text}</p>
+        <div className="rounded-[6px] border border-(--crit) bg-(--crit-soft) p-2.5 flex flex-col gap-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-1.5 min-w-0">
+              <TriangleAlert className="w-[14px] h-[14px] mt-0.5 text-(--crit) shrink-0" strokeWidth={2.2} />
+              <p className="text-[11px] leading-[1.5] text-(--crit)">{notice.text}</p>
+            </div>
+            <button
+              onClick={dismissNotice}
+              title="Dismiss notification"
+              aria-label="Dismiss notification"
+              className="w-[18px] h-[18px] rounded grid place-items-center text-(--crit) hover:bg-(--crit)/10 shrink-0 cursor-pointer"
+            >
+              <X className="w-[12px] h-[12px]" strokeWidth={2.2} />
+            </button>
+          </div>
+          <div className="flex items-center gap-2 justify-end">
+            {canUndoIntent && (
+              <button
+                onClick={undoIntent}
+                className="h-[22px] px-2 rounded-[4px] border border-(--crit)/30 text-[10.5px] text-(--crit) hover:bg-(--crit)/10 inline-flex items-center gap-1 cursor-pointer font-medium"
+              >
+                <Undo2 className="w-[10px] h-[10px]" strokeWidth={2.2} />
+                Undo last change
+              </button>
+            )}
+            <button
+              onClick={dismissNotice}
+              className="h-[22px] px-2 rounded-[4px] bg-(--crit)/15 text-[10.5px] text-(--crit) hover:bg-(--crit)/25 inline-flex items-center gap-1 cursor-pointer font-medium"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 

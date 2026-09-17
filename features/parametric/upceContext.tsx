@@ -170,7 +170,7 @@ interface UpceContextValue extends UpceState {
   refreshDerived: () => void;
   acceptDerivedCandidate: (id: string) => void;
   rejectDerivedCandidate: (id: string) => void;
-  setParameterValue: (name: string, value: number) => void;
+  setParameterValue: (name: string, value: number) => boolean;
   updateParameter: (name: string, patch: Partial<SketchParameter>) => void;
   renameParameter: (from: string, to: string) => void;
   createDerivedParameter: (name: string, expr: string) => void;
@@ -549,9 +549,9 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setParameterValue = React.useCallback(
-    (name: string, value: number) => {
+    (name: string, value: number): boolean => {
       const p = s.sketch.parameters[name];
-      if (!p) return;
+      if (!p) return false;
 
       // A derived value is still a number on the drawing, and usually the one
       // the brief specifies. Typing into it used to do nothing, because it is
@@ -563,10 +563,10 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
         const report = inversionOptions(s.sketch, name, value);
         if (report.refused) {
           push({ notice: { kind: "warn", text: report.refused } });
-          return;
+          return false;
         }
         setS((prev) => ({ ...prev, inversion: report }));
-        return;
+        return true;
       }
 
       // Bounds are advisory, not a gate. §26: a value outside a standards range
@@ -578,8 +578,7 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
         ...s.sketch,
         parameters: { ...s.sketch.parameters, [name]: { ...p, value } },
       };
-      commit(next, `${name} = ${value}`, before);
-
+      return commit(next, `${name} = ${value}`, before);
     },
     [s.sketch, commit, push]
   );
