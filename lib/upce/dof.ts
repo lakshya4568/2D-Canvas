@@ -334,6 +334,47 @@ export function countDof(sketch: AuthoringSketch): number {
 }
 
 /**
+ * The part of the remaining freedom that moves anything other than construction
+ * geometry.
+ *
+ * A centreline or a level line is drawn to be referred to, and its own length
+ * and its slide along itself are freedoms nobody means to pin: they change no
+ * structure. Counting them made a drawing whose every wall and opening was fully
+ * held report "2 degrees of freedom remain" and fail its publish check.
+ *
+ * The null space splits cleanly. Its part that leaves every structural
+ * coordinate still is the null space of the columns that belong to construction
+ * points alone, of dimension n_c - rank(J_c); whatever is left over moves
+ * structure. A rule that ties structure to a construction line keeps that
+ * motion in the structural count, because then the line cannot move alone.
+ */
+export function structuralDof(sketch: AuthoringSketch): number {
+  const total = countDof(sketch);
+  if (total === 0) return 0;
+  const sys = buildSystem(sketch);
+  if (condensationFor(sketch, sys)) return total;
+
+  const constructionShapes = new Set<string>();
+  const structuralShapes = new Set<string>();
+  for (const seg of Object.values(sketch.segments)) {
+    (seg.construction ? constructionShapes : structuralShapes).add(seg.shapeId);
+  }
+  const cols: number[] = [];
+  sys.ids.forEach((id, i) => {
+    const p = sketch.points[id];
+    if (p && p.owners.length > 0 && p.owners.every((o) => constructionShapes.has(o) && !structuralShapes.has(o))) {
+      cols.push(2 * i, 2 * i + 1);
+    }
+  });
+  if (cols.length === 0) return total;
+
+  const { jacobian } = evaluateSystem(sketch, sys, sys.X);
+  const Jc = jacobian.map((row) => cols.map((c) => row[c]));
+  const constructionOnly = cols.length - rankOf(Jc, cols.length, 1e-9);
+  return Math.max(0, total - constructionOnly);
+}
+
+/**
  * Whether a profile can still change SHAPE, as opposed to change place.
  *
  * This is the question behind the failure the notebook keeps returning to:

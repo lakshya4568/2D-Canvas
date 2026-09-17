@@ -25,6 +25,8 @@ import {
   targetOf,
   isActive,
   rowCount,
+  isAngularRow,
+  leverArm,
 } from "./residuals";
 import { refreshParameters } from "./parameters";
 import { RigidCondensation } from "../geometry/lcs/componentFrame";
@@ -210,7 +212,9 @@ export function checkInvariants(
     if (!isActive(c)) continue;
     if (c.strength === "soft") continue; // soft rules may be relaxed; not invariants
     const { residuals } = evaluateSystem(sketch, { ...sys, active: [c], rowOwners: [] }, sys.X);
-    const err = residuals.reduce((m, r) => Math.max(m, Math.abs(r)), 0);
+    // Angular rows are pure numbers; judge them by how far the edge end strays.
+    const lever = isAngularRow(c.kind) ? leverArm(sketch, c, sys.X, sys.index) : 1;
+    const err = residuals.reduce((m, r) => Math.max(m, Math.abs(r) * lever), 0);
     const expected = targetOf(c, sketch);
     out.push({
       label: c.label,
@@ -268,10 +272,39 @@ function solveWithHomotopy(
    * had to be rewritten to benefit, which is the whole reason the condensation
    * sits here rather than inside each constraint.
    */
+  const extent = drawingExtent(sys);
+  // One unit for every row. A distance residual is millimetres; an angular one
+  // is a sine, and the single tolerance below is written in millimetres. Scaling
+  // angular rows by the drawing's extent makes them "millimetres at the far
+  // side of the drawing", so the same number is equally strict for both. The
+  // system's roots are unchanged — a row times a constant has the same zeros.
+  const weightsFor = new WeakMap<object, number[]>();
+  const weights = (system: typeof sys): number[] => {
+    let w = weightsFor.get(system.active);
+    if (!w) {
+      w = [];
+      for (const c of system.active) {
+        const n = rowCount(c);
+        for (let r = 0; r < n; r++) w.push(isAngularRow(c.kind) ? extent : 1);
+      }
+      weightsFor.set(system.active, w);
+    }
+    return w;
+  };
+  const weigh = (system: typeof sys, out: { residuals: number[]; jacobian: number[][] }) => {
+    const w = weights(system);
+    for (let r = 0; r < out.residuals.length; r++) {
+      if (w[r] === 1 || w[r] === undefined) continue;
+      out.residuals[r] *= w[r];
+      const row = out.jacobian[r];
+      for (let k = 0; k < row.length; k++) row[k] *= w[r];
+    }
+    return out;
+  };
   const evaluate = (s: AuthoringSketch, system: typeof sys, v: number[]) => {
-    if (!condensation) return evaluateSystem(s, system, v);
+    if (!condensation) return weigh(system, evaluateSystem(s, system, v));
     const X = condensation.expand(v);
-    const { residuals, jacobian } = evaluateSystem(s, system, X);
+    const { residuals, jacobian } = weigh(system, evaluateSystem(s, system, X));
     return { residuals, jacobian: condensation.condenseJacobian(jacobian, v) };
   };
   const model = (s: AuthoringSketch, system: typeof sys) => ({
@@ -279,7 +312,6 @@ function solveWithHomotopy(
     evaluateJacobian: (v: number[]) => evaluate(s, system, v).jacobian,
   });
   const start = condensation ? condensation.reduce(sys.X) : [...sys.X];
-  const extent = drawingExtent(sys);
   // A residual of `extent x 1e-9` on a 4 m drawing is four nanometres. Demanding
   // better than that is demanding better than double precision can carry, and
   // the gate that actually decides whether an edit is acceptable is the
@@ -366,6 +398,9 @@ function solveWithHomotopy(
       // which is a distance, so `target + residual` would be meaningless here.
       // Measure the gap directly instead.
       startTargets.set(c.id, { value: measuredCentroidGap(sketch, c, sys.X, sys.index) });
+    } else if (c.kind === "angle") {
+      // The residual is a cosine difference, not radians; measure the angle.
+      startTargets.set(c.id, { value: measuredAngle(sketch, c, sys.X, sys.index) });
     } else if (isDimensional(c)) {
       startTargets.set(c.id, { value: targetOf(c, sketch) + residuals[cursor] });
     }
@@ -411,6 +446,26 @@ function solveWithHomotopy(
     X = last.solution;
   }
   return surface(last);
+}
+
+/** The unsigned angle between an `angle` constraint's two edges, in radians. */
+function measuredAngle(
+  sketch: AuthoringSketch,
+  c: SketchConstraint,
+  X: number[],
+  index: Record<string, number>
+): number {
+  const dir = (segId: string) => {
+    const seg = sketch.segments[segId];
+    const a = index[seg.p1];
+    const b = index[seg.p2];
+    return { x: X[2 * b] - X[2 * a], y: X[2 * b + 1] - X[2 * a + 1] };
+  };
+  const u = dir(c.segments[0]);
+  const v = dir(c.segments[1]);
+  const cos = (u.x * v.x + u.y * v.y) / ((Math.hypot(u.x, u.y) || 1) * (Math.hypot(v.x, v.y) || 1));
+  // Radians, like the literal the staging writes (it clears sign and scale).
+  return Math.acos(Math.max(-1, Math.min(1, cos)));
 }
 
 /** The centre-to-centre gap a `centroid_distance` currently spans, in mm. */

@@ -10,6 +10,7 @@ import {
   CarrierAdapter,
 } from "../../lib/geometry/adapters";
 import { DEFAULT_TOLERANCE_POLICY } from "../../lib/geometry/tolerance";
+import { DcelPlanarMap } from "../../lib/geometry/topology/dcel";
 
 describe("Primitive Adapters & Topology Lowering (UPCE-MASTER-1.0 §5.1 & §86)", () => {
   it("should lower a rectangle into 4 vertices and 4 segments with preserved source editing ID", () => {
@@ -231,7 +232,6 @@ describe("Primitive Adapters & Topology Lowering (UPCE-MASTER-1.0 §5.1 & §86)"
   });
 
   it("should feed lowered adjacent rectangles directly into DCEL and satisfy Euler-Poincare", () => {
-    const { DcelPlanarMap } = require("../../lib/geometry/topology/dcel");
     const cell1: RectangleShape = { id: "c1", type: "rectangle", x: 0, y: 0, width: 300, height: 200 };
     const cell2: RectangleShape = { id: "c2", type: "rectangle", x: 300, y: 0, width: 300, height: 200 };
 

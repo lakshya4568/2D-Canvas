@@ -23,6 +23,7 @@ import { AuthoringSketch, SketchParameter } from "./types";
 import { regenerate, namesOf } from "./document";
 import { analyseDof } from "./dof";
 import { evaluateParameters } from "./parameters";
+import { containment, overlappingCircles } from "./profile";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 
@@ -200,6 +201,12 @@ export function assessReadiness(
   );
 
   // 8. The behavioural sweep. This is the check that a rendering template fails.
+  //    Besides the declared rules, what sits inside what must survive: an
+  //    opening that a value pushes through its own wall breaks no rule that was
+  //    written down, and is still not a drawing anyone can build.
+  const nestedBefore = containment(solved, names);
+  const discsBefore = overlappingCircles(solved, policy.geometry_mm);
+  const labelOf = (id: string) => names[id] ?? id;
   let sweepFailures = 0;
   for (const p of published.length > 0 ? published : driving) {
     for (const v of sweepValues(p)) {
@@ -209,6 +216,17 @@ export function assessReadiness(
       };
       const result = regenerate(authoredShapes, probe, { policy, shapeNames: names });
       const broken = result.invariants.filter((i) => !i.ok).map((i) => i.label);
+      if (!result.rejection) {
+        const nestedAfter = containment(result.sketch, names);
+        for (const [inner, outer] of nestedBefore) {
+          if (nestedAfter.get(inner) !== outer) broken.push(`${labelOf(inner)} is no longer inside ${labelOf(outer)}`);
+        }
+        for (const pair of overlappingCircles(result.sketch, policy.geometry_mm)) {
+          if (discsBefore.has(pair)) continue;
+          const [a, b] = pair.split("|");
+          broken.push(`${labelOf(a)} and ${labelOf(b)} run into each other`);
+        }
+      }
       const ok = !result.rejection && result.converged && broken.length === 0;
       if (!ok) sweepFailures++;
       sweep.push({

@@ -9,7 +9,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { runLint } from "../../scripts/lint-tolerance";
 
-const ROOT = join(import.meta.dir, "..", "..");
+// `import.meta.dir` is Bun's and undefined under Vitest, and jsdom gives
+// `import.meta.url` a non-file scheme. The suite runs from the repository root.
+const ROOT = process.cwd();
 
 describe("Tolerance lint (§17, non-negotiable 4)", () => {
   it("reports no unexempted violations in lib/", () => {

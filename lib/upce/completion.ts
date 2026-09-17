@@ -27,7 +27,7 @@ import {
 } from "./types";
 import { analyseDof, countDof } from "./dof";
 import { uniqueParameterName, makeProvenance, dependenciesOf } from "./parameters";
-import { findProfiles, profileLoop, pointInLoop, longestSegment, Profile } from "./profile";
+import { findProfiles, profileLoop, pointInLoop, longestSegment, Profile, closedLoops } from "./profile";
 import { buildSystem, evaluateSystem, evaluateConstraint } from "./residuals";
 import { isRowIndependent } from "./admissibility";
 
@@ -151,20 +151,20 @@ export function findOffsets(
   names: Record<string, string> = {}
 ): OffsetFinding[] {
   const profiles = findProfiles(sketch, names);
+  // Containers are faces: a box with a cushion welded on top is one branched
+  // profile but two faces, and the box face is what holds the opening.
+  const containers = closedLoops(sketch, names);
   const loops = new Map<string, { x: number; y: number }[]>();
-  for (const prof of profiles) {
-    const l = profileLoop(sketch, prof);
-    if (l) loops.set(prof.id, l);
-  }
+  for (const c of containers) loops.set(c.id, c.loopIds.map((id) => sketch.points[id]));
 
   const out: OffsetFinding[] = [];
 
-  for (const outer of profiles) {
+  for (const outer of containers) {
     const outerLoop = loops.get(outer.id);
     if (!outerLoop) continue;
 
     for (const inner of profiles) {
-      if (inner.id === outer.id) continue;
+      if (inner.id === outer.id || inner.id === outer.profileId) continue;
       const innerPts = inner.pointIds;
       if (innerPts.length < 2) continue;
       const allInside = innerPts.every((pid) => {
@@ -445,15 +445,22 @@ export function suggestCompletion(
   if (!report.anchored && host) {
     const corner = [...host.pointIds].sort()[0];
     const p = sketch.points[corner];
+    // §18: a planar body has THREE rigid freedoms. A pin takes the two slides
+    // and leaves the turn, so a "pinned" box could still tilt five degrees the
+    // first time a value changed. The anchor therefore also holds the host's
+    // longest edge to its axis whenever that edge is near one; the gate drops
+    // the row if something already holds the orientation.
+    const orient = axisOption(sketch, host, "anchor");
     if (p) {
       quickFixes.push(
         withMeasured(sketch, {
           id: "anchor",
           title: `Pin ${host.label} to the sheet`,
           rationale:
-            "Nothing currently holds the drawing in place, so the whole sketch can slide. Pinning one corner is what every CAD sketch starts with.",
+            "Nothing currently holds the drawing in place, so the whole sketch can slide and turn. Pinning one corner and holding the longest edge level is what every CAD sketch starts with.",
           createsParameters: [],
           createsConstraints: [
+            ...(orient?.createsConstraints ?? []),
             {
               kind: "fix",
               points: [corner],

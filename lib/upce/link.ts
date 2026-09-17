@@ -26,7 +26,7 @@
  */
 
 import { AuthoringSketch, SketchConstraint, SketchParameter } from "./types";
-import { findProfiles, profileLoopIds, Profile } from "./profile";
+import { findProfiles, profileLoopIds, Profile, closedLoops } from "./profile";
 import { applyAction, IntentAction } from "./completion";
 import { makeProvenance, uniqueParameterName, validateExpression } from "./parameters";
 import { shapeFreedomOf, ShapeFreedom } from "./dof";
@@ -113,7 +113,17 @@ export function measurablesIn(
   names: Record<string, string> = {}
 ): Measurable[] {
   const wanted = new Set(shapeIds);
-  const profiles = findProfiles(sketch, names).filter((p) => p.shapeIds.some((id) => wanted.has(id)));
+  // Solids that touch share corners and so form one branched profile. Measuring
+  // that as a whole offered "overall height" of a box and the fill resting on
+  // it, when the author had selected the box. Each face is measured instead.
+  const loops = closedLoops(sketch, names);
+  const profiles: Profile[] = [];
+  for (const p of findProfiles(sketch, names)) {
+    if (!p.shapeIds.some((id) => wanted.has(id))) continue;
+    const faces = loops.filter((l) => l.profileId === p.id);
+    if (faces.length > 1) profiles.push(...faces.filter((f) => f.shapeIds.some((id) => wanted.has(id))));
+    else profiles.push(p);
+  }
   const out: Measurable[] = [];
 
   for (const profile of profiles) {

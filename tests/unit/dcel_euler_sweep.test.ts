@@ -17,7 +17,9 @@ import { Point2D } from "../../lib/geometry/topology/types";
 import { ParametricSketch } from "../../lib/parametric/schemaTypes";
 import { DEFAULT_TOLERANCE_POLICY } from "../../lib/geometry/tolerance";
 
-const ROOT = join(import.meta.dir, "..", "..");
+// `import.meta.dir` is Bun's and undefined under Vitest, and jsdom gives
+// `import.meta.url` a non-file scheme. The suite runs from the repository root.
+const ROOT = process.cwd();
 const FIXTURE_DIRS = ["basic", "civil", "difficult"] as const;
 
 interface LoadedFixture {

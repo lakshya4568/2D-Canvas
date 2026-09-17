@@ -13,7 +13,9 @@ import {
   StandardsProfileRegistry,
 } from "../../lib/validation/standardsProfile";
 
-const ROOT = join(import.meta.dir, "..", "..");
+// `import.meta.dir` is Bun's and undefined under Vitest, and jsdom gives
+// `import.meta.url` a non-file scheme. The suite runs from the repository root.
+const ROOT = process.cwd();
 const loadProfile = (name: string) =>
   parseStandardsProfile(JSON.parse(readFileSync(join(ROOT, "standards", "profiles", name), "utf8")));
 

@@ -349,7 +349,10 @@ describe("§69 REST contract", () => {
   it("POST render returns binary with a filename and compliance headers", () => {
     const r = handleRender("single_cell_box_culvert", { params: {}, format: "dxf" });
     expect(r.status).toBe(200);
-    expect(r.body).toBeInstanceOf(Uint8Array);
+    // A byte array, whichever realm made it: under jsdom the test's global
+    // `Uint8Array` is not Node's, so `instanceof` is false for a real Buffer.
+    expect(ArrayBuffer.isView(r.body)).toBe(true);
+    expect(Object.prototype.toString.call(r.body)).toBe("[object Uint8Array]");
     expect(r.headers["content-disposition"]).toContain(".dxf");
   });
 

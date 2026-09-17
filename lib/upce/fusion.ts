@@ -40,7 +40,7 @@ import { Point2D } from "../geometry/topology/types";
 import { DEFAULT_TOLERANCE_POLICY, TolerancePolicy } from "../geometry/tolerance";
 import { FusionRegion, fuseRegions, CollapsedWeb } from "../topology/booleanFusion";
 import { AuthoringSketch } from "./types";
-import { findProfiles, profileLoop } from "./profile";
+import { closedLoops } from "./profile";
 
 /** One closed boundary of the sketch, with its nesting worked out. */
 export interface SketchRegion {
@@ -270,9 +270,11 @@ export function sketchRegions(
 ): SketchRegion[] {
   const loops: { id: string; label: string; shapeIds: string[]; loop: Point2D[]; area: number }[] = [];
 
-  for (const profile of findProfiles(sketch, names)) {
-    const loop = profileLoop(sketch, profile);
-    if (!loop || loop.length < 3) continue;
+  // Faces, not connected components: two solids that share an edge are two
+  // regions, not one unreadable branched profile.
+  for (const profile of closedLoops(sketch, names)) {
+    const loop = profile.loopIds.map((id) => sketch.points[id]).filter(Boolean);
+    if (loop.length < 3) continue;
     const area = shoelace(loop);
     if (Math.abs(area) < 1e-9) continue;
     loops.push({ id: profile.id, label: profile.label, shapeIds: profile.shapeIds, loop, area });
@@ -359,8 +361,12 @@ export function detectOverlaps(
       // other — a cross of two thin bars is the classic case.
       if (crossed === 0 && !outlinesCross(a, b)) continue;
 
+      // Solids that only TOUCH — a fill resting on a slab, two cells sharing a
+      // wall line — share a boundary and no area. Their extents overlap by
+      // nothing on one axis, which is the test: a boundary probe landing on the
+      // other's boundary is a coin toss and must not turn contact into overlap.
       const depth = extentDepth(bounds[i], bounds[j]);
-      if (depth <= tol && crossed === 0) continue;
+      if (depth <= tol) continue;
 
       out.push({
         a: a.id,

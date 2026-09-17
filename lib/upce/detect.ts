@@ -23,7 +23,7 @@
 
 import { DEFAULT_TOLERANCE_POLICY, TolerancePolicy } from "../geometry/tolerance";
 import { isRowIndependent } from "./admissibility";
-import { AuthoringSketch, ConstraintCandidate, SketchConstraint, Provenance } from "./types";
+import { AuthoringSketch, ConstraintCandidate, ConstraintKind, SketchConstraint, Provenance } from "./types";
 import { buildSystem, evaluateSystem, evaluateConstraint, rowScale } from "./residuals";
 
 export interface DetectOptions {
@@ -33,6 +33,17 @@ export interface DetectOptions {
   shapeNames?: Record<string, string>;
   /** Hard cap so the review list never becomes a wall of cards. */
   limit?: number;
+  /**
+   * Only these kinds of finding.
+   *
+   * Filtered BEFORE minimisation, not after. Minimisation keeps one card per
+   * independent fact, and which card survives is decided by rank alone — so a
+   * caller that wants only axis rules and filters the finished list gets almost
+   * none: "the opening's top is parallel to the frame's top" was kept, and the
+   * "opening's top is horizontal" it made redundant was folded into it and then
+   * thrown away with the parallel card.
+   */
+  kinds?: ConstraintKind[];
 }
 
 interface SegView {
@@ -370,6 +381,11 @@ export function detectCandidates(
         affectedShapeIds: [circles[i].shapeId, circles[j].shapeId],
       });
     }
+  }
+
+  if (options.kinds) {
+    const wanted = new Set<string>(options.kinds);
+    for (let i = raw.length - 1; i >= 0; i--) if (!wanted.has(raw[i].constraint.kind)) raw.splice(i, 1);
   }
 
   // ---- admissibility gate, then minimisation -------------------------------

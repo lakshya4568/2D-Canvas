@@ -223,8 +223,13 @@ export function rowScale(sketch: AuthoringSketch, c: SketchConstraint, X: number
   switch (c.kind) {
     case "parallel":
     case "perpendicular":
-    case "angle":
       return lengthOf(c.segments[0]) * lengthOf(c.segments[1]);
+    // An angle residual is already a difference of cosines — no units to take
+    // out. Dividing it by two lengths again, as this once did, shrank it by the
+    // square of the drawing size: on metre-long edges a 30° error read as 1e-7
+    // and passed every tolerance, so an angle dimension held nothing.
+    case "angle":
+      return 1;
     case "horizontal":
     case "vertical":
     case "point_on_line":
@@ -241,6 +246,35 @@ export function rowScale(sketch: AuthoringSketch, c: SketchConstraint, X: number
     default:
       return 1;
   }
+}
+
+/**
+ * Rows whose scaled residual is a pure number (the sine or cosine of an angle)
+ * rather than a length.
+ *
+ * Every tolerance in the kernel is written in millimetres, and a pure number
+ * compared against one means nothing: a 1e-5 sine passes a 1e-5 mm tolerance,
+ * and on an 11 m edge it is a tenth of a millimetre out at the far end. Callers
+ * that judge a residual convert these rows to millimetres with `leverArm`.
+ */
+export function isAngularRow(kind: SketchConstraint["kind"]): boolean {
+  return kind === "parallel" || kind === "perpendicular" || kind === "horizontal" || kind === "vertical" || kind === "angle";
+}
+
+/**
+ * The length an angular residual acts over, in mm: how far the end of the
+ * shorter edge involved moves per radian. Multiplying a sine by it gives the
+ * deviation a draftsman would measure.
+ */
+export function leverArm(sketch: AuthoringSketch, c: SketchConstraint, X: number[], I: Record<string, number>): number {
+  const lengths = c.segments.map((segId) => {
+    const seg = sketch.segments[segId];
+    const a = seg && I[seg.p1];
+    const b = seg && I[seg.p2];
+    if (a === undefined || b === undefined) return 1;
+    return Math.hypot(X[2 * b] - X[2 * a], X[2 * b + 1] - X[2 * a + 1]) || 1;
+  });
+  return lengths.length ? Math.max(...lengths) : 1;
 }
 
 /**
