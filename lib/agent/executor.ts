@@ -456,7 +456,11 @@ export class CadExecutor {
     }
 
     // Planar Rigid-Body Anchor Rule Invariant (§18)
-    const hasAnchor = plan.metadata.rigidAnchorFixed || ctx.constraints.has("c_rigid_anchor") || ctx.constraints.has("anchor_datum");
+    const hasAnchor =
+      Boolean(plan.metadata?.rigidAnchorFixed) ||
+      Array.from(ctx.constraints.values()).some((c) => c.type === "rigid_anchor") ||
+      ctx.constraints.has("c_rigid_anchor") ||
+      ctx.constraints.has("anchor_datum");
     checks.push({
       code: "UPCE-SEC-18-RIGID-ANCHOR",
       name: "Planar Rigid-Body Anchor (3 DOF Fixed)",

@@ -80,30 +80,83 @@ export class VertexLlmProvider implements LlmProvider {
 
     for (const msg of request.messages) {
       if (msg.role === "system") {
-        systemInstruction = { parts: [{ text: msg.content }] };
+        if (msg.content) {
+          systemInstruction = { parts: [{ text: msg.content }] };
+        }
         continue;
       }
 
-      const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
-        { text: msg.content },
-      ];
+      const parts: any[] = [];
 
-      if (msg.images?.length) {
-        for (const img of msg.images) {
+      if (msg.content) {
+        parts.push({ text: msg.content });
+      }
+
+      if (msg.functionCall) {
+        parts.push({
+          functionCall: {
+            name: msg.functionCall.name,
+            args: msg.functionCall.args,
+          },
+        });
+      }
+
+      if (msg.functionCalls?.length) {
+        for (const fc of msg.functionCalls) {
           parts.push({
-            inlineData: {
-              mimeType: img.mimeType || "image/png",
-              data: img.data,
+            functionCall: {
+              name: fc.name,
+              args: fc.args,
             },
           });
         }
       }
 
+      if (msg.functionResponse) {
+        parts.push({
+          functionResponse: {
+            name: msg.functionResponse.name,
+            response: msg.functionResponse.response,
+          },
+        });
+      }
+
+      if (msg.functionResponses?.length) {
+        for (const fr of msg.functionResponses) {
+          parts.push({
+            functionResponse: {
+              name: fr.name,
+              response: fr.response,
+            },
+          });
+        }
+      }
+
+      if (msg.images?.length) {
+        for (const img of msg.images) {
+          const cleanData = img.data.replace(/^data:[^;]+;base64,/, "");
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType || "image/png",
+              data: cleanData,
+            },
+          });
+        }
+      }
+
+      const role =
+        msg.role === "assistant"
+          ? "model"
+          : msg.role === "function" || msg.role === "tool"
+          ? "function"
+          : "user";
+
       contents.push({
-        role: msg.role === "assistant" ? "model" : "user",
+        role,
         parts,
       });
     }
+
 
     const generationConfig: Record<string, unknown> = {
       temperature: request.temperature ?? 0.2,
