@@ -44,3 +44,4 @@ logs/
 output/
 scratch/
 *.log
+tests/*.png
