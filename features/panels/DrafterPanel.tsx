@@ -523,11 +523,12 @@ export function DrafterPanel() {
       setRunning(false);
       abortRef.current = null;
       setAgentPreview(null);
+      const fallbackSnap = latestSnapshotRef.current as { shapes: Shape[]; sketch?: AuthoringSketch } | null;
       if (finalEvent && mutated.current && finalEvent.state.shapes.length > 0) {
         upce.adoptDrawing(finalEvent.state.shapes, finalEvent.state.sketch);
         setTimeout(() => dispatch({ type: "ZOOM_EXTENTS" }), 60);
-      } else if (!finalEvent && mutated.current && latestSnapshotRef.current && latestSnapshotRef.current.shapes.length > 0) {
-        upce.adoptDrawing(latestSnapshotRef.current.shapes, latestSnapshotRef.current.sketch ?? upce.sketch);
+      } else if (!finalEvent && mutated.current && fallbackSnap && fallbackSnap.shapes.length > 0) {
+        upce.adoptDrawing(fallbackSnap.shapes, fallbackSnap.sketch ?? upce.sketch);
         setTimeout(() => dispatch({ type: "ZOOM_EXTENTS" }), 60);
       }
       if (!text) setPrompt("");

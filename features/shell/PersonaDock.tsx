@@ -7,8 +7,6 @@ import { DraftPanel } from "../panels/DraftPanel";
 import { AuthorPanel } from "../panels/AuthorPanel";
 import { RunPanel } from "../panels/RunPanel";
 import { PropertiesPalette } from "../panels/PropertiesPalette";
-import { AssistantPanel } from "../panels/AssistantPanel";
-import { useAgentPreview } from "../agent/agentPreview";
 
 /**
  * The right dock. Supports both AutoCAD Properties Inspector and UPCE Persona Views.
@@ -44,23 +42,15 @@ export function PersonaDock({
   onToggleCollapse: () => void;
 }) {
   const { state } = useDrawing();
-  const agentPreview = useAgentPreview();
-  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric" | "assistant">(
+  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric">(
     "parametric"
   );
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
-  const prevUserMode = React.useRef(state.userMode);
 
   React.useEffect(() => {
-    if (prevUserMode.current !== state.userMode) {
-      prevUserMode.current = state.userMode;
-      // Do not yank the user away from CAD Agent if the agent is actively drawing
-      if (!agentPreview?.running) {
-        setActiveTab("parametric");
-      }
-    }
-  }, [state.userMode, agentPreview?.running]);
+    setActiveTab("parametric");
+  }, [state.userMode]);
 
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -132,20 +122,6 @@ export function PersonaDock({
             >
               {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
             </button>
-            {/* The assistant is not a step in the authoring sequence — you ask it
-                when you are stuck, at any point — so it gets a tab rather than a
-                place in the column. It also keeps its long answers from pushing
-                everything else off the screen. */}
-            <button
-              onClick={() => setActiveTab("assistant")}
-              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
-                activeTab === "assistant"
-                  ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
-                  : "text-(--fg-muted) hover:text-(--fg-primary)"
-              }`}
-            >
-              CAD Agent
-            </button>
           </div>
 
           <button
@@ -158,9 +134,6 @@ export function PersonaDock({
           </button>
         </div>
 
-        <div className={activeTab === "assistant" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-          <AssistantPanel />
-        </div>
         <div className={activeTab === "properties" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
           <PropertiesPalette />
         </div>

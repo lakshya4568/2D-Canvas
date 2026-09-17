@@ -8,6 +8,8 @@ import { CadHeader } from "./CadHeader";
 import { CommandLine } from "./CommandLine";
 import { StatusStrip } from "./StatusStrip";
 import { PersonaDock } from "./PersonaDock";
+import { CadAgentDock } from "./CadAgentDock";
+import { useAgentPreview } from "../agent/agentPreview";
 import { TemplateModal } from "../parametric/TemplateModal";
 import { InstructionManualModal } from "../manual/InstructionManualModal";
 import { importDxfToShapes } from "@/lib/io/dxfImporter";
@@ -36,13 +38,23 @@ export function CadShell() {
     togglePolarTracking,
     toggleDynamicInput,
   } = useDrawing();
+  const agentPreview = useAgentPreview();
   const [cursorPos, setCursorPos] = React.useState<Point | null>(null);
-  const [dockWidth, setDockWidth] = React.useState(320);
+  const [dockWidth, setDockWidth] = React.useState(310);
   const [dockCollapsed, setDockCollapsed] = React.useState(false);
+  const [cadAgentWidth, setCadAgentWidth] = React.useState(350);
+  const [cadAgentOpen, setCadAgentOpen] = React.useState(true);
   const [templatesOpen, setTemplatesOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const seeded = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Auto-open CAD Agent panel when an autonomous run starts
+  React.useEffect(() => {
+    if (agentPreview?.running && !cadAgentOpen) {
+      setCadAgentOpen(true);
+    }
+  }, [agentPreview?.running, cadAgentOpen]);
 
   const handleTriggerDxfImport = React.useCallback(() => {
     fileInputRef.current?.click();
@@ -139,6 +151,8 @@ export function CadShell() {
         onOpenTemplates={() => setTemplatesOpen(true)}
         onOpenHelp={() => setShortcutsOpen(true)}
         onImportDxf={handleTriggerDxfImport}
+        cadAgentOpen={cadAgentOpen}
+        onToggleCadAgent={() => setCadAgentOpen((v) => !v)}
       />
 
       <div className="flex-1 min-h-0 flex">
@@ -170,6 +184,13 @@ export function CadShell() {
           onWidthChange={setDockWidth}
           collapsed={dockCollapsed}
           onToggleCollapse={() => setDockCollapsed((v) => !v)}
+        />
+
+        <CadAgentDock
+          width={cadAgentWidth}
+          onWidthChange={setCadAgentWidth}
+          collapsed={!cadAgentOpen}
+          onToggleCollapse={() => setCadAgentOpen((v) => !v)}
         />
       </div>
 

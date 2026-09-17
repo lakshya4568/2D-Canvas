@@ -35,9 +35,11 @@ import {
   FolderUp,
   Boxes,
   Ungroup,
+  Bot,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "@/features/parametric/upceContext";
+import { useAgentPreview } from "@/features/agent/agentPreview";
 import { ModeSwitch } from "./ModeSwitch";
 import { CadCommandRegistry } from "@/lib/commands/CommandRegistry";
 import { exportDxf } from "@/lib/io/dxfExporter";
@@ -49,11 +51,19 @@ interface CadHeaderProps {
   onOpenTemplates: () => void;
   onOpenHelp: () => void;
   onImportDxf?: () => void;
+  cadAgentOpen?: boolean;
+  onToggleCadAgent?: () => void;
 }
 
 type RibbonTab = "home" | "draw" | "modify" | "parametric" | "annotate" | "output";
 
-export function CadHeader({ onOpenTemplates, onOpenHelp, onImportDxf }: CadHeaderProps) {
+export function CadHeader({
+  onOpenTemplates,
+  onOpenHelp,
+  onImportDxf,
+  cadAgentOpen,
+  onToggleCadAgent,
+}: CadHeaderProps) {
   const {
     state,
     dispatch,
@@ -70,6 +80,8 @@ export function CadHeader({ onOpenTemplates, onOpenHelp, onImportDxf }: CadHeade
   } = useDrawing();
 
   const upce = useUpce();
+  const agentPreview = useAgentPreview();
+  const agentRunning = Boolean(agentPreview?.running);
 
   const selection = state.selectedIds.length > 0
     ? state.selectedIds
@@ -348,12 +360,34 @@ export function CadHeader({ onOpenTemplates, onOpenHelp, onImportDxf }: CadHeade
           ))}
         </div>
 
-        {/* Persona Mode Switcher (Draftsman vs Author vs Run) */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-(--fg-muted) uppercase tracking-wider font-semibold">
-            Persona:
-          </span>
-          <ModeSwitch />
+        {/* Persona Mode Switcher (Draftsman vs Author vs Run) & CAD Agent Toggle */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-(--fg-muted) uppercase tracking-wider font-semibold">
+              Persona:
+            </span>
+            <ModeSwitch />
+          </div>
+
+          {onToggleCadAgent && (
+            <div className="flex items-center pl-2.5 border-l border-(--rule)">
+              <button
+                onClick={onToggleCadAgent}
+                className={`h-[26px] px-2.5 rounded-[5px] text-[11px] font-medium inline-flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  cadAgentOpen
+                    ? "bg-(--pen) text-white border-(--pen) shadow-xs"
+                    : "bg-(--ink-sunken) text-(--fg-secondary) hover:text-(--fg-primary) border-(--rule) hover:border-(--pen)"
+                }`}
+                title={cadAgentOpen ? "Collapse CAD Agent panel" : "Open CAD Agent panel"}
+              >
+                <Bot className="w-3.5 h-3.5" />
+                <span>CAD Agent</span>
+                {agentRunning && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
