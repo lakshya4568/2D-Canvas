@@ -55,6 +55,8 @@ export interface VertexConfig {
   credentialsPath?: string;
   maxOutputTokens: number;
   timeoutMs: number;
+  /** Gemini 3 reasoning effort for single-shot calls. */
+  thinkingLevel: "low" | "medium" | "high";
 }
 
 export interface VertexStatus {
@@ -75,25 +77,15 @@ export interface VertexStatus {
  * will. A wrong id is not guessed at or silently replaced: the request goes out
  * as configured and Google's own error comes back with the id in it.
  *
- * The default is a LITE model, chosen by measurement rather than by size. On the
- * advisor's own prompt, against a box culvert section:
- *
- *     gemini-3.1-flash-lite    2.6-3.8s   correct formula, three times running
- *     gemini-3.8-flash         9s         correct, but not every time
- *     gemini-3.5-flash        19s         correct, 3352 tokens of it thinking
- *
- * This is a classification job over a handful of measurements against a fixed
- * schema — recognising that a box culvert's clear span is its width less two
- * walls is recall, not reasoning — and the thinking models spend most of their
- * latency re-deriving something the prompt already contains. Four times faster
- * for the same answer is worth having on a control someone waits for.
- *
- * Not every lite model is equal, and the difference is not subtle:
- * `gemini-3.5-flash-lite` returned a 1500-character run of capital letters in
- * the expression field — its own reasoning, leaked into the output. It was
- * refused (see `formulaCheck`), but a model that does that is not a candidate.
+ * The default is Gemini 3.5 Flash Lite at HIGH reasoning — one of the two
+ * models this project uses (the other, Gemini 3.8 Flash, drives the drafting
+ * agent). Without reasoning it was not a candidate: it once returned a
+ * 1500-character run of its own thinking in the expression field (refused by
+ * `formulaCheck`). With `thinkingLevel: "high"` the thinking goes where it
+ * belongs — into thought parts, which are not returned — and a structured
+ * reply stays structured.
  */
-const DEFAULT_MODEL = "gemini-3.1-flash-lite";
+const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_LOCATION = "global";
 /**
  * Generous, because the current Gemini flash models think before they answer and
@@ -101,7 +93,7 @@ const DEFAULT_LOCATION = "global";
  * with `finishReason: MAX_TOKENS` and no content at all, which reads as "the
  * model said nothing" when it in fact never got to speak.
  */
-const DEFAULT_MAX_TOKENS = 8192;
+const DEFAULT_MAX_TOKENS = 16384;
 /**
  * Generous, for the same reason as the token budget: the model thinks first, and
  * a drawing with a dozen measurements takes it a while. This is a deliberate,
@@ -109,7 +101,7 @@ const DEFAULT_MAX_TOKENS = 8192;
  * the cost of waiting is much lower than the cost of a timeout that throws away
  * an answer that was nearly ready.
  */
-const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_TIMEOUT_MS = 90000;
 
 /**
  * The API host for a location.
@@ -175,6 +167,7 @@ export function readVertexConfig(
     credentialsPath,
     maxOutputTokens: Number(env.VERTEX_MAX_TOKENS) || DEFAULT_MAX_TOKENS,
     timeoutMs: Number(env.VERTEX_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+    thinkingLevel: (["low", "medium", "high"] as const).find((l) => l === env.VERTEX_THINKING_LEVEL) ?? "high",
   };
 }
 
@@ -382,14 +375,16 @@ export async function generateJson(
   const status = vertexStatus(config);
   if (!status.configured) throw new Error(status.detail);
 
+  const thinkingConfig = { thinkingLevel: config.thinkingLevel };
   const generationConfig = request.schema
     ? {
         temperature: 0,
         responseMimeType: "application/json",
         responseSchema: request.schema,
         maxOutputTokens: config.maxOutputTokens,
+        thinkingConfig,
       }
-    : { temperature: 0, maxOutputTokens: config.maxOutputTokens };
+    : { temperature: 0, maxOutputTokens: config.maxOutputTokens, thinkingConfig };
 
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: request.systemPrompt }] },
@@ -445,11 +440,11 @@ export async function generateJson(
   }
 
   const parsed = JSON.parse(text) as {
-    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[];
     usageMetadata?: { totalTokenCount?: number };
   };
   const candidate = parsed.candidates?.[0];
-  const out = candidate?.content?.parts?.[0]?.text;
+  const out = candidate?.content?.parts?.find((p) => p.text && !p.thought)?.text;
 
   if (!out) {
     // Naming this case is worth the lines. A thinking model that runs out of
