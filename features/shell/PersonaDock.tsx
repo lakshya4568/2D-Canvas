@@ -49,6 +49,10 @@ export function PersonaDock({
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
 
+  React.useEffect(() => {
+    setActiveTab("parametric");
+  }, [state.userMode]);
+
 
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {

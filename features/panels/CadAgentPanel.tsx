@@ -26,6 +26,9 @@ import {
   FileJson,
   Activity,
   Eye,
+  SlidersHorizontal,
+  Stamp,
+  Sliders,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import type { Shape } from "@/lib/geometry/types";
@@ -203,6 +206,7 @@ export function CadAgentPanel() {
   const [showValidation, setShowValidation] = useState(true);
   const [showBoq, setShowBoq] = useState(false);
   const [showTrace, setShowTrace] = useState(true);
+  const [showParams, setShowParams] = useState(true);
   const [traceFilter, setTraceFilter] = useState<"all" | "act" | "inspect" | "verify" | "correct">("all");
 
   // Load available models on mount
@@ -931,6 +935,91 @@ export function CadAgentPanel() {
               )}
             </div>
           )}
+
+          {/* Parametric Model & Formulas */}
+          {result.sceneGraph &&
+            ((result.sceneGraph.parameters && Object.keys(result.sceneGraph.parameters).length > 0) ||
+              (result.sceneGraph.formulas && result.sceneGraph.formulas.length > 0)) && (
+              <div className="rounded-[6px] border border-(--rule) bg-(--ink-app) overflow-hidden">
+                <button
+                  onClick={() => setShowParams(!showParams)}
+                  className="w-full px-2.5 py-1.5 bg-(--ink-panel) flex items-center justify-between text-[10px] font-medium text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5 text-(--pen) font-semibold">
+                    <Sliders className="w-3 h-3" />
+                    Parametric Model & Formulas ({Object.keys(result.sceneGraph.parameters || {}).length} params)
+                  </span>
+                  {showParams ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </button>
+                {showParams && (
+                  <div className="p-2.5 space-y-2 text-[10px]">
+                    {/* Driving Parameters */}
+                    {result.sceneGraph.parameters && Object.keys(result.sceneGraph.parameters).length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] uppercase font-semibold text-(--fg-muted) tracking-wider">
+                          Driving Parameters
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {Object.entries(result.sceneGraph.parameters).map(([key, param]) => (
+                            <div
+                              key={key}
+                              className="p-1.5 rounded bg-(--ink-panel) border border-(--rule) flex items-center justify-between font-mono text-[9px]"
+                            >
+                              <span className="truncate text-(--fg-muted)" title={param.name || key}>
+                                {param.name || key}
+                              </span>
+                              <span className="text-(--fg-primary) font-semibold">
+                                {param.value} {param.unit || "mm"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Formulas */}
+                    {result.sceneGraph.formulas && result.sceneGraph.formulas.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-(--rule)">
+                        <span className="text-[9px] uppercase font-semibold text-(--fg-muted) tracking-wider">
+                          Parametric Formulas (DAG)
+                        </span>
+                        <div className="space-y-1">
+                          {result.sceneGraph.formulas.map((f, idx) => (
+                            <div
+                              key={idx}
+                              className="px-2 py-1 rounded bg-(--ink-panel) border border-(--rule) font-mono text-[9px] flex items-center justify-between"
+                            >
+                              <span className="text-(--pen)">{f.target}</span>
+                              <span className="text-(--fg-muted)">= {f.expression}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 1-Click Persona Navigation Buttons */}
+                    <div className="pt-1.5 border-t border-(--rule) flex gap-1.5">
+                      <button
+                        onClick={() => dispatch({ type: "SET_USER_MODE", mode: "author" })}
+                        className="flex-1 py-1 rounded bg-(--ink-panel) hover:border-(--pen) border border-(--rule) text-[9.5px] font-medium text-(--fg-primary) flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        title="Open Author Mode to view candidate relationships and edit formula bindings"
+                      >
+                        <Stamp className="w-3 h-3 text-(--pen)" />
+                        <span>Open in Author Mode</span>
+                      </button>
+                      <button
+                        onClick={() => dispatch({ type: "SET_USER_MODE", mode: "user" })}
+                        className="flex-1 py-1 rounded bg-(--ink-panel) hover:border-(--pen) border border-(--rule) text-[9.5px] font-medium text-(--fg-primary) flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        title="Switch to Run Mode to modify driving parameters with instant geometry updates"
+                      >
+                        <SlidersHorizontal className="w-3 h-3 text-(--pen)" />
+                        <span>Switch to Run Mode</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
           {/* Export & Redraw Actions */}
           <div className="flex gap-1.5 pt-1">
