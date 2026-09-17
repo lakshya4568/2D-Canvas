@@ -392,6 +392,8 @@ describe("Autonomous Agentic Loop (gemini-3.8-flash) & Reference Image Suite", (
       },
       async generate(): Promise<ModelResponse> {
         return {
+          modelUsed: "gemini-3.8-flash",
+          latencyMs: 0,
           content: "Drawing line without fixing rigid anchor.",
           toolCalls: [
             {

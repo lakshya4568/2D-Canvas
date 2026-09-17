@@ -29,7 +29,7 @@ async function runBrowserVerification() {
     await new Promise((r) => setTimeout(r, 2000));
 
     page.on("console", (msg) => console.log("PAGE CONSOLE:", msg.text()));
-    page.on("pageerror", (err) => console.log("PAGE ERROR:", err.message));
+    page.on("pageerror", (err) => console.log("PAGE ERROR:", err instanceof Error ? err.message : String(err)));
 
     // Step 1: Switch to "CAD Agent" dock tab
     console.log("Locating CAD Agent tab...");

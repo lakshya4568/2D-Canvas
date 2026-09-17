@@ -320,7 +320,7 @@ export class CadRouter {
       return "gemini-3.8-flash";
     }
     if (/use\s+(?:gemini\s+)?3\.1\b/i.test(lowerPrompt)) {
-      return "gemini-3.1-flash-lite";
+      return "gemini-3.5-flash-lite";
     }
     if (/use\s+ollama\b|use\s+c3d\b/i.test(lowerPrompt)) {
       return "joshuaokolo/C3Dv0:latest";
@@ -341,7 +341,7 @@ export class CadRouter {
         return "gemini-3.8-flash";
       case "fast":
       default:
-        return "gemini-3.1-flash-lite";
+        return "gemini-3.5-flash-lite";
     }
   }
 

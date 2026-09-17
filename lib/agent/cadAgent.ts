@@ -103,91 +103,9 @@ export class CadAgent {
       return await this.runAutonomousLoop(request, routerDecision, logs, selectedProvider);
     }
 
-    let thinking: string | undefined;
-    let llmResponseText: string | undefined;
-    let llmToolCalls: ToolCall[] | undefined;
-
-    // Stage 3: Planning (use LLM tool calls if generated, or procedural planner)
-    let plan: Plan;
-    if (llmToolCalls && llmToolCalls.length > 0) {
-      const parameters: ParameterSpec[] = [];
-      const formulas: FormulaSpec[] = [];
-      const constraints: ConstraintSpec[] = [];
-      const relations: RelationSpec[] = [];
-      const steps: ToolCall[] = [];
-
-      for (const call of llmToolCalls) {
-        steps.push(call);
-        if (call.tool === "create_parameter") {
-          parameters.push({
-            name: String(call.args.name),
-            value: Number(call.args.value ?? 0),
-            unit: call.args.unit ?? "mm",
-            role: call.args.role ?? "DRIVING",
-            description: call.args.description,
-          });
-        } else if (call.tool === "bind_formula") {
-          formulas.push({
-            target: String(call.args.property),
-            expression: String(call.args.expression),
-            dependencies: [],
-            description: call.args.description,
-          });
-        } else if (call.tool === "add_constraint") {
-          constraints.push({
-            id: String(call.args.id || `c_${constraints.length + 1}`),
-            type: call.args.type,
-            entityA: String(call.args.entityA),
-            entityB: call.args.entityB ? String(call.args.entityB) : undefined,
-            value: call.args.value !== undefined ? Number(call.args.value) : undefined,
-            params: call.args.params,
-          });
-        } else if (call.tool === "add_relation") {
-          relations.push({
-            id: `rel_${relations.length + 1}`,
-            entityA: String(call.args.entity_a),
-            entityB: String(call.args.entity_b),
-            relation: call.args.relation,
-            params: call.args.params,
-          });
-        }
-      }
-
-      // Ensure planar rigid-body anchor rule (§18)
-      if (!constraints.some((c) => c.type === "rigid_anchor")) {
-        const firstShapeCall = steps.find((s) => s.tool.startsWith("draw_"));
-        if (firstShapeCall) {
-          constraints.push({
-            id: "anchor_1",
-            type: "rigid_anchor",
-            entityA: String(firstShapeCall.args.id || "shape_1"),
-            value: 0,
-          });
-        }
-      }
-
-      plan = {
-        id: `plan_llm_${Date.now()}`,
-        intent: routerDecision.intent,
-        description: `Plan synthesized by ${routerDecision.selectedModel} via MCP CAD Tools`,
-        parameters,
-        formulas,
-        constraints,
-        relations,
-        steps,
-        metadata: {
-          engineeringDomain: "parametric_drawing",
-          rigidAnchorFixed: true,
-          model: routerDecision.selectedModel,
-        },
-      };
-    } else {
-      plan = this.planner.createPlan(
-        routerDecision,
-        request.prompt,
-        request.activeParameters
-      );
-    }
+    // Stage 3: Planning. This path is the deterministic procedural planner; the
+    // language-model loop is `runAutonomousLoop` above.
+    let plan: Plan = this.planner.createPlan(routerDecision, request.prompt, request.activeParameters);
 
     // If dimension intent on an existing active drawing, append dimension to active plan
     if (routerDecision.intent === "dimension" && this.activePlan && plan.steps.length > 0) {
@@ -355,9 +273,8 @@ export class CadAgent {
       previewPng,
       logs,
       executionTimeMs: elapsed,
-      response: responseText || llmResponseText,
+      response: responseText,
       explanation: explanationText,
-      thinking,
     };
   }
 
@@ -588,6 +505,7 @@ export class CadAgent {
 
     let thinking: string | undefined;
     let responseText: string | undefined;
+    let liveError: string | undefined;
 
     // Check if live LLM generation is active (e.g. Vertex AI configured or providerOverride provided)
     const isLiveLlm =
@@ -671,9 +589,11 @@ export class CadAgent {
             break;
           }
 
-          // Group assistant tool calls into a single turn for Gemini Vertex AI protocol
+          // The model's turn goes back verbatim: Gemini 3 refuses a function call
+          // whose thought signature was dropped.
           messages.push({
             role: "assistant",
+            rawParts: res.rawParts,
             functionCalls: res.toolCalls.map((c) => ({ id: c.id, name: c.tool, args: c.args })),
           });
 
@@ -744,13 +664,22 @@ export class CadAgent {
           turn++;
         }
       } catch (err: any) {
+        liveError = err?.message ?? String(err);
         logs.push({
           stage: "model_selection",
           timestamp: Date.now(),
-          message: `Live LLM loop encountered error (${err.message}). Executing deterministic agentic loop fallback.`,
+          message: `Live LLM loop encountered error (${liveError}). Executing deterministic agentic loop fallback.`,
+        });
+        // Said out loud in the trace: what follows is the procedural planner, not the model.
+        recordStep({
+          iteration: 0,
+          phase: "observe",
+          observation: `The model call failed (${liveError}). The steps below come from the deterministic planner, not from ${routerDecision.selectedModel}.`,
+          timestamp: Date.now(),
         });
       }
     }
+    const usedModel = isLiveLlm && !liveError && registry.getContext().nodes.size > 0;
 
     // If live LLM was not executed or yielded 0 entities, run the autonomous observe-reason-act-inspect-correct-verify loop deterministically
     if (registry.getContext().nodes.size === 0) {
@@ -933,7 +862,9 @@ export class CadAgent {
     const finalPlan: Plan = {
       id: fallbackPlan.id || `plan_autonomous_${Date.now()}`,
       intent: routerDecision.intent,
-      description: `Autonomous agentic plan verified by Gemini 3.8 Flash`,
+      description: usedModel
+        ? `Plan produced by ${routerDecision.selectedModel} through the legacy tool registry`
+        : "Deterministic procedural plan (no language model produced this drawing)",
       parameters: Array.from(ctx.parameters.values()),
       formulas: Array.from(ctx.formulas.values()),
       constraints: Array.from(ctx.constraints.values()),
@@ -943,7 +874,7 @@ export class CadAgent {
         engineeringDomain: fallbackPlan.metadata?.engineeringDomain || "parametric_drawing",
         standardsApplied: fallbackPlan.metadata?.standardsApplied || ["IRC:SP:13", "IRC:112"],
         rigidAnchorFixed: Array.from(ctx.constraints.values()).some((c) => c.type === "rigid_anchor"),
-        model: "gemini-3.8-flash",
+        model: usedModel ? routerDecision.selectedModel : "deterministic-engine",
       },
     };
 
@@ -973,7 +904,9 @@ export class CadAgent {
       executionTimeMs: Date.now() - t0,
       response:
         responseText ||
-        `Autonomous agentic loop completed with ${progressTrace.length} steps. All geometric goals verified.`,
+        (usedModel
+          ? `Agentic loop completed with ${progressTrace.length} steps.`
+          : `Deterministic planner completed with ${progressTrace.length} steps${liveError ? ` after the model call failed: ${liveError}` : ""}.`),
       explanation,
       thinking,
     };

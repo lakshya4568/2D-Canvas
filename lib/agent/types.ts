@@ -117,6 +117,12 @@ export interface ModelMessage {
     name: string;
     response: Record<string, unknown>;
   }>;
+  /**
+   * The model's own turn, exactly as Gemini returned it. Gemini 3 function calls
+   * carry thought signatures that must be sent back verbatim; rebuilding the
+   * turn from names and arguments drops them and the next request is refused.
+   */
+  rawParts?: unknown[];
 }
 
 
@@ -131,6 +137,8 @@ export interface ModelRequest {
 }
 
 export interface ModelResponse {
+  /** The model turn as received, for sending back unchanged. */
+  rawParts?: unknown[];
   content: string;
   toolCalls?: ToolCall[];
   modelUsed: string;
@@ -211,9 +219,11 @@ export interface Plan {
   relations: RelationSpec[];
   steps: ToolCall[];
   metadata: {
-    engineeringDomain: "civil_bridge" | "structural_box" | "mechanical_2d" | "general_geometry";
+    engineeringDomain: "civil_bridge" | "structural_box" | "mechanical_2d" | "general_geometry" | "parametric_drawing";
     standardsApplied?: string[]; // e.g. ["IRC:SP:13", "IRC:112"]
     rigidAnchorFixed: boolean;   // §18 Planar Rigid-Body Anchor Rule satisfied
+    /** Which engine actually produced the plan — a model id, or "deterministic-engine". */
+    model?: string;
   };
 }
 
@@ -330,6 +340,9 @@ export interface EstimatedCostSummary {
 }
 
 export interface DerivedMetrics {
+  concreteArea?: number;
+  flowArea?: number;
+  volumePerM?: number;
   totalConcreteAreaMm2?: number;
   totalConcreteVolumeM3PerM?: number;
   waterFlowAreaM2?: number;

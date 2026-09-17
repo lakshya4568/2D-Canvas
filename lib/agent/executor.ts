@@ -206,6 +206,7 @@ export class CadExecutor {
         id: s.id,
         type: s.type as any,
         name: (s as any).name || s.id,
+        symbolic: {},
         evaluated: { ...(s as any) },
         layer: (s as any).layer || "OUTLINE",
         style: { strokeColor: (s as any).strokeColor || "#4aa8d8", strokeWidth: (s as any).strokeWidth || 1.5 },
@@ -276,8 +277,8 @@ export class CadExecutor {
         svgParts.push(
           `<circle cx="${c.cx}" cy="${-c.cy}" r="${c.r}" fill="none" stroke="${color}" stroke-width="${sw}" />`
         );
-      } else if (s.type === "arc") {
-        const a = s as ArcShape;
+      } else if ((s as { type: string }).type === "arc") {
+        const a = s as unknown as ArcShape;
         svgParts.push(
           `<circle cx="${a.cx}" cy="${-a.cy}" r="${a.radius}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-dasharray="4,4" />`
         );
@@ -458,7 +459,7 @@ export class CadExecutor {
     // Planar Rigid-Body Anchor Rule Invariant (§18)
     const hasAnchor =
       Boolean(plan.metadata?.rigidAnchorFixed) ||
-      Array.from(ctx.constraints.values()).some((c) => c.type === "rigid_anchor") ||
+      Array.from(ctx.constraints.values()).some((c) => (c as { type?: string }).type === "rigid_anchor") ||
       ctx.constraints.has("c_rigid_anchor") ||
       ctx.constraints.has("anchor_datum");
     checks.push({

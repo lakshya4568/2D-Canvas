@@ -24,7 +24,7 @@ const execAsync = promisify(exec);
 
 export interface FastMcpBridgePayload {
   prompt?: string;
-  operations?: Array<{ tool: string; args: Record<string, any> }>;
+  operations?: Array<{ tool: string; args?: Record<string, any> }>;
   steps?: Array<{ tool: string; args: Record<string, any> }>;
   entities?: any[];
   width_px?: number;

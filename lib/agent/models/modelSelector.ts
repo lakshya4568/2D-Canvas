@@ -1,7 +1,7 @@
 /**
  * CAD Agent v2 — Unified LLM Interface & Model Selector
  * Pluggable provider architecture supporting:
- * 1. Google Vertex AI / Gemini API (e.g. gemini-3.8-flash with thinking, gemini-3.1-flash-lite)
+ * 1. Google Vertex AI / Gemini API (e.g. gemini-3.8-flash with thinking, gemini-3.5-flash-lite)
  * 2. Ollama C3Dv0 endpoint (http://103.100.217.50:11434, joshuaokolo/C3Dv0:latest)
  * 3. Deterministic Local Provider (offline fallback engine per UPCE-MASTER-1.0 §57)
  */
@@ -87,6 +87,12 @@ export class VertexLlmProvider implements LlmProvider {
       }
 
       const parts: any[] = [];
+
+      // The model's own turn goes back exactly as it came (thought signatures).
+      if (msg.rawParts?.length) {
+        contents.push({ role: "model", parts: msg.rawParts as any[] });
+        continue;
+      }
 
       if (msg.content) {
         parts.push({ text: msg.content });
@@ -231,6 +237,7 @@ export class VertexLlmProvider implements LlmProvider {
     }
 
     return {
+      rawParts: candidateContent,
       content: textContent,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       thinking: thinkingContent || undefined,
