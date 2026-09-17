@@ -18,6 +18,7 @@
 import React from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import type { Shape } from "@/lib/geometry/types";
+import { DEFAULT_TOLERANCE_POLICY } from "@/lib/geometry/tolerance";
 import {
   AuthoringSketch,
   ConstraintCandidate,
@@ -27,6 +28,7 @@ import {
   ParameterRole,
   emptySketch,
 } from "@/lib/upce/types";
+import { rebuildSketch } from "@/lib/upce/lower";
 import { regenerate, namesOf, addConstraint, removeConstraint } from "@/lib/upce/document";
 import { detectCandidates } from "@/lib/upce/detect";
 import { suggestCompletion, applyAction, CompletionReport, IntentAction } from "@/lib/upce/completion";
@@ -226,6 +228,11 @@ interface UpceContextValue extends UpceState {
   setTemplateName: (name: string) => void;
   checkReadiness: () => void;
   publishTemplate: () => void;
+  adoptAndPublishAgentDrawing: (
+    sceneGraph: any,
+    shapes: Shape[],
+    options?: { autoPublish?: boolean; templateName?: string }
+  ) => void;
   dependentsFor: (name: string) => string[];
   undoIntent: () => void;
   canUndoIntent: boolean;
@@ -570,8 +577,31 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
         parameters: { ...s.sketch.parameters, [name]: { ...p, value } },
       };
       commit(next, `${name} = ${value}`, before);
+
+      // If this sketch originated from CAD Agent, synchronize via parametric agent pipeline
+      if (s.sketch.meta?.author === "CAD-Agent-v2") {
+        fetch("/api/ai/agent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: `Update parameter ${name} to ${value}`,
+            activeParameters: { [name]: value },
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data?.shapes && data.shapes.length > 0) {
+              dispatch({
+                type: "APPLY_SOLVED_SHAPES",
+                shapes: data.shapes,
+                description: `${name} = ${value}`,
+              });
+            }
+          })
+          .catch((err) => console.warn("Agent parametric sync error:", err));
+      }
     },
-    [s.sketch, commit, push]
+    [s.sketch, commit, push, dispatch]
   );
 
   const updateParameter = React.useCallback(
@@ -1355,6 +1385,163 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [s.sketch, authored, names]);
 
+  const adoptAndPublishAgentDrawing = React.useCallback(
+    (
+      sceneGraph: any,
+      agentShapes: Shape[],
+      options: { autoPublish?: boolean; templateName?: string } = {}
+    ) => {
+      const { autoPublish = true, templateName } = options;
+      const targetName = templateName || sceneGraph?.metadata?.title || "Parametric CAD Model";
+
+      const targetShapes = agentShapes && agentShapes.length > 0 ? agentShapes : authored;
+      const shapeNames = namesOf(targetShapes);
+
+      const { sketch: baseSketch } = rebuildSketch(targetShapes, emptySketch(), DEFAULT_TOLERANCE_POLICY);
+
+      const sketchParams: Record<string, SketchParameter> = {};
+      const sgParams = sceneGraph?.parameters || {};
+      const sgFormulas: Array<{ target: string; expression: string; dependencies?: string[] }> =
+        sceneGraph?.formulas || [];
+
+      const formulaMap = new Map<string, { expression: string; dependencies?: string[] }>();
+      for (const f of sgFormulas) {
+        formulaMap.set(f.target, f);
+      }
+
+      for (const [key, p] of Object.entries<any>(sgParams)) {
+        const paramName = p.name || key;
+        const formula = formulaMap.get(paramName);
+        const isDerived = p.role === "DERIVED" || Boolean(p.expr) || Boolean(formula);
+        const expr = p.expr || formula?.expression;
+        const dependencies = formula?.dependencies || [];
+
+        const lower = paramName.toLowerCase();
+        let uiGroup = "Dimensions";
+        if (isDerived) {
+          uiGroup = "Derived Dimensions";
+        } else if (/span|clear_width|width|length/i.test(lower)) {
+          uiGroup = "Span & Clear Dimensions";
+        } else if (/height|clear_height|depth|rise/i.test(lower)) {
+          uiGroup = "Vertical Dimensions";
+        } else if (/wall|slab|thickness|flange|web|deck/i.test(lower)) {
+          uiGroup = "Structural Thicknesses";
+        } else if (/cushion|earth|fill|cover/i.test(lower)) {
+          uiGroup = "Earth Cushion & Site";
+        } else if (/haunch|chamfer|fillet/i.test(lower)) {
+          uiGroup = "Corner Haunches";
+        }
+
+        const numVal = typeof p.value === "number" ? p.value : 0;
+        let minVal = p.min;
+        let maxVal = p.max;
+        if (minVal === undefined && maxVal === undefined && numVal > 0) {
+          if (/span|width|length/i.test(lower)) {
+            minVal = Math.round(numVal * 0.5);
+            maxVal = Math.round(numVal * 2.0);
+          } else if (/wall|slab|thickness/i.test(lower)) {
+            minVal = 200;
+            maxVal = Math.max(2000, Math.round(numVal * 2.5));
+          } else if (/cushion/i.test(lower)) {
+            minVal = 0;
+            maxVal = Math.max(8000, Math.round(numVal * 2.5));
+          } else if (/haunch/i.test(lower)) {
+            minVal = 100;
+            maxVal = 1500;
+          }
+        }
+
+        sketchParams[paramName] = {
+          name: paramName,
+          role: isDerived ? "DERIVED" : "DRIVING",
+          type: "LENGTH",
+          unit: (p.unit as any) || "mm",
+          value: numVal,
+          min: minVal,
+          max: maxVal,
+          step: p.step,
+          expr: isDerived ? expr : undefined,
+          dependencies: isDerived ? dependencies : undefined,
+          provenance: makeProvenance(
+            "completion-assistant",
+            p.description || `Defined by CAD Agent for ${targetName}`
+          ),
+          boundConstraints: [],
+          published: !isDerived,
+          uiGroup,
+          description: p.description || `Parametric ${paramName}`,
+        };
+      }
+
+      for (const f of sgFormulas) {
+        if (!sketchParams[f.target]) {
+          sketchParams[f.target] = {
+            name: f.target,
+            role: "DERIVED",
+            type: "LENGTH",
+            unit: "mm",
+            value: 0,
+            expr: f.expression,
+            dependencies: f.dependencies || [],
+            provenance: makeProvenance(
+              "completion-assistant",
+              `Formula ${f.target} = ${f.expression}`
+            ),
+            boundConstraints: [],
+            published: false,
+            uiGroup: "Derived Dimensions",
+            description: `Formula ${f.target}`,
+          };
+        }
+      }
+
+      const candidateSketch: AuthoringSketch = {
+        ...baseSketch,
+        parameters: sketchParams,
+        meta: {
+          ...baseSketch.meta,
+          name: targetName,
+          author: "CAD-Agent-v2",
+          version: 1,
+          freedomIsIntentional: true,
+          publishedAt: autoPublish ? Date.now() : undefined,
+        },
+      };
+
+      const result = regenerate(targetShapes, candidateSketch, { shapeNames: shapeNames });
+      const finalSketch = result.rejection ? candidateSketch : result.sketch;
+
+      if (autoPublish) {
+        finalSketch.meta.publishedAt = Date.now();
+      }
+
+      dispatch({
+        type: "APPLY_SOLVED_SHAPES",
+        shapes: result.shapes && result.shapes.length > 0 ? result.shapes : targetShapes,
+        description: `Adopted CAD Agent drawing "${targetName}"`,
+      });
+
+      const drivingCount = Object.values(sketchParams).filter((p) => p.role === "DRIVING").length;
+
+      setS((prev) => ({
+        ...prev,
+        sketch: finalSketch,
+        started: true,
+        stage: autoPublish ? "published" : "analysed",
+        dof: result.dof,
+        invariants: result.invariants,
+        readiness: null,
+        notice: {
+          kind: "ok",
+          text: autoPublish
+            ? `Published "${targetName}" to Run Mode (${drivingCount} driving parameters ready to adjust).`
+            : `Adopted "${targetName}" into Author Mode.`,
+        },
+      }));
+    },
+    [authored, dispatch]
+  );
+
   const undoIntent = React.useCallback(() => {
     const previous = s.past[s.past.length - 1];
     if (!previous) return;
@@ -1433,6 +1620,7 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     setTemplateName,
     checkReadiness,
     publishTemplate,
+    adoptAndPublishAgentDrawing,
     dependentsFor: (name: string) => dependentsOf(name, s.sketch.parameters),
     undoIntent,
     canUndoIntent: s.past.length > 0,

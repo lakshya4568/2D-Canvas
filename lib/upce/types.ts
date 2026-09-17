@@ -350,6 +350,7 @@ export interface SketchMeta {
    * keeps the overlap recoverable by dragging the pieces back apart.
    */
   mergeOverlaps?: boolean;
+  author?: string;
 }
 
 export function emptySketch(): AuthoringSketch {
