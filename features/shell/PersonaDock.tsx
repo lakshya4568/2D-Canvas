@@ -75,11 +75,14 @@ export function PersonaDock({
       {collapsed && (
         <button
           onClick={onToggleCollapse}
-          title="Show panel"
-          aria-label="Show panel"
-          className="absolute top-2 right-2 z-20 w-[28px] h-[28px] rounded-[5px] grid place-items-center bg-(--ink-panel) border border-(--rule) text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
+          title="Show Persona / Properties panel"
+          aria-label="Show Persona / Properties panel"
+          className="absolute top-8.5 right-24 z-20 h-[28px] px-2.5 rounded-[5px] flex items-center gap-1.5 bg-(--ink-panel)/95 border border-(--rule) text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer shadow-md text-[11px] backdrop-blur-xs"
         >
-          <PanelRightOpen className="w-[14px] h-[14px]" strokeWidth={1.9} />
+          <PanelRightOpen className="w-[14px] h-[14px] text-(--pen)" strokeWidth={1.9} />
+          <span className="font-semibold text-(--fg-primary)">
+            {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
+          </span>
         </button>
       )}
 

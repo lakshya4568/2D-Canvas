@@ -56,6 +56,11 @@ export function CadShell() {
     }
   }, [agentPreview?.running, cadAgentOpen]);
 
+  // Ensure Persona dock is open and visible whenever the user switches persona mode (Draftsman, Author, Run)
+  React.useEffect(() => {
+    setDockCollapsed(false);
+  }, [state.userMode]);
+
   const handleTriggerDxfImport = React.useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -153,9 +158,21 @@ export function CadShell() {
         onImportDxf={handleTriggerDxfImport}
         cadAgentOpen={cadAgentOpen}
         onToggleCadAgent={() => setCadAgentOpen((v) => !v)}
+        personaDockOpen={!dockCollapsed}
+        onTogglePersonaDock={() => setDockCollapsed((v) => !v)}
+        onOpenPersonaDock={() => setDockCollapsed(false)}
       />
 
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-h-0 flex relative">
+        {/* Left Side: CAD Agent Dock (Left Top) */}
+        <CadAgentDock
+          width={cadAgentWidth}
+          onWidthChange={setCadAgentWidth}
+          collapsed={!cadAgentOpen}
+          onToggleCollapse={() => setCadAgentOpen((v) => !v)}
+        />
+
+        {/* Center: Main Canvas */}
         <main className="flex-1 min-w-0 relative bg-(--paper)">
           <DrawingCanvas onCursorChange={setCursorPos} />
 
@@ -179,18 +196,12 @@ export function CadShell() {
           </div>
         </main>
 
+        {/* Right Side: Persona Dock (Draftsman, Author, Run, Properties) */}
         <PersonaDock
           width={dockWidth}
           onWidthChange={setDockWidth}
           collapsed={dockCollapsed}
           onToggleCollapse={() => setDockCollapsed((v) => !v)}
-        />
-
-        <CadAgentDock
-          width={cadAgentWidth}
-          onWidthChange={setCadAgentWidth}
-          collapsed={!cadAgentOpen}
-          onToggleCollapse={() => setCadAgentOpen((v) => !v)}
         />
       </div>
 

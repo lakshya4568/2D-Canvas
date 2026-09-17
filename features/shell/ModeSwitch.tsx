@@ -42,7 +42,7 @@ const MODES: {
   },
 ];
 
-export function ModeSwitch() {
+export function ModeSwitch({ onSelect }: { onSelect?: (mode: UserMode) => void } = {}) {
   const { state, dispatch } = useDrawing();
 
   return (
@@ -60,7 +60,10 @@ export function ModeSwitch() {
             role="tab"
             aria-selected={active}
             title={mode.contract}
-            onClick={() => dispatch({ type: "SET_USER_MODE", mode: mode.id })}
+            onClick={() => {
+              dispatch({ type: "SET_USER_MODE", mode: mode.id });
+              onSelect?.(mode.id);
+            }}
             className={[
               "flex items-center gap-1.5 px-2.5 rounded-[3px] text-[11px] font-medium",
               "transition-colors duration-100 cursor-pointer",

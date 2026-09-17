@@ -36,6 +36,8 @@ import {
   Boxes,
   Ungroup,
   Bot,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "@/features/parametric/upceContext";
@@ -53,6 +55,9 @@ interface CadHeaderProps {
   onImportDxf?: () => void;
   cadAgentOpen?: boolean;
   onToggleCadAgent?: () => void;
+  personaDockOpen?: boolean;
+  onTogglePersonaDock?: () => void;
+  onOpenPersonaDock?: () => void;
 }
 
 type RibbonTab = "home" | "draw" | "modify" | "parametric" | "annotate" | "output";
@@ -63,6 +68,9 @@ export function CadHeader({
   onImportDxf,
   cadAgentOpen,
   onToggleCadAgent,
+  personaDockOpen,
+  onTogglePersonaDock,
+  onOpenPersonaDock,
 }: CadHeaderProps) {
   const {
     state,
@@ -337,56 +345,78 @@ export function CadHeader({
 
       {/* 2. AutoCAD Ribbon Tab Headers & Persona Switcher */}
       <div className="h-[28px] px-3 flex items-center justify-between border-b border-(--rule) bg-(--ink-panel) text-[11.5px]">
-        <div className="flex items-center gap-1">
-          {[
-            { id: "home", label: "Home" },
-            { id: "draw", label: "Draw" },
-            { id: "modify", label: "Modify" },
-            { id: "parametric", label: "Parametric" },
-            { id: "annotate", label: "Annotate" },
-            { id: "output", label: "Output" },
-          ].map((tab) => (
+        {/* Left Side: CAD Agent Toggle (Left Top) & Ribbon Tabs */}
+        <div className="flex items-center gap-2.5">
+          {onToggleCadAgent && (
             <button
-              key={tab.id}
-              onClick={() => setActiveRibbonTab(tab.id as RibbonTab)}
-              className={`h-[28px] px-3 font-medium transition-colors border-b-2 cursor-pointer ${
-                activeRibbonTab === tab.id
-                  ? "border-(--pen) text-(--pen) font-semibold bg-(--ink-app)/40"
-                  : "border-transparent text-(--fg-secondary) hover:text-(--fg-primary) hover:bg-(--ink-app)/20"
+              onClick={onToggleCadAgent}
+              className={`h-[22px] px-2 rounded-[4px] text-[11px] font-medium inline-flex items-center gap-1.5 transition-all cursor-pointer border ${
+                cadAgentOpen
+                  ? "bg-(--pen) text-white border-(--pen) shadow-xs"
+                  : "bg-(--ink-sunken) text-(--fg-secondary) hover:text-(--fg-primary) border-(--rule) hover:border-(--pen)"
               }`}
+              title={cadAgentOpen ? "Collapse CAD Agent (Left panel)" : "Open CAD Agent (Left top)"}
             >
-              {tab.label}
+              <Bot className="w-3.5 h-3.5" />
+              <span>CAD Agent</span>
+              {agentRunning && (
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              )}
             </button>
-          ))}
+          )}
+
+          <div className="h-3.5 w-px bg-(--rule)" />
+
+          <div className="flex items-center gap-1">
+            {[
+              { id: "home", label: "Home" },
+              { id: "draw", label: "Draw" },
+              { id: "modify", label: "Modify" },
+              { id: "parametric", label: "Parametric" },
+              { id: "annotate", label: "Annotate" },
+              { id: "output", label: "Output" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveRibbonTab(tab.id as RibbonTab)}
+                className={`h-[28px] px-3 font-medium transition-colors border-b-2 cursor-pointer ${
+                  activeRibbonTab === tab.id
+                    ? "border-(--pen) text-(--pen) font-semibold bg-(--ink-app)/40"
+                    : "border-transparent text-(--fg-secondary) hover:text-(--fg-primary) hover:bg-(--ink-app)/20"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Persona Mode Switcher (Draftsman vs Author vs Run) & CAD Agent Toggle */}
-        <div className="flex items-center gap-2.5">
+        {/* Right Side: Persona Mode Switcher & Persona Dock Toggle */}
+        <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-(--fg-muted) uppercase tracking-wider font-semibold">
               Persona:
             </span>
-            <ModeSwitch />
+            <ModeSwitch onSelect={onOpenPersonaDock} />
           </div>
 
-          {onToggleCadAgent && (
-            <div className="flex items-center pl-2.5 border-l border-(--rule)">
-              <button
-                onClick={onToggleCadAgent}
-                className={`h-[26px] px-2.5 rounded-[5px] text-[11px] font-medium inline-flex items-center gap-1.5 transition-all cursor-pointer border ${
-                  cadAgentOpen
-                    ? "bg-(--pen) text-white border-(--pen) shadow-xs"
-                    : "bg-(--ink-sunken) text-(--fg-secondary) hover:text-(--fg-primary) border-(--rule) hover:border-(--pen)"
-                }`}
-                title={cadAgentOpen ? "Collapse CAD Agent panel" : "Open CAD Agent panel"}
-              >
-                <Bot className="w-3.5 h-3.5" />
-                <span>CAD Agent</span>
-                {agentRunning && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                )}
-              </button>
-            </div>
+          {onTogglePersonaDock && (
+            <button
+              onClick={onTogglePersonaDock}
+              className={`h-[22px] px-2 rounded-[4px] text-[11px] font-medium inline-flex items-center gap-1 transition-all cursor-pointer border ${
+                personaDockOpen
+                  ? "bg-(--ink-raised) text-(--fg-primary) border-(--rule-strong) shadow-xs"
+                  : "bg-(--ink-sunken) text-(--fg-muted) hover:text-(--fg-primary) border-(--rule)"
+              }`}
+              title={personaDockOpen ? "Hide Persona & Properties dock" : "Show Persona & Properties dock"}
+            >
+              {personaDockOpen ? (
+                <PanelRightClose className="w-3.5 h-3.5" />
+              ) : (
+                <PanelRightOpen className="w-3.5 h-3.5" />
+              )}
+              <span className="text-[10px] font-medium">Panel</span>
+            </button>
           )}
         </div>
       </div>
