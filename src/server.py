@@ -25,6 +25,12 @@ from src.tools.render import execute_render_preview
 from src.tools.session import DrawingSession
 from src.tools.session_ops import execute_manage_session
 from src.tools.transform import execute_transform_entities
+from src.tools.gad_tools import (
+    execute_gad_parse_drawing,
+    execute_gad_update_parameters,
+    execute_gad_query_drawing,
+)
+
 
 # ---------------------------------------------------------------------------
 # Logging Setup (Strictly to rotating file and stderr to protect STDIO transport)
@@ -254,7 +260,68 @@ def render_preview(
     )
 
 
+# ---------------------------------------------------------------------------
+# Tool 8: gad_parse_drawing (Civil GAD Analysis)
+# ---------------------------------------------------------------------------
+@mcp.tool(
+    name="gad_parse_drawing",
+    description=(
+        "Parse a civil engineering General Arrangement Drawing (GAD) into a parametric GADModel. "
+        "Extracts views, entities (barrels, slabs, haunches, cushion), parameters, formulas, and constraints. "
+        "Units: millimeters (mm). Origin at centerline/invert level (0,0)."
+    ),
+)
+def gad_parse_drawing(
+    image_path: Optional[str] = None,
+    project_name: str = "RCC Proposed Bridge / Culvert",
+    parameters_override: Optional[Dict[str, float]] = None,
+) -> ToolResult:
+    logger.info(f"gad_parse_drawing called: image='{image_path}', project='{project_name}'")
+    return execute_gad_parse_drawing(
+        image_path=image_path,
+        project_name=project_name,
+        parameters_override=parameters_override,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool 9: gad_update_parameters (Zero Conformal Scaling Update)
+# ---------------------------------------------------------------------------
+@mcp.tool(
+    name="gad_update_parameters",
+    description=(
+        "Update driving parameters of the active GAD drawing with ZERO conformal scaling (§8). "
+        "Undriven members (wall thickness, haunch legs, cushion depth) remain strictly unscaled. "
+        "Units: millimeters (mm)."
+    ),
+)
+def gad_update_parameters(
+    deltas: Dict[str, float],
+) -> ToolResult:
+    logger.info(f"gad_update_parameters called: deltas={deltas}")
+    return execute_gad_update_parameters(deltas=deltas)
+
+
+# ---------------------------------------------------------------------------
+# Tool 10: gad_query_drawing (Read-Only Hydraulic & Geometric Audit)
+# ---------------------------------------------------------------------------
+@mcp.tool(
+    name="gad_query_drawing",
+    annotations={"read_only_hint": True},
+    description=(
+        "Query hydraulic clearance, waterway area, and geometric dimensions of active GAD model. "
+        "Units: millimeters (mm), area in m²."
+    ),
+)
+def gad_query_drawing(
+    query_str: str = "waterway",
+) -> ToolResult:
+    logger.info(f"gad_query_drawing called: query='{query_str}'")
+    return execute_gad_query_drawing(query_str=query_str)
+
+
 def main():
+
     """Server entrypoint for stdio transport."""
     logger.info("Starting UPCE CAD FastMCP Server over STDIO transport")
     mcp.run(transport="stdio")
