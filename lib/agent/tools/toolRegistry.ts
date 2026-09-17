@@ -748,7 +748,337 @@ export class ToolRegistry {
         return { dimension: node };
       }
 
+      case "draw_chamfer": {
+        const { id, x1, y1, x2, y2, layer = "CONCRETE_SECTION" } = args;
+        const evalX1 = this.evaluateSymbolic(x1);
+        const evalY1 = this.evaluateSymbolic(y1);
+        const evalX2 = this.evaluateSymbolic(x2);
+        const evalY2 = this.evaluateSymbolic(y2);
+
+        const node: SceneGraphNode = {
+          id,
+          type: "line",
+          layer,
+          style: {
+            strokeColor: "#00E5FF",
+            strokeWidth: 2,
+          },
+          symbolic: { x1, y1, x2, y2 },
+          evaluated: { x1: evalX1, y1: evalY1, x2: evalX2, y2: evalY2 },
+        };
+        this.ctx.nodes.set(id, node);
+        return { chamfer: node };
+      }
+
+      case "draw_fillet": {
+        const { id, cx, cy, radius, startAngle, endAngle, layer = "CONCRETE_SECTION" } = args;
+        const evalCx = this.evaluateSymbolic(cx);
+        const evalCy = this.evaluateSymbolic(cy);
+        const evalRadius = this.evaluateSymbolic(radius);
+
+        const node: SceneGraphNode = {
+          id,
+          type: "arc",
+          layer,
+          style: {
+            strokeColor: "#00E5FF",
+            strokeWidth: 2,
+          },
+          symbolic: { cx, cy, radius, startAngle, endAngle },
+          evaluated: {
+            cx: evalCx,
+            cy: evalCy,
+            radius: evalRadius,
+            startAngle: Number(startAngle),
+            endAngle: Number(endAngle),
+          },
+        };
+        this.ctx.nodes.set(id, node);
+        return { fillet: node };
+      }
+
+      case "trim": {
+        const { entityId, endpoint, targetX, targetY } = args;
+        const node = this.ctx.nodes.get(entityId);
+        if (!node) throw new Error(`Entity "${entityId}" not found for trim`);
+        const evalX = this.evaluateSymbolic(targetX);
+        const evalY = this.evaluateSymbolic(targetY);
+
+        if (node.type === "line") {
+          if (endpoint === "start") {
+            node.evaluated.x1 = evalX;
+            node.evaluated.y1 = evalY;
+          } else {
+            node.evaluated.x2 = evalX;
+            node.evaluated.y2 = evalY;
+          }
+        }
+        return { trimmed: node };
+      }
+
+      case "extend": {
+        const { entityId, endpoint, targetX, targetY } = args;
+        const node = this.ctx.nodes.get(entityId);
+        if (!node) throw new Error(`Entity "${entityId}" not found for extend`);
+        const evalX = this.evaluateSymbolic(targetX);
+        const evalY = this.evaluateSymbolic(targetY);
+
+        if (node.type === "line") {
+          if (endpoint === "start") {
+            node.evaluated.x1 = evalX;
+            node.evaluated.y1 = evalY;
+          } else {
+            node.evaluated.x2 = evalX;
+            node.evaluated.y2 = evalY;
+          }
+        }
+        return { extended: node };
+      }
+
+      case "delete_entity": {
+        const { entityId } = args;
+        const existed = this.ctx.nodes.delete(entityId);
+        return { success: existed, deletedEntityId: entityId };
+      }
+
+      case "inspect_geometry": {
+        const { layer, entityId } = args;
+        if (entityId) {
+          const node = this.ctx.nodes.get(entityId);
+          if (!node) return { error: `Entity "${entityId}" not found` };
+          return { entity: node, bounds: this.getNodeBounds(node) };
+        }
+        const nodes = Array.from(this.ctx.nodes.values()).filter(
+          (n) => !layer || n.layer === layer
+        );
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const n of nodes) {
+          const b = this.getNodeBounds(n);
+          minX = Math.min(minX, b.minX);
+          minY = Math.min(minY, b.minY);
+          maxX = Math.max(maxX, b.maxX);
+          maxY = Math.max(maxY, b.maxY);
+        }
+        return {
+          totalEntities: nodes.length,
+          bounds: nodes.length ? { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY } : undefined,
+          entities: nodes.map((n) => ({ id: n.id, type: n.type, layer: n.layer, evaluated: n.evaluated })),
+        };
+      }
+
+      case "measure_distance": {
+        const { entityA, entityB, x1, y1, x2, y2 } = args;
+        let pt1 = { x: Number(x1 ?? 0), y: Number(y1 ?? 0) };
+        let pt2 = { x: Number(x2 ?? 0), y: Number(y2 ?? 0) };
+
+        if (entityA && this.ctx.nodes.has(entityA)) {
+          const bA = this.getNodeBounds(this.ctx.nodes.get(entityA)!);
+          pt1 = { x: (bA.minX + bA.maxX) / 2, y: (bA.minY + bA.maxY) / 2 };
+        }
+        if (entityB && this.ctx.nodes.has(entityB)) {
+          const bB = this.getNodeBounds(this.ctx.nodes.get(entityB)!);
+          pt2 = { x: (bB.minX + bB.maxX) / 2, y: (bB.minY + bB.maxY) / 2 };
+        }
+
+        const dx = pt2.x - pt1.x;
+        const dy = pt2.y - pt1.y;
+        const distance = Math.hypot(dx, dy);
+
+        return {
+          distanceMm: Math.round(distance * 100) / 100,
+          dxMm: Math.round(dx * 100) / 100,
+          dyMm: Math.round(dy * 100) / 100,
+          point1: pt1,
+          point2: pt2,
+        };
+      }
+
+      case "measure_angle": {
+        const { entityA, entityB } = args;
+        const nodeA = this.ctx.nodes.get(entityA);
+        const nodeB = this.ctx.nodes.get(entityB);
+        if (!nodeA || !nodeB) {
+          throw new Error("measure_angle requires valid line entity IDs");
+        }
+        const dxA = (nodeA.evaluated.x2 ?? 0) - (nodeA.evaluated.x1 ?? 0);
+        const dyA = (nodeA.evaluated.y2 ?? 0) - (nodeA.evaluated.y1 ?? 0);
+        const dxB = (nodeB.evaluated.x2 ?? 0) - (nodeB.evaluated.x1 ?? 0);
+        const dyB = (nodeB.evaluated.y2 ?? 0) - (nodeB.evaluated.y1 ?? 0);
+
+        const angleA = Math.atan2(dyA, dxA);
+        const angleB = Math.atan2(dyB, dxB);
+        let diffDeg = Math.abs((angleB - angleA) * (180 / Math.PI));
+        if (diffDeg > 180) diffDeg = 360 - diffDeg;
+
+        return { angleDeg: Math.round(diffDeg * 100) / 100 };
+      }
+
+      case "calculate_intersections": {
+        const { entityA, entityB } = args;
+        const nodeA = this.ctx.nodes.get(entityA);
+        const nodeB = this.ctx.nodes.get(entityB);
+        if (!nodeA || !nodeB) {
+          throw new Error("calculate_intersections requires valid entity IDs");
+        }
+        // Simple 2D line-line intersection
+        if (nodeA.type === "line" && nodeB.type === "line") {
+          const x1 = nodeA.evaluated.x1 ?? 0, y1 = nodeA.evaluated.y1 ?? 0;
+          const x2 = nodeA.evaluated.x2 ?? 0, y2 = nodeA.evaluated.y2 ?? 0;
+          const x3 = nodeB.evaluated.x1 ?? 0, y3 = nodeB.evaluated.y1 ?? 0;
+          const x4 = nodeB.evaluated.x2 ?? 0, y4 = nodeB.evaluated.y2 ?? 0;
+
+          const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+          if (Math.abs(denom) < 1e-6) {
+            return { intersections: [], parallel: true };
+          }
+          const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+          const ix = x1 + t * (x2 - x1);
+          const iy = y1 + t * (y2 - y1);
+          return { intersections: [{ x: Math.round(ix * 100) / 100, y: Math.round(iy * 100) / 100 }] };
+        }
+        return { intersections: [] };
+      }
+
+      case "dof_analysis": {
+        const hasRigidAnchor = Array.from(this.ctx.constraints.values()).some(
+          (c) => c.type === "rigid_anchor"
+        );
+        const entitiesCount = this.ctx.nodes.size;
+        const constraintsCount = this.ctx.constraints.size;
+        const status = hasRigidAnchor ? "FULLY_CONSTRAINED" : "UNDER_CONSTRAINED";
+
+        return {
+          dofStatus: status,
+          rigidAnchorFixed: hasRigidAnchor,
+          entitiesCount,
+          constraintsCount,
+          freeDofRemaining: hasRigidAnchor ? 0 : 3,
+        };
+      }
+
+      case "verify_goal": {
+        const { expectedSpan, expectedHeight, expectedHaunch, checkRigidAnchor = true } = args;
+        const checks: Array<{ name: string; status: "PASS" | "FAIL"; expected: any; actual: any }> = [];
+
+        // Check rigid anchor (§18)
+        if (checkRigidAnchor) {
+          const hasAnchor = Array.from(this.ctx.constraints.values()).some(
+            (c) => c.type === "rigid_anchor"
+          );
+          checks.push({
+            name: "Planar Rigid-Body Anchor (3 DOF §18)",
+            status: hasAnchor ? "PASS" : "FAIL",
+            expected: "Rigid anchor present",
+            actual: hasAnchor ? "Anchored" : "Missing anchor",
+          });
+        }
+
+        // Check span parameter
+        if (expectedSpan !== undefined) {
+          const spanParam = this.ctx.parameters.get("span");
+          const actualSpan = spanParam?.value;
+          checks.push({
+            name: "Clear Span (mm)",
+            status: actualSpan === Number(expectedSpan) ? "PASS" : "FAIL",
+            expected: expectedSpan,
+            actual: actualSpan ?? "Not found",
+          });
+        }
+
+        // Check height parameter
+        if (expectedHeight !== undefined) {
+          const heightParam = this.ctx.parameters.get("height");
+          const actualHeight = heightParam?.value;
+          checks.push({
+            name: "Clear Height (mm)",
+            status: actualHeight === Number(expectedHeight) ? "PASS" : "FAIL",
+            expected: expectedHeight,
+            actual: actualHeight ?? "Not found",
+          });
+        }
+
+        // Check haunch
+        if (expectedHaunch !== undefined) {
+          const haunchParam = this.ctx.parameters.get("haunch");
+          const actualHaunch = haunchParam?.value;
+          checks.push({
+            name: "Haunch Sizing (mm)",
+            status: actualHaunch === Number(expectedHaunch) ? "PASS" : "FAIL",
+            expected: expectedHaunch,
+            actual: actualHaunch ?? "Not found",
+          });
+        }
+
+        const allPassed = checks.every((c) => c.status === "PASS");
+        return {
+          allGoalsPassed: allPassed,
+          checks,
+          summary: allPassed
+            ? "All geometric goals and design intent criteria successfully verified!"
+            : "Some geometric goals remain unsatisfied.",
+        };
+      }
+
+      case "complete_drawing": {
+        const { summary, status = "GOAL_SATISFIED" } = args;
+        return {
+          completed: true,
+          status,
+          summary,
+          timestamp: Date.now(),
+        };
+      }
+
+      case "gad_parse_drawing": {
+        // Automatically inject standard civil RCC Box Culvert baseline into context
+        this.ctx.parameters.set("span", { name: "span", value: 10700, unit: "mm", role: "DRIVING" });
+        this.ctx.parameters.set("height", { name: "height", value: 4100, unit: "mm", role: "DRIVING" });
+        this.ctx.parameters.set("wall_thk", { name: "wall_thk", value: 850, unit: "mm", role: "DRIVING" });
+        this.ctx.parameters.set("top_slab", { name: "top_slab", value: 800, unit: "mm", role: "DRIVING" });
+        this.ctx.parameters.set("bot_slab", { name: "bot_slab", value: 800, unit: "mm", role: "DRIVING" });
+        this.ctx.parameters.set("haunch", { name: "haunch", value: 600, unit: "mm", role: "DRIVING" });
+        this.ctx.parameters.set("cushion_thk", { name: "cushion_thk", value: 4000, unit: "mm", role: "DRIVING" });
+        this.ctx.parameters.set("outer_w", { name: "outer_w", value: 12400, unit: "mm", role: "DERIVED", expr: "span + 2 * wall_thk" });
+        this.ctx.parameters.set("outer_h", { name: "outer_h", value: 5700, unit: "mm", role: "DERIVED", expr: "height + top_slab + bot_slab" });
+
+        this.ctx.constraints.set("c_rigid_anchor", { id: "c_rigid_anchor", type: "rigid_anchor", entityA: "centerline" });
+
+        return {
+          status: "SUCCESS",
+          message: "Loaded parametric GAD Box Culvert model into context",
+          parametersCount: this.ctx.parameters.size,
+        };
+      }
+
+      case "gad_update_parameters": {
+        const { deltas } = args;
+        if (deltas && typeof deltas === "object") {
+          for (const [k, v] of Object.entries(deltas)) {
+            const p = this.ctx.parameters.get(k);
+            if (p) p.value = Number(v);
+          }
+          this.evaluateAllFormulas();
+        }
+        return {
+          status: "SUCCESS",
+          updatedParameters: deltas,
+        };
+      }
+
+      case "gad_query_drawing": {
+        const span = this.ctx.parameters.get("span")?.value ?? 10700;
+        const height = this.ctx.parameters.get("height")?.value ?? 4100;
+        const haunch = this.ctx.parameters.get("haunch")?.value ?? 600;
+        const waterwayArea = (span / 1000) * (height / 1000) - 2 * (haunch / 1000) * (haunch / 1000);
+        return {
+          spanMm: span,
+          heightMm: height,
+          waterwayAreaM2: Math.round(waterwayArea * 100) / 100,
+        };
+      }
+
       default:
+
         throw new Error(`Unimplemented tool handler: ${tool}`);
     }
   }

@@ -94,13 +94,31 @@ export interface ToolResult {
 // ---------------------------------------------------------------------------
 
 export interface ModelMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
+  role: "system" | "user" | "assistant" | "function" | "tool";
+  content?: string;
   images?: Array<{
     mimeType: string;
     data: string; // Base64 or URL
   }>;
+  functionCall?: {
+    name: string;
+    args: Record<string, unknown>;
+  };
+  functionCalls?: Array<{
+    id?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }>;
+  functionResponse?: {
+    name: string;
+    response: Record<string, unknown>;
+  };
+  functionResponses?: Array<{
+    name: string;
+    response: Record<string, unknown>;
+  }>;
 }
+
 
 export interface ModelRequest {
   model: string;
@@ -367,6 +385,8 @@ export interface AgentRequest {
   activeParameters?: Record<string, number>;
   tolerancePolicy?: TolerancePolicy;
   operations?: Array<{ tool: string; args?: Record<string, any>; [key: string]: any }>;
+  onProgress?: (step: ProgressTraceStep) => void;
+  providerOverride?: LlmProvider;
 }
 
 export interface AgentLogEntry {
@@ -374,6 +394,17 @@ export interface AgentLogEntry {
   timestamp: number;
   message: string;
   data?: unknown;
+}
+
+export interface ProgressTraceStep {
+  iteration: number;
+  phase: "observe" | "reason" | "act" | "inspect" | "verify" | "correct";
+  observation?: string;
+  thought?: string;
+  toolCall?: { tool: string; args: Record<string, any> };
+  toolResult?: { success: boolean; data?: any; error?: string };
+  verification?: { passed: boolean; message: string; checks?: any[] };
+  timestamp: number;
 }
 
 export interface AgentExecutionResult {
@@ -388,9 +419,11 @@ export interface AgentExecutionResult {
   svg: string;
   previewPng?: string;
   logs: AgentLogEntry[];
+  progressTrace?: ProgressTraceStep[];
   executionTimeMs: number;
   response?: string;
   explanation?: string;
   thinking?: string;
   error?: string;
 }
+

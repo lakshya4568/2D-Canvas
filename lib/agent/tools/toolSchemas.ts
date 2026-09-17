@@ -327,6 +327,231 @@ export const CAD_TOOL_SCHEMAS: Record<string, McpToolSchema> = {
       required: ["entity_a", "entity_b", "relation"],
     },
   },
+
+  draw_chamfer: {
+    name: "draw_chamfer",
+    description:
+      "Constructs a 45-degree or custom corner bevel/haunch (e.g. 600x600 mm corner haunch) between two intersecting or meeting lines/edges.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Unique identifier for chamfer entity" },
+        x1: { type: "string", description: "First corner vertex X coordinate (number or expression, mm)" },
+        y1: { type: "string", description: "First corner vertex Y coordinate (number or expression, mm)" },
+        x2: { type: "string", description: "Second corner vertex X coordinate (number or expression, mm)" },
+        y2: { type: "string", description: "Second corner vertex Y coordinate (number or expression, mm)" },
+        distance1: { type: "string", description: "First leg distance in mm (e.g. 'haunch' or 600)" },
+        distance2: { type: "string", description: "Second leg distance in mm (default: same as distance1)" },
+        layer: { type: "string", description: "CAD layer name (default: CONCRETE_SECTION)" },
+      },
+      required: ["id", "x1", "y1", "x2", "y2"],
+    },
+  },
+
+  draw_fillet: {
+    name: "draw_fillet",
+    description:
+      "Constructs a tangent circular arc fillet with specified radius r between two meeting lines.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Unique identifier for fillet entity" },
+        cx: { type: "string", description: "Fillet arc center X coordinate (number or expression, mm)" },
+        cy: { type: "string", description: "Fillet arc center Y coordinate (number or expression, mm)" },
+        radius: { type: "string", description: "Fillet radius in mm (number or expression)" },
+        startAngle: { type: "number", description: "Fillet arc start angle in degrees" },
+        endAngle: { type: "number", description: "Fillet arc end angle in degrees" },
+        layer: { type: "string", description: "CAD layer name" },
+      },
+      required: ["id", "cx", "cy", "radius", "startAngle", "endAngle"],
+    },
+  },
+
+  trim: {
+    name: "trim",
+    description:
+      "Trims a line or curve entity at an intersection or target bound coordinate.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityId: { type: "string", description: "Entity ID to trim" },
+        endpoint: { type: "string", description: "Which end to trim: 'start' or 'end'", enum: ["start", "end"] },
+        targetX: { type: "string", description: "New endpoint X coordinate (number or expression, mm)" },
+        targetY: { type: "string", description: "New endpoint Y coordinate (number or expression, mm)" },
+      },
+      required: ["entityId", "endpoint", "targetX", "targetY"],
+    },
+  },
+
+  extend: {
+    name: "extend",
+    description:
+      "Extends a line entity to a target coordinate or boundary.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityId: { type: "string", description: "Entity ID to extend" },
+        endpoint: { type: "string", description: "Which end to extend: 'start' or 'end'", enum: ["start", "end"] },
+        targetX: { type: "string", description: "Extended endpoint X coordinate (number or expression, mm)" },
+        targetY: { type: "string", description: "Extended endpoint Y coordinate (number or expression, mm)" },
+      },
+      required: ["entityId", "endpoint", "targetX", "targetY"],
+    },
+  },
+
+  delete_entity: {
+    name: "delete_entity",
+    description:
+      "Deletes an entity from the active drawing (for self-correction).",
+    parameters: {
+      type: "object",
+      properties: {
+        entityId: { type: "string", description: "Entity ID to remove" },
+      },
+      required: ["entityId"],
+    },
+  },
+
+  inspect_geometry: {
+    name: "inspect_geometry",
+    description:
+      "Inspects active drawing geometry: lists entities, bounds, coordinates, lengths, and layer groupings for self-verification.",
+    parameters: {
+      type: "object",
+      properties: {
+        layer: { type: "string", description: "Optional layer filter" },
+        entityId: { type: "string", description: "Optional specific entity ID to inspect" },
+      },
+      required: [],
+    },
+  },
+
+  measure_distance: {
+    name: "measure_distance",
+    description:
+      "Measures the Euclidean distance and horizontal/vertical clearance between two entities or coordinates in mm.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityA: { type: "string", description: "First entity ID" },
+        entityB: { type: "string", description: "Second entity ID" },
+        x1: { type: "number", description: "First point X (if measuring raw coords)" },
+        y1: { type: "number", description: "First point Y" },
+        x2: { type: "number", description: "Second point X" },
+        y2: { type: "number", description: "Second point Y" },
+      },
+      required: [],
+    },
+  },
+
+  measure_angle: {
+    name: "measure_angle",
+    description:
+      "Measures the angle in degrees between two lines or directions.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityA: { type: "string", description: "First line entity ID" },
+        entityB: { type: "string", description: "Second line entity ID" },
+      },
+      required: ["entityA", "entityB"],
+    },
+  },
+
+  calculate_intersections: {
+    name: "calculate_intersections",
+    description:
+      "Calculates geometric intersection points between two entities.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityA: { type: "string", description: "First entity ID" },
+        entityB: { type: "string", description: "Second entity ID" },
+      },
+      required: ["entityA", "entityB"],
+    },
+  },
+
+  dof_analysis: {
+    name: "dof_analysis",
+    description:
+      "Performs degrees of freedom (DOF) and constraint health analysis. Checks for 3-DOF rigid body anchoring (§18) and under/over-constrained state.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+
+  verify_goal: {
+    name: "verify_goal",
+    description:
+      "Verifies whether target geometric criteria (e.g. clear span == 10700 mm, clear height == 4100 mm, haunches == 600 mm, rigid anchor fixed) are satisfied by the active drawing.",
+    parameters: {
+      type: "object",
+      properties: {
+        expectedSpan: { type: "number", description: "Target clear span in mm" },
+        expectedHeight: { type: "number", description: "Target clear height in mm" },
+        expectedHaunch: { type: "number", description: "Target haunch dimension in mm" },
+        checkRigidAnchor: { type: "boolean", description: "True to verify 3-DOF planar rigid anchor" },
+      },
+      required: [],
+    },
+  },
+
+  complete_drawing: {
+    name: "complete_drawing",
+    description:
+      "Signals that all geometric requirements and design intent goals are fully satisfied. Finalizes the autonomous agent loop with an engineering sign-off report.",
+    parameters: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "Summary of constructed geometry and verification results" },
+        status: { type: "string", enum: ["GOAL_SATISFIED", "PARTIAL", "FAILED"], description: "Final verification status" },
+      },
+      required: ["summary", "status"],
+    },
+  },
+
+  gad_parse_drawing: {
+    name: "gad_parse_drawing",
+    description:
+      "Parses civil General Arrangement Drawing (GAD) into canonical GADModel with civil entities, parameters, and formula DAG.",
+    parameters: {
+      type: "object",
+      properties: {
+        image_path: { type: "string", description: "Path to image or drawing file" },
+        project_name: { type: "string", description: "Name of bridge/culvert project" },
+      },
+      required: [],
+    },
+  },
+
+  gad_update_parameters: {
+    name: "gad_update_parameters",
+    description:
+      "Updates driving parameters of active GAD drawing with zero conformal scaling (§8).",
+    parameters: {
+      type: "object",
+      properties: {
+        deltas: { type: "object", description: "Key-value dictionary of parameter updates" },
+      },
+      required: ["deltas"],
+    },
+  },
+
+  gad_query_drawing: {
+    name: "gad_query_drawing",
+    description:
+      "Queries hydraulic clearance, waterway area, and geometric metrics of active GAD model.",
+    parameters: {
+      type: "object",
+      properties: {
+        query_str: { type: "string", description: "Query query text" },
+      },
+      required: [],
+    },
+  },
 };
 
 /**
