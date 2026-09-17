@@ -25,7 +25,7 @@
 import React from "react";
 import {
   ArrowUp, Brain, Check, CircleAlert, Eye, Hourglass, ImagePlus, Loader2, PenLine,
-  Ruler, Search, ShieldCheck, Sigma, Square, Undo2, Wrench, X, SlidersHorizontal, Link2,
+  Ruler, Search, ShieldCheck, Sigma, Square, Undo2, Wrench, X, SlidersHorizontal, Link2, Zap,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "../parametric/upceContext";
@@ -295,6 +295,12 @@ export function DrafterPanel() {
   const [dof, setDof] = React.useState<number | null>(null);
   const [done, setDone] = React.useState<DoneEvent | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [cacheStats, setCacheStats] = React.useState<{
+    cachedTokens: number;
+    promptTokens: number;
+    savedUsd: number;
+    cacheHitRate: number;
+  } | null>(null);
   const [startedAt, setStartedAt] = React.useState<number | null>(null);
   const [now, setNow] = React.useState(Date.now());
   const [dragOver, setDragOver] = React.useState(false);
@@ -425,6 +431,21 @@ export function DrafterPanel() {
           frame(shapes);
           break;
         }
+        case "usage": {
+          const cached = Number(e.cachedTokens ?? 0);
+          const prompt = Number(e.promptTokens ?? 0);
+          const saved = Number(e.savedUsd ?? 0);
+          const hitRate = Number(e.cacheHitRate ?? 0);
+          if (cached > 0 || saved > 0 || hitRate > 0) {
+            setCacheStats((prev) => ({
+              cachedTokens: (prev?.cachedTokens ?? 0) + cached,
+              promptTokens: (prev?.promptTokens ?? 0) + prompt,
+              savedUsd: (prev?.savedUsd ?? 0) + saved,
+              cacheHitRate: hitRate > 0 ? hitRate : prev?.cacheHitRate ?? 0,
+            }));
+          }
+          break;
+        }
         case "done":
           setDone(e as unknown as DoneEvent);
           break;
@@ -442,6 +463,7 @@ export function DrafterPanel() {
     setItems([]);
     setDone(null);
     setError(null);
+    setCacheStats(null);
     setValues([]);
     setDof(null);
     setPhase("understand");
@@ -568,6 +590,15 @@ export function DrafterPanel() {
             {dof !== null && (
               <span className={`num tabular-nums ${dof === 0 ? "text-(--ok)" : ""}`}>
                 {dof === 0 ? "fully defined" : `${dof} free`}
+              </span>
+            )}
+            {cacheStats && cacheStats.cachedTokens > 0 && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono text-[9px]"
+                title={`Prompt caching: ${cacheStats.cachedTokens.toLocaleString()} tokens cached (${Math.round(cacheStats.cacheHitRate * 100)}% hit rate), saved $${cacheStats.savedUsd.toFixed(4)}`}
+              >
+                <Zap className="w-[9px] h-[9px]" />
+                {cacheStats.cachedTokens >= 1000 ? `${(cacheStats.cachedTokens / 1000).toFixed(1)}k` : cacheStats.cachedTokens} cached ({Math.round(cacheStats.cacheHitRate * 100)}%) · saved ${cacheStats.savedUsd >= 0.01 ? cacheStats.savedUsd.toFixed(3) : cacheStats.savedUsd.toFixed(4)}
               </span>
             )}
             <span className="flex-1" />

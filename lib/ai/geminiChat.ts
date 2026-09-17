@@ -116,11 +116,12 @@ export interface FunctionDeclaration {
 export interface ChatRequest {
   model: string;
   thinkingLevel?: ThinkingLevel;
-  system: string;
+  system?: string;
   contents: GeminiContent[];
   functions?: FunctionDeclaration[];
   /** Google Search grounding, for the research tool. */
   googleSearch?: boolean;
+  cachedContent?: string;
   temperature?: number;
   maxOutputTokens?: number;
   signal?: AbortSignal;
@@ -130,6 +131,7 @@ export interface ChatUsage {
   promptTokens: number;
   outputTokens: number;
   thoughtTokens: number;
+  cachedTokens?: number;
 }
 
 export interface ChatResponse {
@@ -209,19 +211,30 @@ export class VertexChatTransport implements ChatTransport {
     if (!status.configured) throw new ModelCallError(status.detail, "network", false);
 
     const tools: Record<string, unknown>[] = [];
-    if (request.functions?.length) tools.push({ functionDeclarations: request.functions });
-    if (request.googleSearch) tools.push({ googleSearch: {} });
+    if (!request.cachedContent) {
+      if (request.functions?.length) tools.push({ functionDeclarations: request.functions });
+      if (request.googleSearch) tools.push({ googleSearch: {} });
+    }
 
-    const body = JSON.stringify({
-      systemInstruction: { parts: [{ text: request.system }] },
+    const bodyObj: Record<string, unknown> = {
       contents: request.contents,
-      ...(tools.length ? { tools } : {}),
       generationConfig: {
         temperature: request.temperature ?? 1,
         maxOutputTokens: request.maxOutputTokens ?? 32768,
         thinkingConfig: { includeThoughts: true, ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}) },
       },
-    });
+    };
+    if (request.cachedContent) {
+      bodyObj.cachedContent = request.cachedContent;
+    } else {
+      if (request.system) {
+        bodyObj.systemInstruction = { parts: [{ text: request.system }] };
+      }
+      if (tools.length) {
+        bodyObj.tools = tools;
+      }
+    }
+    const body = JSON.stringify(bodyObj);
 
     const timeoutMs = this.options.timeoutMs ?? Math.max(this.config.timeoutMs, 300_000);
 
@@ -289,7 +302,12 @@ export class VertexChatTransport implements ChatTransport {
           finishReason?: string;
           groundingMetadata?: { groundingChunks?: { web?: { title?: string; uri?: string } }[] };
         }[];
-        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+        usageMetadata?: {
+          promptTokenCount?: number;
+          candidatesTokenCount?: number;
+          thoughtsTokenCount?: number;
+          cachedContentTokenCount?: number;
+        };
         promptFeedback?: { blockReason?: string };
       };
       const candidate = json.candidates?.[0];
@@ -304,6 +322,7 @@ export class VertexChatTransport implements ChatTransport {
           promptTokens: json.usageMetadata?.promptTokenCount ?? 0,
           outputTokens: json.usageMetadata?.candidatesTokenCount ?? 0,
           thoughtTokens: json.usageMetadata?.thoughtsTokenCount ?? 0,
+          cachedTokens: json.usageMetadata?.cachedContentTokenCount ?? 0,
         },
         latencyMs: Date.now() - started,
         model: request.model,
@@ -312,5 +331,157 @@ export class VertexChatTransport implements ChatTransport {
           .filter((s) => s.uri),
       };
     }
+  }
+
+  async countTokens(params: {
+    model: string;
+    systemInstruction?: string;
+    tools?: FunctionDeclaration[];
+    contents: GeminiContent[];
+  }): Promise<number> {
+    const status = vertexStatus(this.config);
+    if (!status.configured) return 0;
+
+    const tools: Record<string, unknown>[] = [];
+    if (params.tools?.length) tools.push({ functionDeclarations: params.tools });
+
+    const bodyObj: Record<string, unknown> = {
+      contents: params.contents,
+    };
+    if (params.systemInstruction) {
+      bodyObj.systemInstruction = { parts: [{ text: params.systemInstruction }] };
+    }
+    if (tools.length) {
+      bodyObj.tools = tools;
+    }
+
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    let url: string;
+    if (status.mode === "api-key") {
+      url = `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:countTokens?key=${this.config.apiKey}`;
+    } else {
+      const token = await resolveAccessToken(this.config);
+      if (token) headers.authorization = `Bearer ${token}`;
+      if (this.config.project) headers["x-goog-user-project"] = this.config.project;
+      url =
+        `https://${hostForLocation(this.config.location)}/v1/projects/${this.config.project}` +
+        `/locations/${this.config.location}/publishers/google/models/${params.model}:countTokens`;
+    }
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(bodyObj),
+      });
+      if (!res.ok) return 0;
+      const json = (await res.json()) as { totalTokens?: number };
+      return json.totalTokens ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  async createCachedContent(params: {
+    model: string;
+    systemInstruction?: string;
+    tools?: FunctionDeclaration[];
+    contents?: GeminiContent[];
+    ttlSeconds: number;
+    displayName?: string;
+  }): Promise<{ name: string; expireTime?: string }> {
+    const status = vertexStatus(this.config);
+    if (!status.configured) throw new Error("Vertex AI is not configured.");
+
+    const tools: Record<string, unknown>[] = [];
+    if (params.tools?.length) tools.push({ functionDeclarations: params.tools });
+
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    let url: string;
+    let modelRef: string;
+
+    if (status.mode === "api-key") {
+      url = `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${this.config.apiKey}`;
+      modelRef = params.model.startsWith("models/") ? params.model : `models/${params.model}`;
+    } else {
+      const token = await resolveAccessToken(this.config);
+      if (token) headers.authorization = `Bearer ${token}`;
+      if (this.config.project) headers["x-goog-user-project"] = this.config.project;
+      url =
+        `https://${hostForLocation(this.config.location)}/v1/projects/${this.config.project}` +
+        `/locations/${this.config.location}/cachedContents`;
+      modelRef =
+        params.model.startsWith("projects/")
+          ? params.model
+          : `projects/${this.config.project}/locations/${this.config.location}/publishers/google/models/${params.model}`;
+    }
+
+    const bodyObj: Record<string, unknown> = {
+      model: modelRef,
+      displayName: params.displayName,
+      ttl: `${params.ttlSeconds}s`,
+    };
+    if (params.systemInstruction) {
+      bodyObj.systemInstruction = { parts: [{ text: params.systemInstruction }] };
+    }
+    if (tools.length) bodyObj.tools = tools;
+    if (params.contents?.length) bodyObj.contents = params.contents;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(bodyObj),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Failed to create cached content (${res.status}): ${text.slice(0, 300)}`);
+    }
+    const json = (await res.json()) as { name: string; expireTime?: string };
+    return { name: json.name, expireTime: json.expireTime };
+  }
+
+  async updateCachedContent(name: string, ttlSeconds: number): Promise<void> {
+    const status = vertexStatus(this.config);
+    if (!status.configured) return;
+
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    let url: string;
+    if (status.mode === "api-key") {
+      url = `https://generativelanguage.googleapis.com/v1beta/${name}?updateMask=ttl&key=${this.config.apiKey}`;
+    } else {
+      const token = await resolveAccessToken(this.config);
+      if (token) headers.authorization = `Bearer ${token}`;
+      if (this.config.project) headers["x-goog-user-project"] = this.config.project;
+      const path = name.startsWith("projects/") ? name : `projects/${this.config.project}/locations/${this.config.location}/${name}`;
+      url = `https://${hostForLocation(this.config.location)}/v1/${path}?updateMask=ttl`;
+    }
+
+    await fetch(url, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ ttl: `${ttlSeconds}s` }),
+    });
+  }
+
+  async deleteCachedContent(name: string): Promise<void> {
+    const status = vertexStatus(this.config);
+    if (!status.configured) return;
+
+    const headers: Record<string, string> = {};
+    let url: string;
+    if (status.mode === "api-key") {
+      url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${this.config.apiKey}`;
+    } else {
+      const token = await resolveAccessToken(this.config);
+      if (token) headers.authorization = `Bearer ${token}`;
+      if (this.config.project) headers["x-goog-user-project"] = this.config.project;
+      const path = name.startsWith("projects/") ? name : `projects/${this.config.project}/locations/${this.config.location}/${name}`;
+      url = `https://${hostForLocation(this.config.location)}/v1/${path}`;
+    }
+
+    await fetch(url, {
+      method: "DELETE",
+      headers,
+    });
   }
 }

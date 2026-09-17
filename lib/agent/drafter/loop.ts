@@ -34,6 +34,12 @@ import { DRAFTER_SYSTEM_PROMPT, initialMessage, nudgeMessage } from "./prompt";
 import type { TemplateManifest } from "../../upce/template";
 import type { Shape } from "../../geometry/types";
 import type { AuthoringSketch } from "../../upce/types";
+import {
+  CostMeter,
+  CacheManager,
+  RequestAssembler,
+  SessionCache,
+} from "../../ai/geminiCache";
 
 export type DrafterEvent =
   | { type: "start"; model: string; thinkingLevel: string; label: string }
@@ -43,7 +49,17 @@ export type DrafterEvent =
   | { type: "result"; turn: number; id: string; name: string; ok: boolean; text: string; stage: ToolStage; image?: string }
   | { type: "snapshot"; shapes: Shape[]; sketch?: AuthoringSketch; dof: number; values: { name: string; value: number; role: string; unit: string }[] }
   | { type: "retry"; attempt: number; waitSeconds: number; reason: string }
-  | { type: "usage"; turn: number; latencyMs: number; promptTokens: number; outputTokens: number; thoughtTokens: number }
+  | {
+      type: "usage";
+      turn: number;
+      latencyMs: number;
+      promptTokens: number;
+      outputTokens: number;
+      thoughtTokens: number;
+      cachedTokens?: number;
+      savedUsd?: number;
+      cacheHitRate?: number;
+    }
   | { type: "sources"; turn: number; sources: { title: string; uri: string }[] }
   | {
       type: "done";
@@ -72,23 +88,7 @@ export interface DrafterOptions {
   maxNudges?: number;
 }
 
-/** Images older than this many tool results are dropped from the history. */
-const KEEP_VIEW_IMAGES = 2;
 
-function trimViewImages(contents: GeminiContent[]): void {
-  let seen = 0;
-  for (let i = contents.length - 1; i >= 0; i--) {
-    for (const part of contents[i].parts) {
-      const fr = part.functionResponse;
-      if (!fr?.parts?.length) continue;
-      seen++;
-      if (seen > KEEP_VIEW_IMAGES) {
-        delete fr.parts;
-        fr.response = { ...fr.response, image: "omitted from history — call view again to see the current drawing" };
-      }
-    }
-  }
-}
 
 function snapshot(ws: DraftingWorkspace): Extract<DrafterEvent, { type: "snapshot" }> {
   return {
@@ -152,7 +152,18 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
       inlineData: { mimeType: img.mimeType || "image/png", data: img.data.replace(/^data:[^;]+;base64,/, "") },
     })),
   ];
-  const contents: GeminiContent[] = [{ role: "user", parts: firstParts }];
+  const tools = [...BASE_TOOLS, ...macroDeclarations(ws.macros)];
+  const meter = new CostMeter();
+  const cacheManager = new CacheManager(transport as any);
+  const session: SessionCache = {
+    cacheKey: CacheManager.makeCacheKey(DRAFTER_SYSTEM_PROMPT, tools, [{ role: "user", parts: firstParts }]),
+    systemInstruction: DRAFTER_SYSTEM_PROMPT,
+    tools,
+    staticContents: [{ role: "user", parts: firstParts }],
+    history: [],
+    prefixTokens: 0,
+  };
+  session.prefixTokens = await cacheManager.countPrefixTokens(session, model.model);
 
   let turns = 0;
   let toolCalls = 0;
@@ -181,18 +192,38 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
     while (turns < maxTurns) {
       if (signal?.aborted) return done("stopped", "Stopped by the author.");
       turns++;
-      trimViewImages(contents);
 
-      const res = await transport.generate({
+      session.tools = [...BASE_TOOLS, ...macroDeclarations(ws.macros)];
+
+      const req = RequestAssembler.buildRequest(session, [], {
         model: model.model,
         thinkingLevel: model.thinkingLevel,
-        system: DRAFTER_SYSTEM_PROMPT,
-        contents,
-        functions: [...BASE_TOOLS, ...macroDeclarations(ws.macros)],
         signal,
       });
-      contents.push(res.content);
-      emit({ type: "usage", turn: turns, latencyMs: res.latencyMs, ...res.usage });
+
+      const res = await transport.generate(req);
+      session.history.push(res.content);
+
+      const turnCost = meter.record(
+        {
+          promptTokens: res.usage.promptTokens,
+          outputTokens: res.usage.outputTokens,
+          thoughtTokens: res.usage.thoughtTokens,
+          cachedTokens: res.usage.cachedTokens,
+        },
+        turns
+      );
+      const costSummary = meter.summary();
+
+      emit({
+        type: "usage",
+        turn: turns,
+        latencyMs: res.latencyMs,
+        ...res.usage,
+        cachedTokens: res.usage.cachedTokens ?? 0,
+        savedUsd: turnCost.saved,
+        cacheHitRate: costSummary.cacheHitRate,
+      });
 
       for (const part of res.content.parts) {
         if (part.text && part.thought) emit({ type: "thinking", turn: turns, text: part.text });
@@ -202,14 +233,23 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
       const calls = res.content.parts.filter((p) => p.functionCall);
       if (calls.length === 0) {
         if (res.finishReason === "MAX_TOKENS") {
-          contents.push({ role: "user", parts: [{ text: "Your reply was cut off. Continue with the next tool call." }] });
+          session.history.push({
+            role: "user",
+            parts: [{ text: "Your reply was cut off. Continue with the next tool call." }],
+          });
           continue;
         }
         if (nudges >= maxNudges) {
-          return done("incomplete", "The model stopped before the drawing passed verification. The drawing so far is kept.");
+          return done(
+            "incomplete",
+            "The model stopped before the drawing passed verification. The drawing so far is kept."
+          );
         }
         nudges++;
-        contents.push({ role: "user", parts: [{ text: nudgeMessage(checkReport(ws).text, finishRefused) }] });
+        session.history.push({
+          role: "user",
+          parts: [{ text: nudgeMessage(checkReport(ws).text, finishRefused) }],
+        });
         continue;
       }
 
@@ -253,18 +293,29 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
         });
         if (signal?.aborted) break;
       }
-      contents.push({ role: "user", parts: responses });
+      session.history.push({ role: "user", parts: responses });
 
       if (finished) return done("finished", "Verified and published.");
       if (signal?.aborted) return done("stopped", "Stopped by the author.");
       if (toolCalls >= maxToolCalls) {
-        return done("incomplete", `Stopped after ${toolCalls} tool calls without passing verification. The drawing so far is kept.`);
+        return done(
+          "incomplete",
+          `Stopped after ${toolCalls} tool calls without passing verification. The drawing so far is kept.`
+        );
       }
+
+      await cacheManager.maybePromote(session, model.model);
+      await cacheManager.refreshTtl(session);
     }
-    return done("incomplete", `Stopped after ${turns} model turns without passing verification. The drawing so far is kept.`);
+    return done(
+      "incomplete",
+      `Stopped after ${turns} model turns without passing verification. The drawing so far is kept.`
+    );
   } catch (err) {
     if (signal?.aborted) return done("stopped", "Stopped by the author.");
     const message = err instanceof ModelCallError || err instanceof Error ? err.message : String(err);
     return done("failed", message);
+  } finally {
+    await cacheManager.teardown(session);
   }
 }
