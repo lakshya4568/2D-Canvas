@@ -25,6 +25,16 @@ import { regenerate } from "../../upce/document";
 import { findProfiles, profileLoopIds, containment, closedLoops, overlappingCircles } from "../../upce/profile";
 import { findOffsets } from "../../upce/completion";
 import { dependentsOf } from "../../upce/parameters";
+import { CAD_TOOLS, CAD_TOOL_NAMES, componentsSummary, dispatchCadTool } from "./cadTools";
+import { annotationPrims } from "../../cad/annotationPrims";
+import { indexShapes } from "../../cad/geometry";
+import { evaluateInstance } from "../../cad/document";
+import { runAudit } from "../../bridge/audit";
+
+function runAuditFor(ws: DraftingWorkspace): string {
+  const r = runAudit(ws.allShapes(), ws.cad);
+  return `${r.counts.blocker} blocker, ${r.counts.error} error, ${r.counts.warning} warning — ${r.issueBlocked ? "not ready to issue (report these to the author)" : "no blocking findings"}.`;
+}
 
 export type ToolStage = "observe" | "draw" | "constrain" | "parametrize" | "meta";
 
@@ -65,6 +75,7 @@ const REF_HELP =
   "Points: Line.start, Line.end, Rect.top_left/top_right/bottom_left/bottom_right, Circle.center, Poly.p3, or an existing point as \"(x, y)\". Edges: a line id, Rect.top/right/bottom/left, Poly.e3 (same as Poly_3).";
 
 export const BASE_TOOLS: FunctionDeclaration[] = [
+  ...CAD_TOOLS,
   {
     name: "look",
     description:
@@ -333,6 +344,11 @@ const STAGE: Record<string, ToolStage> = {
 };
 
 export function stageOf(tool: string): ToolStage {
+  if (CAD_TOOL_NAMES.has(tool)) {
+    if (["list_components", "component_info", "describe_component", "audit", "recognize"].includes(tool)) return "observe";
+    if (["insert_component", "delete_component", "annotate", "layer", "classify"].includes(tool)) return "draw";
+    return "parametrize";
+  }
   return STAGE[tool] ?? (tool.startsWith("macro_") ? "draw" : "meta");
 }
 
@@ -410,6 +426,12 @@ export function lookReport(ws: DraftingWorkspace, detail = "summary+shapes", fil
   out.push(
     `"${ws.title}": ${ws.shapes.length} shapes (${lines} lines), ${Object.keys(sk.parameters).length} named values, ${sk.constraints.filter((c) => c.state !== "suppressed").length} rules. Units mm, Y up.`
   );
+  const comps = componentsSummary(ws);
+  if (comps) out.push(comps);
+  if (ws.shapes.length === 0 && ws.cad.components.length > 0) {
+    out.push("No free-drawn geometry; everything on the sheet comes from components (fully defined by their values).");
+    return out.join("\n");
+  }
   out.push(
     dof.dof === 0
       ? "Freedom: none left — fully defined."
@@ -518,6 +540,23 @@ export function buildScene(ws: DraftingWorkspace): RenderScene {
       scene.circles.push({ c: { x: s.cx, y: -s.cy }, r: s.r, label: s.id });
     }
   }
+  // Component geometry and its dimensions, so the model sees what it placed.
+  for (const s of ws.cadShapes) {
+    if (s.type === "line") scene.lines.push({ a: { x: s.x1, y: -s.y1 }, b: { x: s.x2, y: -s.y2 }, construction: s.isReference });
+    else if (s.type === "circle") scene.circles.push({ c: { x: s.cx, y: -s.cy }, r: s.r });
+  }
+  const ctx = { shapes: indexShapes(ws.allShapes()), settings: ws.cad.settings };
+  for (const ann of ws.cad.annotations) {
+    if (ann.type !== "dimension" && ann.type !== "level") continue;
+    for (const p of annotationPrims(ann, ctx)) {
+      if (p.k !== "text") continue;
+      if (ann.type === "dimension" && ann.p1.kind === "point" && ann.p2.kind === "point") {
+        scene.dims.push({ a: { x: ann.p1.x, y: -ann.p1.y }, b: { x: ann.p2.x, y: -ann.p2.y }, text: p.text, derived: !ann.drives });
+      } else if (ann.type === "level" && ann.at.kind === "point") {
+        scene.dims.push({ a: { x: ann.at.x, y: -ann.at.y }, b: { x: ann.at.x, y: -ann.at.y }, text: p.text, derived: true });
+      }
+    }
+  }
   const seen = new Set<string>();
   for (const c of sk.constraints) {
     if (!c.paramRef || c.state === "suppressed" || seen.has(c.paramRef)) continue;
@@ -557,11 +596,44 @@ export function buildScene(ws: DraftingWorkspace): RenderScene {
 }
 
 /** The verification report, and whether it found anything that must be fixed. */
+/**
+ * Components are fully defined by construction, so their check is their
+ * invariants: any error-level issue is a blocker, warnings are reported.
+ */
+function componentCheck(ws: DraftingWorkspace): { lines: string[]; blockers: string[] } {
+  const lines: string[] = [];
+  const blockers: string[] = [];
+  for (const inst of ws.cad.components) {
+    const out = evaluateInstance(inst, ws.cad);
+    if (!out) {
+      blockers.push(`${inst.id}: unknown component ${inst.definitionId}.`);
+      continue;
+    }
+    const errs = out.evaluation.issues.filter((i) => i.severity === "error");
+    const warns = out.evaluation.issues.filter((i) => i.severity === "warning");
+    lines.push(`${inst.id} (${inst.name}): ${errs.length ? `${errs.length} error(s)` : "holds all its invariants"}${warns.length ? `, ${warns.length} warning(s)` : ""}.`);
+    for (const e of errs) blockers.push(`${inst.id}: ${e.message}`);
+    for (const w of warns.slice(0, 4)) lines.push(`  warning: ${w.message}`);
+  }
+  return { lines, blockers };
+}
+
 export function checkReport(ws: DraftingWorkspace): { text: string; blockers: string[] } {
   const lines: string[] = [];
   const blockers: string[] = [];
   const last = ws.last;
+  const comp = componentCheck(ws);
+
+  if (ws.shapes.length === 0) {
+    if (ws.cad.components.length === 0) return { text: "Nothing is drawn yet.", blockers: ["nothing drawn"] };
+    return {
+      text: ["Only components on the sheet — each fully defined by its values; nothing to anchor or constrain.", ...comp.lines].join("\n"),
+      blockers: comp.blockers,
+    };
+  }
   const dof = ws.dof();
+  lines.push(...comp.lines);
+  blockers.push(...comp.blockers);
 
   if (!last) {
     return { text: "Nothing is drawn yet.", blockers: ["nothing drawn"] };
@@ -1140,6 +1212,8 @@ async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<T
       return finish(ctx, a);
 
     default: {
+      const cad = dispatchCadTool(ws, name, a);
+      if (cad) return cad;
       if (name.startsWith("macro_")) {
         const macro = ws.macros.find((m) => `macro_${m.name}` === name);
         if (!macro) throw new ToolError(`Unknown tool ${name}.`);
@@ -1176,7 +1250,7 @@ function finish(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "
   if (ctx.hasReference && ctx.viewedRevision !== ws.revision) {
     problems.push("The drawing changed since you last looked at it. Call view and compare it with the reference image first.");
   }
-  if (problems.length === 0) {
+  if (problems.length === 0 && ws.shapes.length > 0) {
     const readiness = ws.readiness();
     for (const c of readiness.checks) if (c.status === "fail") problems.push(`${c.label}: ${c.detail}`);
   }
@@ -1184,11 +1258,16 @@ function finish(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "
     throw new ToolError(`Not finished — fix these first:\n${problems.map((p) => `  * ${p}`).join("\n")}`);
   }
   ws.publish(str(a, "title"), note);
+  if (!ws.cad.project.identity.drawingTitle || ws.cad.project.identity.drawingTitle === "General Arrangement Drawing") {
+    ws.applyCad({ type: "CAD_SET_PROJECT", project: { ...ws.cad.project, identity: { ...ws.cad.project.identity, drawingTitle: str(a, "title") } } });
+  }
   const manifest = ws.manifest();
+  const parts: string[] = [];
+  if (manifest.driving.length) parts.push(`sketch values ${manifest.driving.map((d) => `${d.name}=${fmt(d.value)}`).join(", ")}${manifest.derived.length ? `; worked out: ${manifest.derived.map((d) => d.name).join(", ")}` : ""}`);
+  if (ws.cad.components.length) parts.push(`every value of ${ws.cad.components.map((c) => c.id).join(", ")}`);
+  const audit = ws.cad.components.length ? runAuditFor(ws) : null;
   return {
-    text: `Finished and published "${ws.title}". Run Mode shows: ${manifest.driving.map((d) => `${d.name}=${fmt(d.value)}`).join(", ")}${
-      manifest.derived.length ? `; worked out: ${manifest.derived.map((d) => d.name).join(", ")}` : ""
-    }.`,
+    text: `Finished and published "${ws.title}". Run Mode shows: ${parts.join("; ") || "no values"}.${audit ? `\nAudit at finish: ${audit}` : ""}`,
     finished: true,
   };
 }

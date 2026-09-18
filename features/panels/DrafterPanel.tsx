@@ -37,6 +37,7 @@ import type { Shape } from "@/lib/geometry/types";
 import type { AuthoringSketch } from "@/lib/upce/types";
 import type { TemplateManifest } from "@/lib/upce/template";
 import { Pill } from "./ui/Disclosure";
+import type { CadDocState } from "@/lib/cad/document";
 
 type Stage = "observe" | "draw" | "constrain" | "parametrize" | "meta";
 
@@ -72,7 +73,7 @@ interface DoneEvent {
   status: "finished" | "incomplete" | "stopped" | "failed";
   message: string;
   summary?: string;
-  state: { shapes: Shape[]; sketch: AuthoringSketch };
+  state: { shapes: Shape[]; sketch: AuthoringSketch; cad?: CadDocState; cadShapes?: Shape[] };
   manifest?: TemplateManifest;
   check: string;
   turns: number;
@@ -490,9 +491,16 @@ export function DrafterPanel({ onViewFormulas }: { onViewFormulas?: () => void }
           prompt: brief,
           images: images.map((i) => ({ data: i.data, mimeType: i.mimeType })),
           model,
-          state: hasDrawing
-            ? { shapes: authored, sketch: upce.started ? upce.sketch : undefined, title: upce.sketch.meta.name }
-            : undefined,
+          state:
+            hasDrawing || state.cad.components.length > 0 || state.cad.annotations.length > 0
+              ? {
+                  shapes: authored,
+                  sketch: upce.started ? upce.sketch : undefined,
+                  title: upce.sketch.meta.name,
+                  cad: state.cad,
+                  cadShapes: state.shapes.filter((sh) => sh.componentInstanceId),
+                }
+              : undefined,
         }),
         signal: controller.signal,
       });
@@ -525,8 +533,21 @@ export function DrafterPanel({ onViewFormulas }: { onViewFormulas?: () => void }
       abortRef.current = null;
       setAgentPreview(null);
       const fallbackSnap = latestSnapshotRef.current as { shapes: Shape[]; sketch?: AuthoringSketch } | null;
+      if (finalEvent && mutated.current && finalEvent.state.cad) {
+        // The CAD document first (components, annotations, project, sheets),
+        // then the free geometry through the authoring kernel, which keeps
+        // component geometry when it writes back.
+        dispatch({
+          type: "CAD_LOAD_DOCUMENT",
+          shapes: [...finalEvent.state.shapes, ...(finalEvent.state.cadShapes ?? [])],
+          cad: finalEvent.state.cad,
+          description: "Drafting agent",
+        });
+      }
       if (finalEvent && mutated.current && finalEvent.state.shapes.length > 0) {
         upce.adoptDrawing(finalEvent.state.shapes, finalEvent.state.sketch);
+        setTimeout(() => dispatch({ type: "ZOOM_EXTENTS" }), 60);
+      } else if (finalEvent && mutated.current && finalEvent.state.cad) {
         setTimeout(() => dispatch({ type: "ZOOM_EXTENTS" }), 60);
       } else if (!finalEvent && mutated.current && fallbackSnap && fallbackSnap.shapes.length > 0) {
         upce.adoptDrawing(fallbackSnap.shapes, fallbackSnap.sketch ?? upce.sketch);

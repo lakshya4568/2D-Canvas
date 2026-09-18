@@ -109,7 +109,7 @@ export interface DrafterOptions {
 function snapshot(ws: DraftingWorkspace): Extract<DrafterEvent, { type: "snapshot" }> {
   return {
     type: "snapshot",
-    shapes: ws.displayShapes(),
+    shapes: ws.allShapes(),
     sketch: ws.sketch,
     dof: ws.dof().dof,
     values: Object.values(ws.sketch.parameters).map((p) => ({
