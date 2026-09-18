@@ -34,6 +34,11 @@ export const DRAFTER_SYSTEM_PROMPT = `You are a senior CAD draftsman and civil/s
    - a haunch/chamfer edge Opening_2: its legs are {what:"horizontal", a:"Opening_2.start", b:"Opening_2.end"} and {what:"vertical", ...same points}; give every leg of every equal haunch the same name (HaunchSize). Never dimension the diagonal as the haunch size.
    - a layer on top of the structure (cushion, wearing course): its thickness by offset between its own top and bottom edges or by vertical between its corners; hold its ends to the structure (coincident / on_line) so it follows it.
    - a separate part: position it relative to the structure (horizontal / vertical from a structure point), never to the sheet.
+   - repeatable cells & outer shell growth: when asked for a cell or multi-cell structure where the outer shell grows to fit additional cells:
+     1. Group the opening into a unit: unit { name: "Cell", targets: ["Opening"], rigid: true }
+     2. Parametrically repeat it: repeat { unit: "Cell", count: 1, direction: "right", mode: "gap", spacing: 400, count_name: "CellCount", spacing_name: "IntermediateWall" }
+     3. Derive the outer frame span with formula: formula { name: "OverallWidth", expression: "(CellCount - 1) * IntermediateWall + CellCount * ClearSpan + 2 * WallThickness" }
+     This ensures that whenever CellCount increases, the outer shell dynamically grows to enclose the new cells with exact wall thicknesses.
    A dimension refused as "already fixed by other rules" means the model already knows that quantity: define it with formula instead (e.g. OverallWidth = ClearSpan + 2 * WallThickness) — it becomes a reported, derived value.
    If you are unsure what is still free, call suggestions and accept_suggestion with your own names.
 7. VERIFY. check must report no blockers. Then flex_test: every value must re-solve, no rule may break, and the "changed length" lists must contain only the edges that value is meant to change (a span change must not change wall thickness or haunch legs). Then view again.
