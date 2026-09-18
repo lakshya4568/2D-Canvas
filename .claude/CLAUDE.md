@@ -47,6 +47,24 @@ Mixing persona boundaries is strictly forbidden:
 - Geometry is 100% deterministic and solved by mathematical solvers.
 - AI adapters are restricted purely to semantic tags, friendly names, UI grouping, and natural-language explanations. AI naming patches must be reconstructed field-by-field rather than spread.
 
+### 2.7 Two Ways to Define Geometry — Sketches and Components (decision, 2026-09-18)
+Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch** a draftsman constrains, and it is kept for that. It does **not** scale to a whole bridge (thousands of coordinates), so bridge-scale geometry uses **constructive components** (`lib/components/`, UPCE-MASTER §23):
+- Every coordinate in a `ComponentDefinition` is an **expression of named values** in the component's local frame (mm, Y up). Geometry is therefore fully determined by construction — a well-constrained system already in block-triangular form (§30.3) solved in closed form. There is no DOF to count; **do not add DOF gates to components or to drawings made only of components.**
+- What replaces the DOF gate is what it stood for: explicit **invariants** (`InvariantDef`), plus generic checks the engine runs on every regeneration (collapsed loops, self-crossing outlines, loops turned inside out vs. the defaults = chirality §31.2, openings leaving the solid). An edit that fails is **refused whole** with the reason; nothing half-regenerates.
+- Components are **data**, never renderer code: one `ComponentDefinition` format for every part and assembly, no bridge vocabulary in `evaluate.ts`. Counts are topology (repeats with index-stable ids, §23.4); composition is by placement or port attachment (§23.2). Out-of-range values are warnings (§26), never clamped. No conformal scaling — each coordinate is re-evaluated.
+- Component geometry carries `componentInstanceId`. It is **never** edited by grips, modify tools, or the authoring solver (`authoredOnly()` excludes it; `APPLY_SOLVED_SHAPES` preserves it). It changes only through `CAD_SET_COMPONENT_VALUES`.
+
+### 2.8 The CAD Document Layer (`lib/cad/`)
+- `DrawingState.cad` holds layers, annotations, component instances, the bridge project record, sheets and settings; every history snapshot stores it with the shapes, so undo restores geometry, annotations and design data together.
+- Tools and validators find layers by **category** (`layerIdFor(layers, "hatch")`), never by literal name — a project can load another layer standard.
+- Annotations are **associative**: dimensions measure their resolved anchors (a textual override is flagged, never silently shown); level markers read the RL from the point's height (`levelAt`); hatches re-trace their boundary shapes. Heights of text/arrows are paper mm × the annotation scale.
+- **One draw list** (`annotationPrims`, `shapePrims`) feeds the canvas, SVG, DXF (R12) and PDF sheets. Never compute annotation geometry a second way in a renderer.
+
+### 2.9 Bridge Domain & Authority (`lib/bridge/`)
+- The editor understands hand-drawn bridges through the **vocabulary** in `glossary.ts` (bed level, HFL, earth cushion, pier, …): `CAD_CLASSIFY` tags geometry (layer, level marker, hatch); `recognize.ts` only **proposes** roles with evidence and confidence — nothing is applied without acceptance; `drawnFacts.ts` reads levels and sizes from tagged geometry for the audit.
+- Every audit rule cites a record in `sources.ts` (IRBM-2024 paras, IRCM Table 4.03). When software can compute a number but not establish that a rule applies, the result is **requires review** — never "compliant" or "safe".
+- Design-basis values carry a status. The agent may enter values (`INFERRED`, `ASSUMED_FOR_DRAFT`, `PENDING_CONFIRMATION`) but **never confirm** them and never approves a drawing; template defaults are drafting aids, flagged by the audit.
+
 ---
 
 ## 3. Key Engine Subsystems & Mathematical Models
@@ -96,9 +114,8 @@ UPCE maintains two complementary representations:
 
 ```
 ├── app/                        # Next.js 16 App Router pages and API routes
-│   ├── api/ai/agent/           # FastMCP / CadAgent streaming endpoint (SSE)
-│   ├── api/ai/drafter/         # Deterministic Drafter agent endpoint
-│   ├── api/ai/cadcoder/        # CadCoder uv/python CadQuery bridge
+│   ├── api/ai/agent/           # Legacy CadAgent endpoint (test/CLI only)
+│   ├── api/ai/drafter/         # Drafting agent endpoint (SSE)
 │   ├── api/v1/templates/       # Template instantiation & rendering APIs
 │   └── page.tsx                # Main canvas CAD workstation interface
 ├── features/                   # UI presentation and interaction layer
@@ -106,7 +123,9 @@ UPCE maintains two complementary representations:
 │   │   ├── DimensionBadge.tsx  # Interactive dimension badge (Display -> Edit -> Commit)
 │   │   ├── CanvasOverlay.tsx   # Constraints, DOF status, and grip rendering
 │   │   └── Viewport.tsx        # Pan/zoom camera transform
-│   ├── panels/                 # Persona panels and docks
+│   ├── bridge/                 # Component catalog, values form, sheet preview, "What is this?" understanding UI
+│   ├── canvas/tools/           # Interactive annotation + modify tools (TEXT, DIM*, LEVEL, HATCH, OFFSET, TRIM…)
+│   ├── panels/                 # Persona panels and docks (+ BridgePanel, LayerPanel)
 │   │   ├── DraftPanel.tsx      # Draftsman Mode (zero formulas, nominal inputs)
 │   │   ├── AuthorPanel.tsx     # Template Author Mode (formulas, candidates, DAG)
 │   │   ├── RunPanel.tsx        # Project Engineer Mode (driving parameter form)
@@ -121,8 +140,11 @@ UPCE maintains two complementary representations:
 │   │   └── dragSolver.ts       # SVD minimum-norm solver & column damping
 │   ├── geometry/               # Primitives, predicates (P1–P10), tolerance.ts, DCEL
 │   ├── topology/               # booleanFusion.ts (Clipper2 union & web collapse)
-│   ├── agent/                  # CAD Agent, drafter workspace, FastMCP server bridge
-│   └── dxf/                    # DXF R2010 DIMENSION entity parser and exporter
+│   ├── agent/drafter/          # The drafting agent: workspace, tools, CAD tools (cadTools.ts), loop, prompt
+│   ├── cad/                    # CAD document: layers, annotations, draw list, hatch, modify ops, sheets, DXF/SVG/PDF
+│   ├── components/             # Constructive component engine + library (library/*.ts are DATA)
+│   ├── bridge/                 # Railway domain: glossary, recognition, drawn facts, project/DBR, sources, audit
+│   └── state/cadActions.ts     # Reducer logic for the CAD document (shared by editor and agent)
 ├── tests/                      # Verification test suites
 │   ├── unit/                   # Unit tests (cell repeat, formulas tab, predicates)
 │   ├── integration/            # Multi-cell solver, FastMCP, agentic loop, CAD coder
@@ -145,8 +167,8 @@ UPCE maintains two complementary representations:
 Before submitting any code change, ALL of the following commands must execute cleanly:
 
 ```bash
-# 1. Run all unit and integration tests (1000+ tests)
-bun test
+# 1. Run all unit and integration tests (1100+ tests, vitest — NOT `bun test`)
+bun run test
 
 # 2. Verify tolerance injection discipline (zero local tolerance constants)
 bun run lint:tolerance
@@ -174,3 +196,6 @@ bun run build
 5. [ ] **Inner Void Scoping Check**: In `syncModel`, do inner shapes bind to scoped variables rather than global width/height?
 6. [ ] **Test Integrity**: Did all tests in `bun test` pass? Are new capabilities accompanied by comprehensive integration tests?
 7. [ ] **Lint & License Clean**: Did `bun run lint:tolerance` and `bun run license:scan` pass with 0 errors?
+8. [ ] **Components are data**: New or changed component definitions use expressions only, declare invariants, and are covered by a test (defaults evaluate with no errors; unique entity ids). No bridge vocabulary in the engine.
+9. [ ] **Rules cite sources**: Every new audit rule names a `sources.ts` record and says "requires review" where applicability cannot be established.
+10. [ ] **One draw list**: Canvas, SVG, DXF and PDF output of any annotation come from `annotationPrims`.
