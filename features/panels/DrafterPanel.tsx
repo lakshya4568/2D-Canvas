@@ -280,7 +280,7 @@ async function readImage(file: File): Promise<{ name: string; data: string; mime
 
 const MODEL_KEY = "drafter.model";
 
-export function DrafterPanel() {
+export function DrafterPanel({ onViewFormulas }: { onViewFormulas?: () => void } = {}) {
   const { state, dispatch } = useDrawing();
   const upce = useUpce();
   const [status, setStatus] = React.useState<Status | null>(null);
@@ -686,6 +686,7 @@ export function DrafterPanel() {
           <Outcome
             done={done}
             onContinue={(t) => setPrompt(t)}
+            onViewFormulas={onViewFormulas}
             onUndo={
               before.current && done.state.shapes.length > 0
                 ? () => {
@@ -810,13 +811,16 @@ export function DrafterPanel() {
 function Outcome({
   done,
   onContinue,
+  onViewFormulas,
   onUndo,
 }: {
   done: DoneEvent;
   onContinue: (text: string) => void;
+  onViewFormulas?: () => void;
   onUndo?: () => void;
 }) {
   const { dispatch } = useDrawing();
+  const upce = useUpce();
   const finished = done.status === "finished";
   const tone =
     finished ? "border-(--ok) bg-(--ok-soft)" : done.status === "failed" ? "border-(--crit) bg-(--crit-soft)" : "border-(--warn) bg-(--warn-soft)";
@@ -882,6 +886,27 @@ function Outcome({
         >
           See rules in Author
         </button>
+        {onViewFormulas && (
+          <button
+            onClick={onViewFormulas}
+            className="h-[24px] px-2 rounded-[5px] border border-(--pen)/40 bg-(--pen-soft) text-[10.5px] text-(--pen) font-medium hover:bg-(--pen) hover:text-white inline-flex items-center gap-1 cursor-pointer transition-colors"
+            title="Inspect formulas created in this drawing"
+          >
+            <Sigma className="w-[11px] h-[11px]" strokeWidth={2.2} />
+            <span>
+              Formulas
+              {Object.values(upce.sketch.parameters).filter(
+                (p) => p.role === "DERIVED" || (p.expr && p.expr.trim().length > 0)
+              ).length > 0
+                ? ` (${
+                    Object.values(upce.sketch.parameters).filter(
+                      (p) => p.role === "DERIVED" || (p.expr && p.expr.trim().length > 0)
+                    ).length
+                  })`
+                : ""}
+            </span>
+          </button>
+        )}
         {!finished && done.status !== "failed" && (
           <button
             onClick={() => onContinue("Continue: fix what is still wrong, verify, and finish.")}

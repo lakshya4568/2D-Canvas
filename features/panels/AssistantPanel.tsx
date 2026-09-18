@@ -391,12 +391,19 @@ function ReviewPane({ hint, setHint }: { hint: string; setHint: (v: string) => v
 }
 
 import { DrafterPanel } from "./DrafterPanel";
+import { FormulasPanel } from "./FormulasPanel";
 
 export function AssistantPanel() {
-  const { advisorStatus } = useUpce();
+  const { advisorStatus, sketch } = useUpce();
   const [hint, setHint] = React.useState("");
-  const [mode, setMode] = React.useState<"agent" | "review" | "ask">("agent");
+  const [mode, setMode] = React.useState<"agent" | "formulas" | "review" | "ask">("agent");
   const configured = advisorStatus?.configured ?? false;
+
+  const formulaCount = React.useMemo(() => {
+    return Object.values(sketch.parameters).filter(
+      (p) => p.role === "DERIVED" || (p.expr !== undefined && p.expr.trim().length > 0)
+    ).length;
+  }, [sketch.parameters]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -405,7 +412,7 @@ export function AssistantPanel() {
           <Cpu className="w-[13px] h-[13px] text-(--pen)" strokeWidth={2} />
           <span className="text-[11.5px] font-medium text-(--fg-primary)">CAD Agent</span>
           <span className="flex-1" />
-          {mode !== "agent" && (configured ? <Pill tone="good">ready</Pill> : <Pill tone="attention">off</Pill>)}
+          {mode !== "agent" && mode !== "formulas" && (configured ? <Pill tone="good">ready</Pill> : <Pill tone="attention">off</Pill>)}
         </div>
 
         <Segmented
@@ -413,6 +420,11 @@ export function AssistantPanel() {
           onChange={setMode}
           options={[
             { value: "agent", label: "Draw", title: "The drafting agent draws, constrains, parametrizes and verifies" },
+            {
+              value: "formulas",
+              label: `Formulas${formulaCount > 0 ? ` (${formulaCount})` : ""}`,
+              title: "Formulas created by agent or author",
+            },
             { value: "ask", label: "Ask", title: "A question about this drawing" },
             { value: "review", label: "Review", title: "A structured pass with things to accept" },
           ]}
@@ -420,10 +432,14 @@ export function AssistantPanel() {
       </div>
 
       <div className={mode === "agent" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-        <DrafterPanel />
+        <DrafterPanel onViewFormulas={() => setMode("formulas")} />
       </div>
 
-      {!configured && mode !== "agent" ? (
+      <div className={mode === "formulas" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+        <FormulasPanel context="agent" onSwitchToDraw={() => setMode("agent")} />
+      </div>
+
+      {!configured && mode !== "agent" && mode !== "formulas" ? (
         <div className="m-3 rounded-[6px] border border-dashed border-(--rule) px-2.5 py-2">
           <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
             {advisorStatus?.detail ?? "Checking…"}

@@ -47,7 +47,22 @@ export type DrafterEvent =
   | { type: "message"; turn: number; text: string }
   | { type: "tool"; turn: number; id: string; name: string; args: Record<string, unknown>; stage: ToolStage }
   | { type: "result"; turn: number; id: string; name: string; ok: boolean; text: string; stage: ToolStage; image?: string }
-  | { type: "snapshot"; shapes: Shape[]; sketch?: AuthoringSketch; dof: number; values: { name: string; value: number; role: string; unit: string }[] }
+  | {
+      type: "snapshot";
+      shapes: Shape[];
+      sketch?: AuthoringSketch;
+      dof: number;
+      values: {
+        name: string;
+        value: number;
+        role: string;
+        unit: string;
+        expr?: string;
+        dependencies?: string[];
+        origin?: string;
+        description?: string;
+      }[];
+    }
   | { type: "retry"; attempt: number; waitSeconds: number; reason: string }
   | {
       type: "usage";
@@ -96,7 +111,16 @@ function snapshot(ws: DraftingWorkspace): Extract<DrafterEvent, { type: "snapsho
     shapes: ws.displayShapes(),
     sketch: ws.sketch,
     dof: ws.dof().dof,
-    values: Object.values(ws.sketch.parameters).map((p) => ({ name: p.name, value: p.value, role: p.role, unit: p.unit })),
+    values: Object.values(ws.sketch.parameters).map((p) => ({
+      name: p.name,
+      value: p.value,
+      role: p.role,
+      unit: p.unit,
+      expr: p.expr,
+      dependencies: p.dependencies,
+      origin: p.provenance?.origin,
+      description: p.description ?? p.provenance?.detail,
+    })),
   };
 }
 
