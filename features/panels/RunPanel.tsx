@@ -22,6 +22,42 @@ import { SlidersHorizontal, Lock, TriangleAlert, ShieldCheck, Undo2, X } from "l
 import { useUpce } from "../parametric/upceContext";
 import { PanelBody, Empty } from "./DraftPanel";
 import type { ManifestEntry } from "@/lib/upce/template";
+import { useDrawing } from "@/lib/state/drawingContext";
+import { ComponentValuesForm } from "../bridge/ComponentValuesForm";
+
+/**
+ * Components are published by construction: every driving value of a placed
+ * component is a value a project engineer may change, and the component
+ * refuses any combination that breaks it. They sit beside the sketch manifest.
+ */
+function ComponentsSection() {
+  const { state } = useDrawing();
+  const comps = state.cad.components;
+  const [open, setOpen] = React.useState<string | null>(comps[0]?.id ?? null);
+  if (comps.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="label">Components on this drawing</h3>
+      {comps.map((c) => (
+        <div key={c.id} className="rounded-[6px] border border-(--rule) overflow-hidden">
+          <button
+            onClick={() => setOpen(open === c.id ? null : c.id)}
+            aria-expanded={open === c.id}
+            className="w-full h-[30px] px-2.5 flex items-center justify-between text-left text-[11.5px] font-medium text-(--fg-primary) bg-(--ink-raised)/50 cursor-pointer"
+          >
+            <span className="truncate">{c.name}</span>
+            <span className="text-[10px] text-(--fg-muted)">{open === c.id ? "hide" : "values"}</span>
+          </button>
+          {open === c.id && (
+            <div className="p-2.5 border-t border-(--rule)">
+              <ComponentValuesForm instance={c} />
+            </div>
+          )}
+        </div>
+      ))}
+    </section>
+  );
+}
 
 /**
  * Representative IRC practice minima (§26). These ship as advisory metadata
@@ -136,6 +172,14 @@ function Field({ entry }: { entry: ManifestEntry }) {
 export function RunPanel() {
   const { manifest, invariants, notice, dismissNotice, undoIntent, canUndoIntent } = useUpce();
 
+  const hasComponents = useDrawing().state.cad.components.length > 0;
+  if (!manifest && hasComponents) {
+    return (
+      <PanelBody>
+        <ComponentsSection />
+      </PanelBody>
+    );
+  }
   if (!manifest) {
     return (
       <PanelBody>
@@ -249,6 +293,8 @@ export function RunPanel() {
           </div>
         </section>
       )}
+
+      <ComponentsSection />
 
       <section className="flex flex-col gap-2">
         <h3 className="label">What this drawing keeps true</h3>

@@ -7,15 +7,41 @@ interface GridLayerProps {
   viewport: Viewport;
   showGrid: boolean;
   gridSize?: number;
+  /** Canvas size in px, so the grid covers exactly the visible window. */
+  canvasSize?: { width: number; height: number };
+}
+
+/** Minimum on-screen spacing of grid dots; below this a grid is noise, not a guide. */
+const MIN_GRID_PX = 12;
+
+/**
+ * Grid spacing that adapts to zoom in 1-2-5 steps, as drawing programs do: a
+ * 20 mm grid is useful on a bolt detail and a grey smear on a 60 m bridge.
+ */
+export function adaptiveGridSize(base: number, scale: number): number {
+  let size = base;
+  const steps = [2, 2.5, 2];
+  let k = 0;
+  while (size * scale < MIN_GRID_PX && size < 1e9) {
+    size *= steps[k % steps.length];
+    k++;
+  }
+  return size;
 }
 
 export const GridLayer: React.FC<GridLayerProps> = React.memo(
-  ({ viewport, showGrid, gridSize = 20 }) => {
+  ({ viewport, showGrid, gridSize = 20, canvasSize }) => {
     if (!showGrid) return null;
 
     const { scale } = viewport;
-    const effectiveGridSize = gridSize;
-    const majorGridSize = gridSize * 5;
+    const effectiveGridSize = adaptiveGridSize(gridSize, scale);
+    const majorGridSize = effectiveGridSize * 5;
+    const W = canvasSize?.width ?? 2000;
+    const H = canvasSize?.height ?? 1200;
+    const x0 = Math.floor(-viewport.x / scale / majorGridSize - 1) * majorGridSize;
+    const y0 = Math.floor(-viewport.y / scale / majorGridSize - 1) * majorGridSize;
+    const w = W / scale + 2 * majorGridSize;
+    const h = H / scale + 2 * majorGridSize;
 
     return (
       <g id="grid-layer" className="pointer-events-none select-none">
@@ -53,20 +79,14 @@ export const GridLayer: React.FC<GridLayerProps> = React.memo(
         </defs>
 
         {/* Infinite Grid Background */}
-        <rect
-          x={-50000}
-          y={-50000}
-          width={100000}
-          height={100000}
-          fill="url(#cad-major-grid)"
-        />
+        <rect x={x0} y={y0} width={w} height={h} fill="url(#cad-major-grid)" />
 
         {/* Origin Axes (0,0): Standard CAD convention X=Red, Y=Green */}
         <g id="origin-axes" opacity={0.45}>
           <line
-            x1={-500}
+            x1={-25 / scale}
             y1={0}
-            x2={500}
+            x2={25 / scale}
             y2={0}
             stroke="#ef4444"
             strokeWidth={1.2 / scale}
@@ -74,9 +94,9 @@ export const GridLayer: React.FC<GridLayerProps> = React.memo(
           />
           <line
             x1={0}
-            y1={-500}
+            y1={-25 / scale}
             x2={0}
-            y2={500}
+            y2={25 / scale}
             stroke="#10b981"
             strokeWidth={1.2 / scale}
             strokeDasharray={`${4 / scale}, ${4 / scale}`}

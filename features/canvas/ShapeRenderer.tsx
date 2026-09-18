@@ -5,6 +5,8 @@ import { Shape } from "@/lib/geometry/types";
 import { DimensionBadge } from "./DimensionBadge";
 import { getShapeCenter, getPolygonPoints, getStarPoints, pointsToSvgString } from "@/lib/geometry/metrics";
 import { detectClosedLoops } from "@/lib/parametric/closedGeometry";
+import type { Layer } from "@/lib/cad/types";
+import { dashPattern, INK } from "@/lib/cad/layers";
 
 /** Floor for rendered stroke width, in screen pixels. */
 const MIN_SCREEN_STROKE_PX = 1.0;
@@ -17,6 +19,16 @@ interface ShapeRendererProps {
   isSelectTool: boolean;
   themeMode?: "dark" | "light";
   onSelectShape: (id: string, e: React.PointerEvent) => void;
+  /** Layer table; shapes without their own colour, weight or dash take the layer's. */
+  layers?: Layer[];
+}
+
+/** Screen pixels per plotted millimetre of lineweight (AutoCAD LWDISPLAY feel). */
+const PX_PER_LW_MM = 3.2;
+
+export function layerInk(color: string, themeMode: "dark" | "light"): string {
+  if (color.toLowerCase() !== INK) return color;
+  return themeMode === "light" ? "#0f172a" : "#f8fafc";
 }
 
 const SingleShape = React.memo<{
@@ -27,11 +39,25 @@ const SingleShape = React.memo<{
   isSelectTool: boolean;
   themeMode: "dark" | "light";
   onSelectShape: (id: string, e: React.PointerEvent) => void;
-}>(({ shape, isSelected, showDimensions, scale, isSelectTool, themeMode, onSelectShape }) => {
-  if (shape.isVisible === false) return null;
+  layer?: Layer;
+}>(({ shape: raw, isSelected, showDimensions, scale, isSelectTool: selectToolOn, themeMode, onSelectShape, layer }) => {
+  if (raw.isVisible === false) return null;
+  if (layer && (!layer.visible || layer.frozen)) return null;
+
+  // ByLayer: a shape with no colour, weight or dash of its own takes the layer's.
+  const layerDash = layer && !raw.strokeDasharray ? dashPattern(layer.lineType) : null;
+  const shape: Shape = layer
+    ? {
+        ...raw,
+        strokeWidth: raw.strokeWidth ?? Math.max(1, layer.lineWeight * PX_PER_LW_MM) / scale,
+        strokeDasharray: raw.strokeDasharray ?? (layerDash ? layerDash.map((d) => (d * 2.2) / scale).join(" ") : undefined),
+      }
+    : raw;
+  // Locked layers are drawn but cannot be picked (blueprint §7: protect reference layers).
+  const isSelectTool = selectToolOn && !(layer?.locked);
 
   const defaultThemeStroke = themeMode === "light" ? "#0f172a" : "#f8fafc";
-  const strokeColor = shape.strokeColor || defaultThemeStroke;
+  const strokeColor = shape.strokeColor || (layer ? layerInk(layer.color, themeMode) : defaultThemeStroke);
   // Lineweights are stored in model-space millimetres, so the SVG CTM scales
   // them along with the geometry. A 1.5 mm line on a drawing zoomed to fit a
   // 460 m section renders 0.002 px wide — present in the DOM, invisible on
@@ -199,11 +225,14 @@ const SingleShape = React.memo<{
 SingleShape.displayName = "SingleShape";
 
 export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
-  ({ shapes, selectedIds, showDimensions, scale, isSelectTool, themeMode = "dark", onSelectShape }) => {
+  ({ shapes, selectedIds, showDimensions, scale, isSelectTool, themeMode = "dark", onSelectShape, layers }) => {
     const loops = React.useMemo(() => {
       if (!showDimensions && selectedIds.length === 0) return [];
-      return detectClosedLoops(shapes);
+      // Component geometry reports its own dimensions; tracing loops through a
+      // whole bridge on every selection would cost more than it tells.
+      return detectClosedLoops(shapes.filter((s) => !s.componentInstanceId));
     }, [shapes, showDimensions, selectedIds]);
+    const layerMap = React.useMemo(() => new Map((layers ?? []).map((l) => [l.id, l])), [layers]);
 
     return (
       <g id="shapes-layer">
@@ -217,6 +246,7 @@ export const ShapeRenderer: React.FC<ShapeRendererProps> = React.memo(
             isSelectTool={isSelectTool}
             themeMode={themeMode}
             onSelectShape={onSelectShape}
+            layer={shape.layerId ? layerMap.get(shape.layerId) : undefined}
           />
         ))}
 

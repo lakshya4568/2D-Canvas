@@ -13,6 +13,9 @@ import { useAgentPreview } from "../agent/agentPreview";
 import { TemplateModal } from "../parametric/TemplateModal";
 import { InstructionManualModal } from "../manual/InstructionManualModal";
 import { importDxfToShapes } from "@/lib/io/dxfImporter";
+import { ComponentCatalog } from "../bridge/ComponentCatalog";
+import { SheetPreview } from "../bridge/SheetPreview";
+import type { DockTab } from "./PersonaDock";
 
 /**
  * The application shell.
@@ -46,8 +49,29 @@ export function CadShell() {
   const [cadAgentOpen, setCadAgentOpen] = React.useState(true);
   const [templatesOpen, setTemplatesOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+  const [catalogOpen, setCatalogOpen] = React.useState(false);
+  const [sheetsOpen, setSheetsOpen] = React.useState(false);
+  const [dockRequest, setDockRequest] = React.useState<{ tab: DockTab; nonce: number } | undefined>();
+  const openDock = React.useCallback((tab: DockTab) => {
+    setDockCollapsed(false);
+    setDockRequest({ tab, nonce: Date.now() });
+  }, []);
   const seeded = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Command-line verbs that open a surface rather than a tool.
+  React.useEffect(() => {
+    const onOpen = (e: Event) => {
+      const what = (e as CustomEvent<string>).detail;
+      if (what === "LAYER") openDock("layers");
+      else if (what === "AUDIT") openDock("bridge");
+      else if (what === "INSERT") setCatalogOpen(true);
+      else if (what === "PLOT") setSheetsOpen(true);
+      else if (what === "DXFOUT") window.dispatchEvent(new CustomEvent("cad:export", { detail: "dxf" }));
+    };
+    window.addEventListener("cad:open", onOpen);
+    return () => window.removeEventListener("cad:open", onOpen);
+  }, [openDock]);
 
   // Auto-open CAD Agent panel when an autonomous run starts
   React.useEffect(() => {
@@ -161,6 +185,9 @@ export function CadShell() {
         personaDockOpen={!dockCollapsed}
         onTogglePersonaDock={() => setDockCollapsed((v) => !v)}
         onOpenPersonaDock={() => setDockCollapsed(false)}
+        onOpenCatalog={() => setCatalogOpen(true)}
+        onOpenSheets={() => setSheetsOpen(true)}
+        onOpenDock={openDock}
       />
 
       <div className="flex-1 min-h-0 flex relative">
@@ -202,6 +229,8 @@ export function CadShell() {
           onWidthChange={setDockWidth}
           collapsed={dockCollapsed}
           onToggleCollapse={() => setDockCollapsed((v) => !v)}
+          request={dockRequest}
+          onOpenCatalog={() => setCatalogOpen(true)}
         />
       </div>
 
@@ -209,6 +238,8 @@ export function CadShell() {
 
       <TemplateModal isOpen={templatesOpen} onClose={() => setTemplatesOpen(false)} />
       <InstructionManualModal isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <ComponentCatalog open={catalogOpen} onClose={() => setCatalogOpen(false)} />
+      <SheetPreview open={sheetsOpen} onClose={() => setSheetsOpen(false)} />
     </div>
   );
 }

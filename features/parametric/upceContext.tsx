@@ -253,7 +253,7 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
   // Shapes the author drew, with any repeat-generated copies excluded: those are
   // regenerated from the rule, never treated as source geometry.
   const authored = React.useMemo(
-    () => state.shapes.filter((sh) => !sh.id.includes("#")),
+    () => state.shapes.filter((sh) => !sh.id.includes("#") && !sh.componentInstanceId),
     [state.shapes]
   );
   const names = React.useMemo(() => namesOf(state.shapes), [state.shapes]);

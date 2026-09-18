@@ -36,6 +36,9 @@ import { BoundaryLimitsOverlay } from "./BoundaryLimitsOverlay";
 import { DynamicInputOverlay } from "./DynamicInputOverlay";
 import { CadViewportOverlays } from "./CadViewportOverlays";
 import { importDxfToShapes } from "@/lib/io/dxfImporter";
+import { AnnotationLayer } from "./AnnotationLayer";
+import { useInteractiveTool } from "./tools/useInteractiveTool";
+import { SemanticChip } from "../bridge/Understanding";
 
 interface DrawingCanvasProps {
   onCursorChange?: (pos: Point | null) => void;
@@ -56,6 +59,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
   } = useDrawing();
   const agentPreview = useAgentPreview();
   const upce = useUpce();
+  const itool = useInteractiveTool(state, dispatch as (a: unknown) => void, setTool);
 
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -386,6 +390,12 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
       const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
 
+      // Annotation and modify tools run their own pick-by-pick sessions.
+      if (itool.active) {
+        itool.onPointerDown(rawWorldPt, e);
+        return;
+      }
+
       if (state.tool === "select") {
         const hitShape = hitTestShapes(state.shapes, rawWorldPt, 8 / state.viewport.scale);
 
@@ -437,7 +447,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       isDrawingRef.current = true;
 
       const newId = "shape_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now();
-      const defaultStroke = state.currentStyle.strokeColor || "#f8fafc";
+      // ByLayer unless the draftsman picked an explicit colour: new geometry takes
+      // the current layer's colour, weight and line type, as in AutoCAD.
+      const byLayer = !state.currentStyle.strokeColor || state.currentStyle.strokeColor === "#f8fafc";
+      const defaultStroke = byLayer ? (undefined as unknown as string) : state.currentStyle.strokeColor;
 
       let draftShape: Shape;
       switch (state.tool) {
@@ -597,7 +610,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
     },
-    [state.tool, state.shapes, state.selectedIds, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.currentStyle, moveBasePoint, getWorldPoint, selectShape, handleMoveStart, handleMoveCommit, dispatch]
+    [state.tool, state.shapes, state.selectedIds, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.currentStyle, moveBasePoint, getWorldPoint, selectShape, handleMoveStart, handleMoveCommit, dispatch, itool]
   );
 
   /**
@@ -608,6 +621,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       const rawWorldPt = getWorldPoint(e.clientX, e.clientY);
       onCursorChange?.(rawWorldPt);
       setCurrentCursorWorld(rawWorldPt);
+      if (itool.active && !isPanningRef.current) itool.onPointerMove(rawWorldPt);
 
       // 1. Panning
       if (isPanningRef.current) {
@@ -1028,7 +1042,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         }
       }
     },
-    [state.draft, state.selectedIds, state.shapes, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.tool, state.activeSnap, selectedShapes, moveBasePoint, getWorldPoint, onCursorChange, dispatch]
+    [state.draft, state.selectedIds, state.shapes, state.viewport, state.gridSnapEnabled, state.objectSnapEnabled, state.tool, state.activeSnap, selectedShapes, moveBasePoint, getWorldPoint, onCursorChange, dispatch, itool]
   );
 
   /**
@@ -1427,6 +1441,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       }}
     >
       <CadViewportOverlays />
+      {itool.promptBar}
+      <SemanticChip />
       <svg
         id="drawing-canvas-svg"
         ref={svgRef}
@@ -1449,6 +1465,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           <GridLayer
             viewport={state.viewport}
             showGrid={state.showGrid}
+            canvasSize={state.canvasSize}
           />
 
           {/* Committed Shapes — dimmed while the agent's pen is drawing over them */}
@@ -1461,8 +1478,23 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
               isSelectTool={state.tool === "select" || state.tool === "move"}
               themeMode={state.themeMode}
               onSelectShape={handleShapeSelect}
+              layers={state.cad.layers}
+            />
+            <AnnotationLayer
+              annotations={state.cad.annotations}
+              shapes={state.shapes}
+              settings={state.cad.settings}
+              layers={state.cad.layers}
+              scale={scale}
+              themeMode={state.themeMode}
+              selectedIds={state.selectedIds}
+              isSelectTool={state.tool === "select" || state.tool === "move"}
+              onSelect={handleShapeSelect}
             />
           </g>
+
+          {/* Rubber band for the running annotation / modify tool */}
+          {itool.preview}
 
           {/* The drafting agent's work in progress */}
           <AgentPreviewLayer scale={scale} />
@@ -1473,7 +1505,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
           {/* AutoCAD 3-State Geometric Grips Selection Overlay */}
           {(state.tool === "select" || state.tool === "move") && (
             <SelectionOverlay
-              shapes={selectedShapes}
+              shapes={selectedShapes.filter((sh) => !sh.componentInstanceId)}
               scale={scale}
               activeGripId={activeGripRef.current?.id}
               onGripPointerDown={handleGripPointerDown}

@@ -43,6 +43,7 @@ import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "@/features/parametric/upceContext";
 import { useAgentPreview } from "@/features/agent/agentPreview";
 import { ModeSwitch } from "./ModeSwitch";
+import { useCad } from "@/features/bridge/useCad";
 import { CadCommandRegistry } from "@/lib/commands/CommandRegistry";
 import { exportDxf } from "@/lib/io/dxfExporter";
 import { exportPdfSheet } from "@/lib/io/pdfSheetExporter";
@@ -58,9 +59,12 @@ interface CadHeaderProps {
   personaDockOpen?: boolean;
   onTogglePersonaDock?: () => void;
   onOpenPersonaDock?: () => void;
+  onOpenCatalog?: () => void;
+  onOpenSheets?: () => void;
+  onOpenDock?: (tab: "layers" | "bridge") => void;
 }
 
-type RibbonTab = "home" | "draw" | "modify" | "parametric" | "annotate" | "output";
+import { Ribbon, RIBBON_TABS, type RibbonTab } from "./Ribbon";
 
 export function CadHeader({
   onOpenTemplates,
@@ -71,6 +75,9 @@ export function CadHeader({
   personaDockOpen,
   onTogglePersonaDock,
   onOpenPersonaDock,
+  onOpenCatalog,
+  onOpenSheets,
+  onOpenDock,
 }: CadHeaderProps) {
   const {
     state,
@@ -88,6 +95,7 @@ export function CadHeader({
   } = useDrawing();
 
   const upce = useUpce();
+  const cadOps = useCad();
   const agentPreview = useAgentPreview();
   const agentRunning = Boolean(agentPreview?.running);
 
@@ -129,37 +137,21 @@ export function CadHeader({
     }
   };
 
-  const handleExportDxf = () => {
-    const sketch = shapesToParametricSketch(state.shapes, undefined, "Exported AutoCAD Drawing");
-    const dxfString = exportDxf(sketch);
-    const blob = new Blob([dxfString], { type: "application/dxf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `drawing_${Date.now()}.dxf`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportPdf = () => {
-    const sketch = shapesToParametricSketch(state.shapes, undefined, "Engineering Drawing Sheet");
-    const pdfBytes = exportPdfSheet(sketch, {
-      size: "A3",
-      titleBlock: {
-        projectName: "Civil Structure",
-        drawingTitle: "UPCE Engineering Drawing",
-        drawnBy: "Draftsman",
-        scale: "1:100",
-      },
-    });
-    const blob = new Blob([pdfBytes as unknown as BlobPart], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `sheet_${Date.now()}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // Exports read the whole CAD document: layers, annotations, hatches, sheets.
+  const handleExportDxf = () => cadOps.exportDxf();
+  const handleExportPdf = () => cadOps.exportPdf();
+  const exportRef = React.useRef(cadOps);
+  exportRef.current = cadOps;
+  React.useEffect(() => {
+    const onExport = (e: Event) => {
+      const what = (e as CustomEvent<string>).detail;
+      if (what === "dxf") exportRef.current.exportDxf();
+      if (what === "pdf") exportRef.current.exportPdf();
+      if (what === "svg") exportRef.current.exportSvg();
+    };
+    window.addEventListener("cad:export", onExport);
+    return () => window.removeEventListener("cad:export", onExport);
+  }, []);
 
   return (
     <header className="shrink-0 bg-(--ink-panel) border-b border-(--rule) flex flex-col z-30 select-none shadow-xs">
@@ -234,7 +226,7 @@ export function CadHeader({
                 className="w-full px-3 py-1.5 text-left hover:bg-(--pen-soft) flex items-center gap-2 text-(--fg-primary)"
               >
                 <FileText className="w-3.5 h-3.5 text-red-500" />
-                <span>Export PDF Drawing Sheet (A3)</span>
+                <span>Plot PDF sheets</span>
               </button>
               <div className="my-1 border-t border-(--rule)" />
               <button
@@ -368,14 +360,7 @@ export function CadHeader({
           <div className="h-3.5 w-px bg-(--rule)" />
 
           <div className="flex items-center gap-1">
-            {[
-              { id: "home", label: "Home" },
-              { id: "draw", label: "Draw" },
-              { id: "modify", label: "Modify" },
-              { id: "parametric", label: "Parametric" },
-              { id: "annotate", label: "Annotate" },
-              { id: "output", label: "Output" },
-            ].map((tab) => (
+            {RIBBON_TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveRibbonTab(tab.id as RibbonTab)}
@@ -421,281 +406,19 @@ export function CadHeader({
         </div>
       </div>
 
-      {/* 3. AutoCAD Ribbon Action Bar (Active Panels) */}
-      <div className="h-[64px] px-3 flex items-center gap-4 bg-(--ink-panel) overflow-x-auto overflow-y-hidden text-[11px]">
-        {/* Select & Navigate Panel */}
-        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setTool("select")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "select" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Select (V) - Selects geometry entities"
-            >
-              <MousePointer2 className="w-4 h-4" />
-              <span className="text-[9.5px]">Select</span>
-            </button>
-            <button
-              onClick={() => setTool("pan")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "pan" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Pan (H / Space) - Pans the viewport"
-            >
-              <Hand className="w-4 h-4" />
-              <span className="text-[9.5px]">Pan</span>
-            </button>
-          </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Select</span>
-        </div>
-
-        {/* Draw Panel */}
-        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setTool("line")}
-              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "line" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Line (L) - Creates straight line segments"
-            >
-              <Minus className="w-4 h-4" />
-              <span className="text-[9.5px]">Line</span>
-            </button>
-            <button
-              onClick={() => setTool("polyline")}
-              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "polyline" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Polyline (PL) - Creates connected segments"
-            >
-              <Spline className="w-4 h-4" />
-              <span className="text-[9.5px]">Pline</span>
-            </button>
-            <button
-              onClick={() => setTool("rectangle")}
-              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "rectangle" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Rectangle (REC) - Creates rectangular polyline"
-            >
-              <Square className="w-4 h-4" />
-              <span className="text-[9.5px]">Rect</span>
-            </button>
-            <button
-              onClick={() => setTool("circle")}
-              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "circle" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Circle (C) - Creates circle with center & radius"
-            >
-              <Circle className="w-4 h-4" />
-              <span className="text-[9.5px]">Circle</span>
-            </button>
-            <button
-              onClick={() => setTool("polygon")}
-              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "polygon" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Polygon (POL) - Creates regular polygon"
-            >
-              <Hexagon className="w-4 h-4" />
-              <span className="text-[9.5px]">Polygon</span>
-            </button>
-            <button
-              onClick={() => setTool("construction")}
-              className={`flex flex-col items-center justify-center w-[44px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "construction" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Construction Line (X) - Creates reference geometry"
-            >
-              <Crosshair className="w-4 h-4" />
-              <span className="text-[9.5px]">Xline</span>
-            </button>
-          </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Draw</span>
-        </div>
-
-        {/* Modify Panel */}
-        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setTool("move")}
-              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "move" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Move (M) - Displaces objects"
-            >
-              <Move className="w-4 h-4" />
-              <span className="text-[9.5px]">Move</span>
-            </button>
-            <button
-              onClick={() => dispatch({ type: "DUPLICATE_SELECTED" })}
-              className="flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer text-(--fg-secondary)"
-              title="Copy (CO) - Duplicate selected objects"
-            >
-              <Copy className="w-4 h-4" />
-              <span className="text-[9.5px]">Copy</span>
-            </button>
-            <button
-              onClick={() => setTool("rotate")}
-              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "rotate" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Rotate (RO) - Rotates objects around center"
-            >
-              <RotateCw className="w-4 h-4" />
-              <span className="text-[9.5px]">Rotate</span>
-            </button>
-            <button
-              onClick={() => setTool("trim")}
-              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "trim" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Trim (TR) - Trims intersecting segment"
-            >
-              <Scissors className="w-4 h-4" />
-              <span className="text-[9.5px]">Trim</span>
-            </button>
-            <button
-              onClick={() => setTool("chamfer")}
-              className={`flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "chamfer" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Chamfer / Haunch (CHA / F) - Creates chamfer corner"
-            >
-              <Slash className="w-4 h-4" />
-              <span className="text-[9.5px]">Chamfer</span>
-            </button>
-            <button
-              onClick={() => dispatch({ type: "DELETE_SELECTED" })}
-              className="flex flex-col items-center justify-center w-[40px] h-[36px] rounded hover:bg-(--crit-soft) hover:text-(--crit) transition-colors cursor-pointer text-(--fg-secondary)"
-              title="Erase (E / Del) - Removes selected objects"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span className="text-[9.5px]">Erase</span>
-            </button>
-          </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Modify</span>
-        </div>
-
-        {/* Parametric Panel — grouping is a modelling decision, not a panel step.
-            Buried in the authoring panel it was reachable only by draftsmen who
-            already knew it existed; here it sits beside Move and Rotate, which
-            is where the question "can I treat these as one thing?" is asked. */}
-        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={groupRigid}
-              disabled={selection.length === 0}
-              className="flex flex-col items-center justify-center w-[52px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer text-(--fg-secondary) disabled:opacity-40 disabled:cursor-not-allowed"
-              title={
-                selection.length === 0
-                  ? "Select the geometry that makes up one piece first"
-                  : `Group ${selection.length} selected into one rigid piece — three freedoms, no internal distortion`
-              }
-            >
-              <Boxes className="w-4 h-4" />
-              <span className="text-[9.5px]">Group</span>
-            </button>
-            <button
-              onClick={releaseRigid}
-              disabled={rigidUnits.length === 0}
-              className="flex flex-col items-center justify-center w-[52px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer text-(--fg-secondary) disabled:opacity-40 disabled:cursor-not-allowed"
-              title={
-                rigidUnits.length === 0
-                  ? "Nothing is held rigid"
-                  : `Let ${rigidUnits.length === 1 ? `"${rigidUnits[0].name}"` : `${rigidUnits.length} units`} change shape again`
-              }
-            >
-              <Ungroup className="w-4 h-4" />
-              <span className="text-[9.5px]">Release</span>
-            </button>
-          </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">
-            Parametric
-          </span>
-        </div>
-
-        {/* Annotation & Measure Panel */}
-        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setTool("dimension")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "dimension" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Linear Dimension (DIM) - Add dimension constraint"
-            >
-              <Ruler className="w-4 h-4" />
-              <span className="text-[9.5px]">Dimension</span>
-            </button>
-            <button
-              onClick={() => setTool("measure")}
-              className={`flex flex-col items-center justify-center w-[46px] h-[36px] rounded hover:bg-(--ink-raised) transition-colors cursor-pointer ${
-                state.tool === "measure" ? "bg-(--pen-soft) text-(--pen) font-bold" : "text-(--fg-secondary)"
-              }`}
-              title="Measure Distance (DI)"
-            >
-              <Crosshair className="w-4 h-4" />
-              <span className="text-[9.5px]">Measure</span>
-            </button>
-          </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Annotation</span>
-        </div>
-
-        {/* Layers & Standards */}
-        <div className="flex flex-col items-center justify-between h-[54px] pr-3 border-r border-(--rule)">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-(--ink-app) border border-(--rule) text-[10.5px]">
-              <Layers className="w-3.5 h-3.5 text-(--pen)" />
-              <span className="font-mono font-semibold">Layer 0</span>
-              <div className="w-2.5 h-2.5 rounded-full bg-white border border-slate-500" />
-            </div>
-            <button
-              onClick={onOpenTemplates}
-              className="px-2 py-1 rounded bg-(--ink-raised) border border-(--rule) text-[10.5px] font-medium text-(--fg-secondary) hover:text-(--fg-primary) flex items-center gap-1"
-              title="Open Civil Parametric Templates"
-            >
-              <LayoutTemplate className="w-3.5 h-3.5 text-amber-500" />
-              <span>Catalog</span>
-            </button>
-          </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">Layers & Templates</span>
-        </div>
-
-        {/* Exporters Panel */}
-        <div className="flex flex-col items-center justify-between h-[54px]">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={onImportDxf}
-              className="flex items-center gap-1 h-[32px] px-2.5 rounded bg-(--ink-raised) border border-(--rule) hover:border-(--pen) text-[10.5px] font-medium text-(--fg-primary) transition-colors cursor-pointer"
-              title="Import AutoCAD DXF (DXFIN / OPEN)"
-            >
-              <FolderUp className="w-3.5 h-3.5 text-blue-500" />
-              <span>Import DXF</span>
-            </button>
-            <button
-              onClick={handleExportDxf}
-              className="flex items-center gap-1 h-[32px] px-2.5 rounded bg-(--ink-raised) border border-(--rule) hover:border-(--pen) text-[10.5px] font-medium text-(--fg-primary) transition-colors cursor-pointer"
-              title="Export AutoCAD R2010 DXF (AC1024)"
-            >
-              <FileCode className="w-3.5 h-3.5 text-blue-500" />
-              <span>DXF</span>
-            </button>
-            <button
-              onClick={handleExportPdf}
-              className="flex items-center gap-1 h-[32px] px-2.5 rounded bg-(--ink-raised) border border-(--rule) hover:border-(--pen) text-[10.5px] font-medium text-(--fg-primary) transition-colors cursor-pointer"
-              title="Export ISO 32000-1 A3 PDF Sheet"
-            >
-              <FileText className="w-3.5 h-3.5 text-red-500" />
-              <span>PDF Sheet</span>
-            </button>
-          </div>
-          <span className="text-[9px] text-(--fg-muted) font-semibold tracking-wider uppercase">I/O & Export</span>
-        </div>
-      </div>
+      {/* 3. Ribbon — each tab shows its own command panels */}
+      <Ribbon
+        tab={activeRibbonTab}
+        onOpenCatalog={() => onOpenCatalog?.()}
+        onOpenSheets={() => onOpenSheets?.()}
+        onOpenTemplates={onOpenTemplates}
+        onImportDxf={onImportDxf}
+        onOpenDock={(t) => onOpenDock?.(t)}
+        groupRigid={groupRigid}
+        releaseRigid={releaseRigid}
+        canGroupRigid={selection.length > 0}
+        canReleaseRigid={rigidUnits.length > 0}
+      />
     </header>
   );
 }

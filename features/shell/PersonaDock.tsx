@@ -7,6 +7,10 @@ import { DraftPanel } from "../panels/DraftPanel";
 import { AuthorPanel } from "../panels/AuthorPanel";
 import { RunPanel } from "../panels/RunPanel";
 import { PropertiesPalette } from "../panels/PropertiesPalette";
+import { BridgePanel } from "../panels/BridgePanel";
+import { LayerPanel } from "../panels/LayerPanel";
+
+export type DockTab = "properties" | "parametric" | "bridge" | "layers";
 
 /**
  * The right dock. Supports both AutoCAD Properties Inspector and UPCE Persona Views.
@@ -35,16 +39,22 @@ export function PersonaDock({
   onWidthChange,
   collapsed,
   onToggleCollapse,
+  request,
+  onOpenCatalog,
 }: {
   width: number;
   onWidthChange: (w: number) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** Ask the dock to show a tab; `nonce` makes repeated requests for the same tab count. */
+  request?: { tab: DockTab; nonce: number };
+  onOpenCatalog?: () => void;
 }) {
   const { state } = useDrawing();
-  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric">(
-    "parametric"
-  );
+  const [activeTab, setActiveTab] = React.useState<DockTab>("parametric");
+  React.useEffect(() => {
+    if (request) setActiveTab(request.tab);
+  }, [request]);
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
 
@@ -125,6 +135,17 @@ export function PersonaDock({
             >
               {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
             </button>
+            {(["bridge", "layers"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setActiveTab(t)}
+                className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                  activeTab === t ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs" : "text-(--fg-muted) hover:text-(--fg-primary)"
+                }`}
+              >
+                {t === "bridge" ? "Bridge" : "Layers"}
+              </button>
+            ))}
           </div>
 
           <button
@@ -139,6 +160,12 @@ export function PersonaDock({
 
         <div className={activeTab === "properties" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
           <PropertiesPalette />
+        </div>
+        <div className={activeTab === "bridge" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+          <BridgePanel onOpenCatalog={onOpenCatalog} />
+        </div>
+        <div className={activeTab === "layers" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
+          <LayerPanel />
         </div>
         <div className={activeTab === "parametric" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
           <div className="px-3.5 pt-2.5 pb-2 border-b border-(--rule)">
