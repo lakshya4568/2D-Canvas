@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect } from "vitest";
 import { DraftingWorkspace } from "@/lib/agent/drafter/workspace";
 import { verifyProposedFormula } from "@/lib/upce/formulaCheck";
 import { evaluateParameters, makeProvenance } from "@/lib/upce/parameters";
