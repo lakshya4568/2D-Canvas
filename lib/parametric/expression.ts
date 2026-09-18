@@ -355,6 +355,15 @@ const MATH_FUNCTIONS: Record<string, (...args: number[]) => number> = {
   radtodeg: (rad) => (rad * 180) / Math.PI,
   hypot: (x, y) => Math.hypot(x, y),
   pow: (x, y) => Math.pow(x, y),
+  // Comparisons return 1 or 0 so a definition can switch a term on or off
+  // without a ternary in the grammar: `if(Columns - 1, SpacingX, 1e9)`.
+  // Both branches are evaluated (the language has no side effects).
+  if: (c, a, b) => (c > 0 ? a : b),
+  gt: (a, b) => (a > b ? 1 : 0),
+  ge: (a, b) => (a >= b ? 1 : 0),
+  lt: (a, b) => (a < b ? 1 : 0),
+  le: (a, b) => (a <= b ? 1 : 0),
+  sign: (x) => Math.sign(x),
 };
 
 /**

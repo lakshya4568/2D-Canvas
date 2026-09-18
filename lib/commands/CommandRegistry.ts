@@ -96,6 +96,47 @@ export const COMMAND_ALIASES: CommandAlias[] = [
   { alias: "DYN", commandName: "DYNAMIC_INPUT", description: "Toggles dynamic input display (F12)", category: "utility" },
   { alias: "DYNMODE", commandName: "DYNAMIC_INPUT", description: "Toggles dynamic input display (F12)", category: "utility" },
 
+  // Annotation
+  { alias: "T", commandName: "TEXT", description: "Places single or multi-line text", category: "dimension" },
+  { alias: "TEXT", commandName: "TEXT", description: "Places single or multi-line text", category: "dimension" },
+  { alias: "MT", commandName: "TEXT", description: "Places multi-line text (type \\n for a new line)", category: "dimension" },
+  { alias: "MTEXT", commandName: "TEXT", description: "Places multi-line text", category: "dimension" },
+  { alias: "LE", commandName: "LEADER", description: "Creates a leader with a note", category: "dimension" },
+  { alias: "MLEADER", commandName: "LEADER", description: "Creates a leader with a note", category: "dimension" },
+  { alias: "DLI", commandName: "DIMLINEAR", description: "Horizontal or vertical dimension", category: "dimension" },
+  { alias: "DIMLINEAR", commandName: "DIMLINEAR", description: "Horizontal or vertical dimension", category: "dimension" },
+  { alias: "DAL", commandName: "DIMALIGNED", description: "Aligned dimension", category: "dimension" },
+  { alias: "DIMALIGNED", commandName: "DIMALIGNED", description: "Aligned dimension", category: "dimension" },
+  { alias: "DRA", commandName: "DIMRADIUS", description: "Radius dimension of a circle", category: "dimension" },
+  { alias: "DIMRADIUS", commandName: "DIMRADIUS", description: "Radius dimension of a circle", category: "dimension" },
+  { alias: "DAN", commandName: "DIMANGULAR", description: "Angular dimension", category: "dimension" },
+  { alias: "DIMANGULAR", commandName: "DIMANGULAR", description: "Angular dimension", category: "dimension" },
+  { alias: "LEVEL", commandName: "LEVEL", description: "Reduced-level marker read from the geometry", category: "dimension" },
+  { alias: "RL", commandName: "LEVEL", description: "Reduced-level marker read from the geometry", category: "dimension" },
+  { alias: "H", commandName: "HATCH", description: "Hatches a closed area with a material", category: "dimension" },
+  { alias: "HATCH", commandName: "HATCH", description: "Hatches a closed area with a material", category: "dimension" },
+  { alias: "NORTH", commandName: "NORTH", description: "Places a north arrow", category: "dimension" },
+  { alias: "FLOW", commandName: "FLOW", description: "Direction of flow arrow", category: "dimension" },
+  { alias: "KM", commandName: "KILOMETRAGE", description: "Direction of increasing kilometrage", category: "dimension" },
+  { alias: "SECTION", commandName: "SECTIONMARK", description: "Section cut marker", category: "dimension" },
+  { alias: "REVCLOUD", commandName: "REVCLOUD", description: "Revision cloud", category: "dimension" },
+  { alias: "BR", commandName: "BREAK", description: "Breaks a line at a point", category: "modify" },
+  { alias: "BREAK", commandName: "BREAK", description: "Breaks a line at a point", category: "modify" },
+  { alias: "J", commandName: "JOIN", description: "Joins selected lines into a polyline", category: "modify" },
+  { alias: "JOIN", commandName: "JOIN", description: "Joins selected lines into a polyline", category: "modify" },
+  { alias: "X", commandName: "EXPLODE", description: "Explodes rectangles, polygons and polylines into lines", category: "modify" },
+  { alias: "EXPLODE", commandName: "EXPLODE", description: "Explodes rectangles, polygons and polylines into lines", category: "modify" },
+
+  // Layers, components, output
+  { alias: "LA", commandName: "LAYER", description: "Layer properties manager", category: "utility" },
+  { alias: "LAYER", commandName: "LAYER", description: "Layer properties manager", category: "utility" },
+  { alias: "I", commandName: "INSERT", description: "Inserts a parametric component (bridge, culvert, pier…)", category: "utility" },
+  { alias: "INSERT", commandName: "INSERT", description: "Inserts a parametric component (bridge, culvert, pier…)", category: "utility" },
+  { alias: "AUDIT", commandName: "AUDIT", description: "Runs the GAD audit", category: "utility" },
+  { alias: "PLOT", commandName: "PLOT", description: "Sheet preview and PDF plot", category: "utility" },
+  { alias: "PUBLISH", commandName: "PLOT", description: "Sheet preview and PDF plot", category: "utility" },
+  { alias: "DXFOUT", commandName: "DXFOUT", description: "Exports model space to DXF", category: "utility" },
+
   // CAD Agent v2 Tools
   { alias: "AGENT", commandName: "CAD_AGENT", description: "Generates CAD drawing via CAD Agent v2", category: "utility" },
   { alias: "AI", commandName: "CAD_AGENT", description: "Generates CAD drawing via CAD Agent v2", category: "utility" },
@@ -321,12 +362,38 @@ export class CadCommandRegistry {
         };
 
       case "COPY":
-        ctx.dispatch({ type: "DUPLICATE_SELECTED" });
-        ctx.notify?.({ text: "Duplicated selected entities", type: "success" });
-        return {
-          success: true,
-          message: "COPIED: Duplicated selection with 20mm offset",
-        };
+        ctx.setTool("copy");
+        return { success: true, activeCommand: "COPY", message: "COPY: pick the base point, then destinations", awaitingInput: "point" };
+
+      case "TEXT":
+      case "LEADER":
+      case "DIMLINEAR":
+      case "DIMALIGNED":
+      case "DIMRADIUS":
+      case "DIMANGULAR":
+      case "LEVEL":
+      case "HATCH":
+      case "NORTH":
+      case "FLOW":
+      case "KILOMETRAGE":
+      case "SECTIONMARK":
+      case "REVCLOUD":
+      case "BREAK":
+      case "JOIN":
+      case "EXPLODE": {
+        const tool = ({ SECTIONMARK: "section" } as Record<string, string>)[matched.commandName] ?? matched.commandName.toLowerCase();
+        ctx.setTool(tool);
+        return { success: true, activeCommand: matched.commandName, message: `${matched.commandName}: follow the prompt at the top of the drawing` };
+      }
+
+      case "LAYER":
+      case "INSERT":
+      case "AUDIT":
+      case "PLOT":
+      case "DXFOUT": {
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("cad:open", { detail: matched.commandName }));
+        return { success: true, message: matched.description };
+      }
 
       case "ROTATE":
         ctx.setTool("rotate");

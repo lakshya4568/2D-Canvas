@@ -348,7 +348,9 @@ export function removeConstraint(
 
 /** Shapes the author actually drew, with repeat-generated copies filtered out. */
 export function authoredOnly(shapes: Shape[]): Shape[] {
-  return shapes.filter((s) => !isGeneratedShape(s.id));
+  // Component geometry is generated too — from its component's values — and is
+  // never source geometry for the authoring sketch.
+  return shapes.filter((s) => !isGeneratedShape(s.id) && !s.componentInstanceId);
 }
 
 export const emptyAuthoringSketch = emptySketch;

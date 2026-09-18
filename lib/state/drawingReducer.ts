@@ -6,6 +6,15 @@ import { GeometricConstraint } from "../parametric/constraints";
 import { BUILTIN_TEMPLATES } from "../parametric/templates";
 import { solveGADAssemblyAdjustment } from "../geometry/gadAssemblyEngine";
 import { evaluateAllBoundaryLimits, BoundaryLimitEvaluation } from "../parametric/boundaryLimits";
+import { emptyCadDoc, type CadDocState } from "../cad/document";
+import {
+  applyCadAction,
+  deleteSelection,
+  expandComponentSelection,
+  moveSelection,
+  selectedComponents,
+  type CadAction,
+} from "./cadActions";
 
 const MAX_HISTORY_STEPS = 100;
 
@@ -24,6 +33,8 @@ export interface HistoryItem {
   timestamp: number;
   description: string;
   shapes: Shape[];
+  /** The CAD document at the same moment — undo restores both together. */
+  cad?: CadDocState;
 }
 
 /** §3 personas. */
@@ -83,6 +94,11 @@ export interface DrawingState {
    * for another solve for ever.
    */
   geometryRevision: number;
+  /**
+   * Layers, annotations, component instances, the bridge project record and
+   * sheets. One object so one history snapshot captures all of it.
+   */
+  cad: CadDocState;
 }
 
 export type DrawingAction =
@@ -134,7 +150,14 @@ export type DrawingAction =
   | { type: "LOAD_SHAPES"; shapes: Shape[] }
   // Parametric Actions
   | { type: "INSTANTIATE_TEMPLATE"; templateId: string; params?: Record<string, number> }
-  | { type: "APPLY_SOLVED_SHAPES"; shapes: Shape[]; description?: string };
+  | { type: "APPLY_SOLVED_SHAPES"; shapes: Shape[]; description?: string }
+  | { type: "ADD_SHAPE"; shape: Shape }
+  /**
+   * One modify operation (offset, trim, mirror, array ...) as a single atomic,
+   * undoable change: shapes removed, added and replaced together.
+   */
+  | { type: "EDIT_SHAPES"; remove?: ID[]; add?: Shape[]; update?: Shape[]; description: string; select?: ID[] }
+  | CadAction;
 
 export const initialDrawingState: DrawingState = {
   shapes: [],
@@ -166,6 +189,7 @@ export const initialDrawingState: DrawingState = {
   boundaryEvaluations: [],
   userMode: "draftsman",
   geometryRevision: 0,
+  cad: emptyCadDoc(),
 };
 
 /**
@@ -258,6 +282,7 @@ function pushHistory(
     timestamp: Date.now(),
     description,
     shapes: shapesToSave,
+    cad: state.cad,
   };
   const newPast = [...state.history.past, item];
   if (newPast.length > MAX_HISTORY_STEPS) {
@@ -275,6 +300,10 @@ function pushHistory(
 function expandGroupIds(shapes: Shape[], ids: ID[]): ID[] {
   const selectedSet = new Set(ids);
   const groupIds = new Set<string>();
+  // A component is selected whole: its entities are one object, like a block.
+  const instances = new Set<string>();
+  for (const s of shapes) if (selectedSet.has(s.id) && s.componentInstanceId) instances.add(s.componentInstanceId);
+  if (instances.size) for (const s of shapes) if (s.componentInstanceId && instances.has(s.componentInstanceId)) selectedSet.add(s.id);
 
   for (const s of shapes) {
     if (selectedSet.has(s.id) && s.groupId) {
@@ -367,7 +396,13 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
         }
       }
 
-      const committedShape: Shape = { ...state.draft, name: defaultName, isVisible: true };
+      const committedShape: Shape = {
+        ...state.draft,
+        name: defaultName,
+        isVisible: true,
+        layerId: state.draft.layerId ?? (state.draft.isReference ? state.cad.layers.find((l) => l.category === "centre")?.id : state.cad.currentLayerId),
+        source: state.draft.source ?? "user",
+      };
       const desc = `Draw ${defaultName}`;
 
       // Drawing a shape no longer invents parameters for it.
@@ -423,7 +458,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       }
 
       // Single select: auto-expand to entire group if shape is in a group
-      const expanded = expandGroupIds(state.shapes, [action.id]);
+      const expanded = expandGroupIds(state.shapes, expandComponentSelection(state.shapes, state.cad, [action.id]));
       return {
         ...state,
         selectedId: action.id,
@@ -536,6 +571,13 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       if (state.selectedIds.length === 0) return state;
       const { dx, dy } = action;
       const idSet = new Set(state.selectedIds);
+      if (
+        state.cad.annotations.some((a) => idSet.has(a.id)) ||
+        selectedComponents(state.shapes, state.cad, state.selectedIds).size > 0
+      ) {
+        const moved = moveSelection(state.shapes, state.cad, state.selectedIds, dx, dy);
+        return { ...state, shapes: moved.shapes, cad: moved.cad };
+      }
 
       const nextShapes = state.shapes.map((shape) => {
         if (!idSet.has(shape.id) || shape.isLocked) return shape;
@@ -575,7 +617,8 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
 
     case "RESIZE_SHAPES":
     case "ROTATE_SHAPES": {
-      const updatedMap = new Map(action.updatedShapes.map((s) => [s.id, s]));
+      // Component geometry is regenerated from its values; a grip cannot edit it.
+      const updatedMap = new Map(action.updatedShapes.filter((s) => !s.componentInstanceId).map((s) => [s.id, s]));
       const nextShapes = state.shapes.map((s) => updatedMap.get(s.id) || s);
 
       return {
@@ -682,6 +725,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       if (targetIndex === -1) return state;
 
       const currentShape = state.shapes[targetIndex];
+      if (currentShape.componentInstanceId) return state;
       const updates = action.updates as Record<string, any>;
 
       let intermediateShapes = state.shapes;
@@ -740,6 +784,20 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
 
     case "DELETE_SELECTED": {
       if (state.selectedIds.length === 0) return state;
+      if (
+        state.cad.annotations.some((a) => state.selectedIds.includes(a.id)) ||
+        selectedComponents(state.shapes, state.cad, state.selectedIds).size > 0
+      ) {
+        const del = deleteSelection(state.shapes, state.cad, state.selectedIds);
+        return {
+          ...state,
+          shapes: del.shapes,
+          cad: del.cad,
+          selectedId: null,
+          selectedIds: [],
+          history: pushHistory(state, `Delete ${del.count} entit${del.count === 1 ? "y" : "ies"}`),
+        };
+      }
       const delSet = new Set(state.selectedIds);
       const nextShapes = state.shapes.filter((s) => !delSet.has(s.id));
       const count = state.selectedIds.length;
@@ -819,10 +877,11 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
     }
 
     case "CLEAR_ALL": {
-      if (state.shapes.length === 0) return state;
+      if (state.shapes.length === 0 && state.cad.annotations.length === 0) return state;
       return {
         ...state,
         shapes: [],
+        cad: { ...state.cad, annotations: [], components: [], componentNotice: null },
               selectedId: null,
         selectedIds: [],
         draft: null,
@@ -839,6 +898,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
         timestamp: Date.now(),
         description: "Current State",
         shapes: state.shapes,
+        cad: state.cad,
       };
 
       const newPast = state.history.past.slice(0, -1);
@@ -849,6 +909,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       return {
         ...state,
         shapes: previous.shapes,
+        cad: previous.cad ? { ...previous.cad, componentNotice: null } : state.cad,
         selectedId: nextSelectedId,
         selectedIds: state.selectedIds.filter((id) => previous.shapes.some((s) => s.id === id)),
         draft: null,
@@ -868,6 +929,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
         timestamp: Date.now(),
         description: "Undo State",
         shapes: state.shapes,
+        cad: state.cad,
       };
 
       const newFuture = state.history.future.slice(1);
@@ -878,6 +940,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       return {
         ...state,
         shapes: next.shapes,
+        cad: next.cad ? { ...next.cad, componentNotice: null } : state.cad,
         selectedId: nextSelectedId,
         selectedIds: state.selectedIds.filter((id) => next.shapes.some((s) => s.id === id)),
         draft: null,
@@ -895,6 +958,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       return {
         ...state,
         shapes: target.shapes,
+        cad: target.cad ?? state.cad,
         selectedId: null,
         selectedIds: [],
         draft: null,
@@ -1062,6 +1126,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       return {
         ...state,
         shapes: action.shapes,
+        cad: { ...state.cad, components: [], annotations: state.cad.annotations.filter((a) => !a.componentInstanceId) },
         viewport: importBounds
           ? fitViewportToBounds(
               importBounds,
@@ -1125,17 +1190,79 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
      * the topology check and the invariant report — re-running the drafting
      * pipeline over it would only be able to make it worse.
      */
-    case "APPLY_SOLVED_SHAPES": {
+    case "ADD_SHAPE": {
+      const shape: Shape = {
+        ...action.shape,
+        layerId: action.shape.layerId ?? state.cad.currentLayerId,
+        source: action.shape.source ?? "user",
+      };
+      const nextShapes = [...state.shapes, shape];
       return {
         ...state,
-        shapes: action.shapes,
+        shapes: nextShapes,
+        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
+        history: pushHistory(state, `Add ${shape.type}`),
+      };
+    }
+
+    case "EDIT_SHAPES": {
+      const remove = new Set(action.remove ?? []);
+      const update = new Map((action.update ?? []).map((s) => [s.id, s]));
+      // Component entities are regenerated from values; a modify tool never rewrites them.
+      for (const s of state.shapes) if (s.componentInstanceId) { remove.delete(s.id); update.delete(s.id); }
+      const added = (action.add ?? []).map((s) => ({ ...s, layerId: s.layerId ?? state.cad.currentLayerId }));
+      const nextShapes = [
+        ...state.shapes.filter((s) => !remove.has(s.id)).map((s) => update.get(s.id) ?? s),
+        ...added,
+      ];
+      return {
+        ...state,
+        shapes: nextShapes,
+        boundaryEvaluations: evaluateAllBoundaryLimits(nextShapes),
+        history: pushHistory(state, action.description),
+        selectedIds: action.select ?? state.selectedIds.filter((id) => !remove.has(id)),
+        selectedId: action.select ? action.select[0] ?? null : remove.has(state.selectedId ?? "") ? null : state.selectedId,
+      };
+    }
+
+    case "APPLY_SOLVED_SHAPES": {
+      // The authoring solver only sees free geometry; component entities are
+      // regenerated from their own values and must survive its write-back.
+      const incoming = new Set(action.shapes.map((s) => s.id));
+      const kept = state.shapes.filter((s) => s.componentInstanceId && !incoming.has(s.id));
+      return {
+        ...state,
+        shapes: kept.length ? [...action.shapes, ...kept] : action.shapes,
         boundaryEvaluations: evaluateAllBoundaryLimits(action.shapes),
         history: pushHistory(state, action.description ?? "Parametric update"),
       };
     }
 
-    default:
+    default: {
+      if (typeof action.type === "string" && action.type.startsWith("CAD_")) {
+        const r = applyCadAction(state.shapes, state.cad, action as CadAction);
+        if (!r) return state;
+        const shapesChanged = r.shapes !== state.shapes;
+        // A freshly inserted component is framed on its own, not with everything else.
+        let viewport = state.viewport;
+        if (action.type === "CAD_INSERT_COMPONENT" && r.select?.length) {
+          const sel = new Set(r.select);
+          const b = computeMultiShapeBounds(r.shapes.filter((s) => sel.has(s.id)));
+          if (b) viewport = fitViewportToBounds(b, state.canvasSize.width, state.canvasSize.height);
+        }
+        return {
+          ...state,
+          viewport,
+          shapes: r.shapes,
+          cad: r.cad,
+          boundaryEvaluations: shapesChanged ? evaluateAllBoundaryLimits(r.shapes) : state.boundaryEvaluations,
+          history: r.history ? pushHistory(state, r.history) : state.history,
+          selectedIds: r.select ?? (shapesChanged ? state.selectedIds.filter((id) => r.shapes.some((s) => s.id === id) || r.cad.annotations.some((a) => a.id === id)) : state.selectedIds),
+          selectedId: r.select ? r.select[0] ?? null : state.selectedId,
+        };
+      }
       return state;
+    }
   }
 }
 
