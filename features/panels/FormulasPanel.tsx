@@ -10,15 +10,10 @@ import {
   Copy,
   Check,
   X,
-  Link2,
   Link2Off,
-  Plus,
   Search,
-  CheckCircle2,
-  AlertTriangle,
   ArrowRight,
   Pencil,
-  RotateCcw,
 } from "lucide-react";
 import { useUpce } from "../parametric/upceContext";
 import { useDrawing } from "@/lib/state/drawingContext";
@@ -36,8 +31,6 @@ export function FormulasPanel({ context = "author", onSwitchToDraw }: FormulasPa
     derived,
     linkValue,
     unlinkValue,
-    createDerivedParameter,
-    updateParameter,
     acceptDerivedCandidate,
     rejectDerivedCandidate,
     dependentsFor,
@@ -48,12 +41,6 @@ export function FormulasPanel({ context = "author", onSwitchToDraw }: FormulasPa
   const [activeFilter, setActiveFilter] = React.useState<"all" | "agent" | "author" | "candidates">("all");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [copiedName, setCopiedName] = React.useState<string | null>(null);
-
-  // New formula creation state
-  const [isCreating, setIsCreating] = React.useState(false);
-  const [newTarget, setNewTarget] = React.useState("");
-  const [newExpr, setNewExpr] = React.useState("");
-  const [newDesc, setNewDesc] = React.useState("");
 
   // Inline edit state
   const [editingName, setEditingName] = React.useState<string | null>(null);
@@ -112,32 +99,6 @@ export function FormulasPanel({ context = "author", onSwitchToDraw }: FormulasPa
     return list;
   }, [formulas, agentFormulas, authorFormulas, activeFilter, searchQuery]);
 
-  const linkable = React.useMemo(
-    () => allParameters.filter((p) => p.role === "DRIVING" || p.role === "DERIVED"),
-    [allParameters]
-  );
-  const currentNewParam = newTarget ? sketch.parameters[newTarget] : undefined;
-
-  // Live preview matching Author mode
-  const newPreview = React.useMemo(() => {
-    if (!newExpr.trim() || !newTarget) return null;
-    const names: string[] = newExpr.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
-    const builtins: string[] = ["max", "min", "abs", "round", "ceil", "floor", "sqrt"];
-    const unknown = names.filter((n) => !sketch.parameters[n] && !builtins.includes(n));
-    if (unknown.length > 0) return { ok: false as const, text: `No value called ${unknown[0]}.` };
-    if (names.includes(newTarget)) return { ok: false as const, text: `${newTarget} cannot be written in terms of itself.` };
-
-    const namesOfShapes = Object.fromEntries(state.shapes.map((s) => [s.id, s.name || s.id]));
-    const check = verifyProposedFormula(sketch, newTarget, newExpr.trim(), {
-      shapes: state.shapes,
-      shapeNames: namesOfShapes,
-    });
-    if (!check.ok) {
-      return { ok: false as const, text: check.reason ?? "Invalid expression." };
-    }
-    return { ok: true as const, text: `${newTarget} stops being typed and follows this instead (${check.agreement ?? "agrees with drawing"}).` };
-  }, [newExpr, newTarget, sketch, state.shapes]);
-
   // Live validation for edit formula
   const editFormulaValidation = React.useMemo(() => {
     if (!editingName || !editExpr.trim()) return null;
@@ -153,20 +114,6 @@ export function FormulasPanel({ context = "author", onSwitchToDraw }: FormulasPa
     navigator.clipboard?.writeText(text);
     setCopiedName(formula.name);
     setTimeout(() => setCopiedName(null), 1500);
-  };
-
-  const handleLinkNewFormula = () => {
-    if (!newTarget || !newExpr.trim() || newPreview?.ok === false) return;
-    linkValue(newTarget, newExpr.trim());
-    setIsCreating(false);
-    setNewTarget("");
-    setNewExpr("");
-  };
-
-  const handleUnlinkNewFormula = () => {
-    if (!currentNewParam) return;
-    unlinkValue(currentNewParam.name);
-    setNewExpr("");
   };
 
   const handleSaveEditFormula = (paramName: string) => {
@@ -193,18 +140,9 @@ export function FormulasPanel({ context = "author", onSwitchToDraw }: FormulasPa
             </span>
           </div>
 
-          <button
-            onClick={() => setIsCreating((v) => !v)}
-            className={`h-[22px] px-2 rounded-[4px] text-[10.5px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors border ${
-              isCreating
-                ? "bg-(--pen) text-white border-(--pen)"
-                : "bg-(--ink-raised) text-(--fg-secondary) hover:text-(--fg-primary) border-(--rule)"
-            }`}
-            title="Add a new formula"
-          >
-            <Plus className="w-3 h-3" />
-            <span>Add Formula</span>
-          </button>
+          <span className="text-[10px] text-(--fg-muted) font-mono">
+            Viewer & Store
+          </span>
         </div>
 
         {/* Filter Tabs */}
@@ -256,6 +194,12 @@ export function FormulasPanel({ context = "author", onSwitchToDraw }: FormulasPa
           )}
         </div>
 
+        {/* Guidance tip explaining where formulas are authored */}
+        <div className="text-[9.5px] text-(--fg-muted) bg-(--ink-raised)/60 px-2 py-1 rounded border border-(--rule)/60 flex items-center justify-between gap-1">
+          <span>Formula viewer & store</span>
+          <span className="text-(--fg-secondary)">Add in <strong className="text-(--pen) font-medium">Author Mode → Relationships → Formula</strong></span>
+        </div>
+
         {/* Search Bar */}
         <div className="relative">
           <Search className="w-3 h-3 absolute left-2 top-2 text-(--fg-muted)" />
@@ -267,117 +211,6 @@ export function FormulasPanel({ context = "author", onSwitchToDraw }: FormulasPa
           />
         </div>
       </div>
-
-      {/* 2. New Formula Form (Exact Author Mode Style) */}
-      {isCreating && (
-        <div className="p-2.5 border-b border-(--rule) bg-(--ink-raised)/50 flex flex-col gap-2 shrink-0">
-          <div className="rounded-[6px] border border-(--rule) overflow-hidden bg-(--ink-panel)">
-            <div className="px-2.5 h-[26px] flex items-center justify-between bg-(--ink-raised) border-b border-(--rule)">
-              <div className="flex items-center gap-1.5">
-                <Link2 className="w-[12px] h-[12px] text-(--fg-muted)" strokeWidth={2.1} />
-                <span className="text-[11px] font-medium text-(--fg-secondary)">Make one value follow others</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCreating(false)}
-                className="text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer"
-                title="Close"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {linkable.length === 0 ? (
-              <p className="px-2.5 py-2 text-[10.5px] text-(--fg-muted)">
-                No named values yet. Draw and dimension something first.
-              </p>
-            ) : (
-              <div className="px-2.5 py-2 flex flex-col gap-2">
-                <div className="flex items-center gap-1.5">
-                  <select
-                    value={newTarget}
-                    onChange={(e) => {
-                      setNewTarget(e.target.value);
-                      setNewExpr(sketch.parameters[e.target.value]?.expr ?? "");
-                    }}
-                    className="w-[125px] h-[24px] px-1.5 text-[11px] rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
-                  >
-                    <option value="">Which value…</option>
-                    {linkable.map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-(--fg-muted) text-[11px]">=</span>
-                  <input
-                    value={newExpr}
-                    onChange={(e) => setNewExpr(e.target.value)}
-                    placeholder="OtherWidth - 2 * WallThickness"
-                    className="num flex-1 min-w-0 h-[24px] px-2 text-[11px] font-mono rounded-[4px] bg-(--ink-raised) border border-(--rule) outline-none focus:border-(--pen) text-(--fg-primary)"
-                  />
-                </div>
-
-                {/* Operands, showing ALL variables with their current numeric values */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-(--fg-muted)">Operands (click to insert):</span>
-                  <div className="flex flex-wrap gap-1 max-h-[110px] overflow-y-auto pr-0.5">
-                    {allParameters
-                      .filter((p) => p.name !== newTarget)
-                      .map((p) => (
-                        <button
-                          key={p.name}
-                          type="button"
-                          onClick={() => setNewExpr((e) => (e ? `${e} ${p.name}` : p.name))}
-                          title={`${p.role} · ${p.value.toFixed(2)} ${p.unit}`}
-                          className="px-1.5 h-[20px] rounded-[4px] text-[10px] border border-(--rule) bg-(--ink-raised) text-(--fg-muted) hover:text-(--fg-primary) hover:border-(--rule-strong) cursor-pointer inline-flex items-center gap-1"
-                        >
-                          <span>{p.name}</span>
-                          <span className="num opacity-60 font-mono text-[9px]">{p.value.toFixed(0)}</span>
-                        </button>
-                      ))}
-                  </div>
-                </div>
-
-                {newPreview && (
-                  <p className={`text-[10px] ${newPreview.ok ? "text-(--fg-muted)" : "text-rose-500"}`}>
-                    {newPreview.text}
-                  </p>
-                )}
-
-                <div className="flex items-center gap-1.5 pt-1 border-t border-(--rule)/60">
-                  <button
-                    type="button"
-                    onClick={handleLinkNewFormula}
-                    disabled={!newTarget || !newExpr.trim() || newPreview?.ok === false}
-                    className="h-[26px] px-2.5 rounded-[5px] text-[11.5px] font-medium inline-flex items-center gap-1.5 bg-(--pen) text-white hover:opacity-90 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Link2 className="w-[12px] h-[12px]" strokeWidth={2.1} />
-                    <span>Link it</span>
-                  </button>
-                  {currentNewParam?.role === "DERIVED" && (
-                    <button
-                      type="button"
-                      onClick={handleUnlinkNewFormula}
-                      className="h-[26px] px-2.5 rounded-[5px] text-[11.5px] font-medium inline-flex items-center gap-1.5 border border-(--rule) text-(--fg-secondary) hover:text-(--fg-primary) hover:border-(--rule-strong) transition-colors cursor-pointer"
-                    >
-                      <Link2Off className="w-[12px] h-[12px]" strokeWidth={2.1} />
-                      <span>Take back manual control</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIsCreating(false)}
-                    className="h-[26px] px-2 rounded-[5px] text-[11px] text-(--fg-muted) hover:text-(--fg-primary) cursor-pointer ml-auto"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* 3. Formulas List */}
       <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-(--rule)">
