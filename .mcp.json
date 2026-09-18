@@ -1,13 +1,3 @@
 {
-  "mcpServers": {
-    "cad": {
-      "command": "uv",
-      "args": [
-        "run",
-        "python",
-        "-m",
-        "server"
-      ]
-    }
-  }
+  "mcpServers": {}
 }

@@ -364,13 +364,13 @@ describe("Autonomous Agentic Loop (gemini-3.8-flash) & Reference Image Suite", (
     // Progress trace is only generated for gemini-3.8-flash autonomous loop
     expect(detRes.progressTrace).toBeUndefined();
 
-    // Model 'fastmcp'
+    // Model 'gemini-3.5-flash-lite'
     const fastRes = await agent.execute({
       prompt: "Draw a rectangle 200x100",
-      modelOverride: "fastmcp",
+      modelOverride: "gemini-3.5-flash-lite",
     });
     expect(fastRes.success).toBe(true);
-    expect(fastRes.routerDecision.selectedModel).toBe("fastmcp");
+    expect(fastRes.routerDecision.selectedModel).toBe("gemini-3.5-flash-lite");
     expect(fastRes.progressTrace).toBeUndefined();
   });
 

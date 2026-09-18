@@ -35,6 +35,7 @@ export async function GET() {
   const status = vertexStatus(config);
   return NextResponse.json({
     configured: status.configured,
+    vertexConfigured: status.configured,
     detail: status.detail,
     project: status.project ?? null,
     location: status.location,

@@ -87,6 +87,7 @@ export type DrafterEvent =
       turns: number;
       toolCalls: number;
       elapsedMs: number;
+      dxf?: string;
     };
 
 export interface DrafterOptions {

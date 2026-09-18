@@ -11,7 +11,6 @@
 
 import { CadRouter } from "./router";
 import { ModelSelector } from "./models/modelSelector";
-import { FastMcpProvider } from "./models/fastMcpProvider";
 import { CadPlanner } from "./planner";
 import { CadExecutor } from "./executor";
 import { ToolRegistry } from "./tools/toolRegistry";
@@ -160,55 +159,7 @@ export class CadAgent {
 
     let previewPng: string | undefined;
 
-    if (selectedProvider.id === "fastmcp" || routerDecision.selectedModel === "fastmcp") {
-      const fastMcp =
-        selectedProvider instanceof FastMcpProvider
-          ? selectedProvider
-          : ((this.modelSelector.getProvider("fastmcp") as FastMcpProvider) || new FastMcpProvider());
-
-      const bridgeResult = await fastMcp.executeBridge({
-        prompt: request.prompt,
-        operations: request.operations,
-      });
-
-      if (bridgeResult.success && bridgeResult.dxf) {
-        output = this.executor.executeFastMcpOutput(
-          bridgeResult,
-          plan,
-          request.tolerancePolicy || DEFAULT_TOLERANCE_POLICY
-        );
-        previewPng = bridgeResult.previewPng || bridgeResult.preview_png;
-        this.activeSceneGraph = output.sceneGraph;
-        this.lastShapes = output.shapes;
-        this.lastDxf = output.dxf;
-        this.lastSvg = output.svg;
-
-        logs.push({
-          stage: "tool_execution",
-          timestamp: Date.now(),
-          message: `FastMCP Server (ezdxf) executed ${bridgeResult.entityCount} entities, generated ${output.shapes.length} UPCE shapes, and rendered self-verification preview`,
-          data: {
-            entityCount: bridgeResult.entityCount,
-            bounds: bridgeResult.bounds,
-            hasPreviewPng: Boolean(previewPng),
-          },
-        });
-      } else {
-        logs.push({
-          stage: "tool_execution",
-          timestamp: Date.now(),
-          message: `FastMCP bridge fallback: ${bridgeResult.error || "No DXF returned"}`,
-        });
-        output = this.executor.execute(
-          plan,
-          request.tolerancePolicy || DEFAULT_TOLERANCE_POLICY
-        );
-        this.activeSceneGraph = output.sceneGraph;
-        this.lastShapes = output.shapes;
-        this.lastDxf = output.dxf;
-        this.lastSvg = output.svg;
-      }
-    } else if (
+    if (
       (routerDecision.intent === "query" || routerDecision.intent === "explain") &&
       this.activeSceneGraph &&
       plan.steps.length === 0
@@ -254,8 +205,6 @@ export class CadAgent {
       responseText = explanationText;
     } else if (routerDecision.intent === "query") {
       responseText = this.generateQueryResponse(request.prompt, plan, output.sceneGraph);
-    } else if (selectedProvider.id === "fastmcp" || routerDecision.selectedModel === "fastmcp") {
-      responseText = `Drafted ${output.shapes.length} CAD entities using FastMCP Server (ezdxf) with visual self-verification preview.`;
     }
 
     const elapsed = Date.now() - t0;

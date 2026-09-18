@@ -25,7 +25,7 @@
 import React from "react";
 import {
   ArrowUp, Brain, Check, CircleAlert, Eye, Hourglass, ImagePlus, Loader2, PenLine,
-  Ruler, Search, ShieldCheck, Sigma, Square, Undo2, Wrench, X, SlidersHorizontal, Link2, Zap,
+  Ruler, Search, ShieldCheck, Sigma, Square, Undo2, Wrench, X, SlidersHorizontal, Link2, Zap, Download,
 } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "../parametric/upceContext";
@@ -78,6 +78,7 @@ interface DoneEvent {
   turns: number;
   toolCalls: number;
   elapsedMs: number;
+  dxf?: string;
 }
 
 const PHASES: { id: string; label: string }[] = [
@@ -536,8 +537,6 @@ export function DrafterPanel({ onViewFormulas }: { onViewFormulas?: () => void }
     }
   };
 
-  const stop = () => abortRef.current?.abort();
-
   const configured = status?.configured ?? false;
   const elapsed = startedAt ? Math.round(((running ? now : done ? startedAt + done.elapsedMs : now) - startedAt) / 1000) : 0;
   const driving = values.filter((v) => v.role === "DRIVING");
@@ -565,12 +564,13 @@ export function DrafterPanel({ onViewFormulas }: { onViewFormulas?: () => void }
           </select>
           {status && (configured ? <Pill tone="good">ready</Pill> : <Pill tone="attention">off</Pill>)}
         </div>
-        {status && !configured && <p className="text-[10px] leading-[1.45] text-(--warn)">{status.detail}</p>}
-        {status?.project && configured && (
+        {status && !configured ? (
+          <p className="text-[10px] leading-[1.45] text-(--warn)">{status.detail}</p>
+        ) : status?.project && configured ? (
           <p className="text-[9.5px] text-(--fg-muted) truncate" title={status.detail}>
             Google Cloud project {status.project}
           </p>
-        )}
+        ) : null}
       </div>
 
       {/* Now */}
@@ -763,7 +763,7 @@ export function DrafterPanel({ onViewFormulas }: { onViewFormulas?: () => void }
           disabled={!configured}
           placeholder={
             !configured
-              ? "Google Cloud is not configured"
+              ? status?.detail ?? "Google Cloud is not configured"
               : hasDrawing
                 ? "What should change? e.g. make the walls 450 and add a second cell"
                 : "Describe the drawing, or paste / drop a reference image"
@@ -886,6 +886,24 @@ function Outcome({
         >
           See rules in Author
         </button>
+        {done.dxf && (
+          <button
+            onClick={() => {
+              const blob = new Blob([done.dxf!], { type: "application/dxf" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "drawing.dxf";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="h-[24px] px-2 rounded-[5px] border border-(--rule) text-[10.5px] text-(--fg-secondary) hover:text-(--fg-primary) inline-flex items-center gap-1 cursor-pointer"
+            title="Download generated CAD DXF file"
+          >
+            <Download className="w-[11px] h-[11px]" strokeWidth={2.2} />
+            Download DXF
+          </button>
+        )}
         {onViewFormulas && (
           <button
             onClick={onViewFormulas}

@@ -875,6 +875,24 @@ async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<T
       };
     }
 
+    case "draw_rect_or_poly_or_circle":
+    case "draw_rect": {
+      if (a.width !== undefined && a.height !== undefined && (a.x !== undefined || a.y !== undefined)) {
+        return dispatch(ctx, "draw_rectangle", a);
+      }
+      if (a.center !== undefined && (a.radius !== undefined || (a as any).r !== undefined)) {
+        return dispatch(ctx, "draw_circle", {
+          name: a.name,
+          center: a.center,
+          radius: a.radius ?? (a as any).r,
+        });
+      }
+      if (Array.isArray(a.points)) {
+        return dispatch(ctx, "draw_polyline", a);
+      }
+      throw new ToolError('Use specific tool: "draw_rectangle" (name, x, y, width, height), "draw_circle" (name, center, radius), or "draw_polyline" (name, points).');
+    }
+
     case "draw_rectangle": {
       const r = ws.drawRectangle(optStr(a, "name"), num(a, "x"), num(a, "y"), num(a, "width"), num(a, "height"));
       return { text: `Drew ${r.id}${commitNote(r.commit)}. Corners ${r.id}.bottom_left etc.; edges ${r.id}.top etc.` };

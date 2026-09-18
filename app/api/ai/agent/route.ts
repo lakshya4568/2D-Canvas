@@ -151,12 +151,10 @@ export async function POST(request: Request) {
 }
 
 import { readVertexConfig, vertexStatus } from "@/lib/ai/vertexTransport";
-import { getCadCoderStatus } from "@/lib/ai/cadcoderService";
 
 export async function GET() {
   const vConfig = readVertexConfig();
   const vStatus = vertexStatus(vConfig);
-  const cStatus = await getCadCoderStatus();
 
   return NextResponse.json({
     models: [
@@ -167,25 +165,11 @@ export async function GET() {
         provider: "vertex",
         configured: vStatus.configured,
         details: vStatus.configured
-          ? "Vertex AI reasoning, thinking trace & 15 MCP CAD tools"
+          ? "Vertex AI reasoning, thinking trace & UPCE CAD tools"
           : vStatus.detail,
         supportsVision: true,
         supportsThinking: true,
         supportsTools: true,
-      },
-      {
-        id: "c3dv0",
-        name: "Ollama C3Dv0 (Gemma 3n)",
-        tier: "cad_specialized",
-        provider: "ollama",
-        configured: cStatus.modelAvailable,
-        endpoint: cStatus.ollamaEndpoint,
-        details: cStatus.modelAvailable
-          ? "Fine-tuned Text-to-CAD (CadQuery / JSON output)"
-          : `Host ${cStatus.ollamaEndpoint} is currently offline`,
-        supportsVision: false,
-        supportsThinking: false,
-        supportsTools: false,
       },
       {
         id: "auto",
@@ -211,9 +195,9 @@ export async function GET() {
       },
     ],
     cadBackend: {
-      name: "FastMCP Server (ezdxf)",
+      name: "UPCE Native Kernel",
       status: "active",
-      toolsCount: 7,
+      toolsCount: 15,
     },
     defaultModel: vStatus.configured ? "gemini-3.8-flash" : "auto",
   });

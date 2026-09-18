@@ -313,7 +313,7 @@ export class CadRouter {
     }
 
     if (hasOperations) {
-      return "fastmcp";
+      return "deterministic-engine";
     }
 
     if (/use\s+(?:gemini\s+)?(?:3\.8|flash)\b/i.test(lowerPrompt)) {
@@ -321,12 +321,6 @@ export class CadRouter {
     }
     if (/use\s+(?:gemini\s+)?3\.1\b/i.test(lowerPrompt)) {
       return "gemini-3.5-flash-lite";
-    }
-    if (/use\s+ollama\b|use\s+c3d\b/i.test(lowerPrompt)) {
-      return "joshuaokolo/C3Dv0:latest";
-    }
-    if (/use\s+(?:fastmcp|ezdxf)\b/i.test(lowerPrompt)) {
-      return "fastmcp";
     }
     if (/use\s+(?:local|deterministic)\b/i.test(lowerPrompt)) {
       return "deterministic-engine";
