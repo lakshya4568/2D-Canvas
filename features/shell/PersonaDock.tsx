@@ -3,12 +3,10 @@
 import React from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
-import { useUpce } from "../parametric/upceContext";
 import { DraftPanel } from "../panels/DraftPanel";
 import { AuthorPanel } from "../panels/AuthorPanel";
 import { RunPanel } from "../panels/RunPanel";
 import { PropertiesPalette } from "../panels/PropertiesPalette";
-import { FormulasPanel } from "../panels/FormulasPanel";
 
 /**
  * The right dock. Supports both AutoCAD Properties Inspector and UPCE Persona Views.
@@ -44,24 +42,15 @@ export function PersonaDock({
   onToggleCollapse: () => void;
 }) {
   const { state } = useDrawing();
-  const upce = useUpce();
-  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric" | "formulas">(
+  const [activeTab, setActiveTab] = React.useState<"properties" | "parametric">(
     "parametric"
   );
   const heading = HEADINGS[state.userMode] ?? HEADINGS.draftsman;
   const draggingRef = React.useRef(false);
 
-  const formulaCount = React.useMemo(() => {
-    return Object.values(upce.sketch.parameters).filter(
-      (p) => p.role === "DERIVED" || (p.expr !== undefined && p.expr.trim().length > 0)
-    ).length;
-  }, [upce.sketch.parameters]);
-
   React.useEffect(() => {
-    if (state.userMode !== "author" && activeTab === "formulas") {
-      setActiveTab("parametric");
-    }
-  }, [state.userMode, activeTab]);
+    setActiveTab("parametric");
+  }, [state.userMode]);
 
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -136,24 +125,6 @@ export function PersonaDock({
             >
               {state.userMode === "draftsman" ? "Drafting" : state.userMode === "author" ? "Author" : "Run"}
             </button>
-            {state.userMode === "author" && (
-              <button
-                onClick={() => setActiveTab("formulas")}
-                className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer inline-flex items-center gap-1 ${
-                  activeTab === "formulas"
-                    ? "bg-(--ink-panel) text-(--pen) font-semibold shadow-xs"
-                    : "text-(--fg-muted) hover:text-(--fg-primary)"
-                }`}
-                title="Formulas made or used in this drawing"
-              >
-                <span>Formulas</span>
-                {formulaCount > 0 && (
-                  <span className="text-[9.5px] px-1 rounded-full bg-(--pen-soft) text-(--pen) font-mono">
-                    {formulaCount}
-                  </span>
-                )}
-              </button>
-            )}
           </div>
 
           <button
@@ -168,9 +139,6 @@ export function PersonaDock({
 
         <div className={activeTab === "properties" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
           <PropertiesPalette />
-        </div>
-        <div className={activeTab === "formulas" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
-          <FormulasPanel context="author" />
         </div>
         <div className={activeTab === "parametric" ? "flex flex-1 min-h-0 flex-col" : "hidden"}>
           <div className="px-3.5 pt-2.5 pb-2 border-b border-(--rule)">
