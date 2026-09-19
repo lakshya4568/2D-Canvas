@@ -236,7 +236,9 @@ export class VertexChatTransport implements ChatTransport {
     }
     const body = JSON.stringify(bodyObj);
 
-    const timeoutMs = this.options.timeoutMs ?? Math.max(this.config.timeoutMs, 300_000);
+    // A planning turn — the whole analysis and value chain of a GAD in one call —
+    // can take the model several minutes on shared capacity.
+    const timeoutMs = this.options.timeoutMs ?? Math.max(this.config.timeoutMs, 480_000);
 
     for (let attempt = 1; ; attempt++) {
       const started = Date.now();
@@ -260,6 +262,11 @@ export class VertexChatTransport implements ChatTransport {
       } catch (err) {
         if (request.signal?.aborted) throw new ModelCallError("Stopped.", "network", false);
         const timedOut = err instanceof Error && /timeout/i.test(`${err.name} ${err.message}`);
+        if (timedOut && attempt === 1) {
+          // Once: the request is complete and stateless, so it can simply be sent again.
+          this.options.onRetry?.({ attempt, status: "network", waitMs: 0, reason: `${request.model} did not answer within ${Math.round(timeoutMs / 1000)} s` });
+          continue;
+        }
         if (timedOut) {
           throw new ModelCallError(
             `${request.model} did not answer within ${Math.round(timeoutMs / 1000)} s.`,

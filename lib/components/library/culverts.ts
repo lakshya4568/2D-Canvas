@@ -95,9 +95,9 @@ export const RCC_BOX_HALF_SECTION: ComponentDefinition = {
       name: "Layers",
       label: "Foundation layers under the PCC",
       group: "Foundation",
-      description: "Top to bottom. Add a row for each layer; its callout reads its thickness and name.",
+      description: "Top to bottom. The label is the callout text; {thickness} writes the row's thickness. A row of zero thickness is a callout only.",
       columns: [
-        { name: "name", label: "Layer", kind: "text", default: "NEW LAYER" },
+        { name: "name", label: "Callout", kind: "text", default: "NEW LAYER" },
         { name: "thickness", label: "Thickness", kind: "number", unit: "mm", default: 150 },
         {
           name: "hatch",
@@ -115,7 +115,7 @@ export const RCC_BOX_HALF_SECTION: ComponentDefinition = {
           ],
         },
       ],
-      rows: [{ name: "GRANULAR FILLING", thickness: 850, hatch: 2 }],
+      rows: [{ name: "{thickness}THK. GRANULAR FILLING", thickness: 850, hatch: 2 }],
       minRows: 0,
       maxRows: 12,
     },
@@ -367,12 +367,12 @@ export const RCC_BOX_HALF_SECTION: ComponentDefinition = {
     { id: "boulder", when: "BoulderThickness", points: [["XL - BoulderThickness / 2", "BedY + 500"], ["BldX - 500", "BedY - 500"], ["BldX - 500 - 10 * TXT", "BedY - 500"]], text: "{BoulderThickness} THK. BOULDER", placement: "above" },
     { id: "wearing", when: "WearingCourse", points: [["WcTipX", "(BaseTopY + BedY) / 2"], ["WcTipX", "CalloutY0"], ["CalloutX", "CalloutY0"]], text: "{WearingCourse}TH. WEARING COURSE" },
     { id: "pcc", when: "PccThickness", points: [["PccTipX", "BoxBottomY - PccThickness / 2"], ["PccTipX", "CalloutY0 - CalloutPitch"], ["CalloutX", "CalloutY0 - CalloutPitch"]], text: "{PccThickness}TH. PCC BASE COURSE" },
+    // Every row gets its callout, a zero-thickness row too (a placeholder layer, as drafters leave them).
     {
       id: "layer",
       repeat: { table: "Layers", index: "k" },
-      when: "gt(Layers_thickness, 0)",
       points: [["LayerTipX", `(${layTop} + ${layBot}) / 2`], ["LayerTipX", "CalloutY0 - (2 + k) * CalloutPitch"], ["CalloutX", "CalloutY0 - (2 + k) * CalloutPitch"]],
-      text: "{Layers_thickness}THK. {Layers_name}",
+      text: "{Layers_name}",
     },
     { id: "gap", when: "gt(ConstructionGap, 0)", points: [["XR", "BedY - 0.6 * TXT"], ["XR + 1.5 * TXT", "BedY - 2.6 * TXT"], ["XR + 4 * TXT", "BedY - 2.6 * TXT"]], text: "{ConstructionGap}mm GAP" },
     { id: "cushion_thin", when: "gt(EarthCushion, 0) * lt(EarthCushion, 1000)", points: [["XR - 600", "(TopY + FormY) / 2"], ["XR + 600", "FormY + 1000"], ["XR + 1200", "FormY + 1000"]], text: "{EarthCushion} mm EARTH CUSHION" },

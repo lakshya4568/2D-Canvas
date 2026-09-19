@@ -26,6 +26,23 @@ import { findProfiles, profileLoopIds, containment, closedLoops, overlappingCirc
 import { findOffsets } from "../../upce/completion";
 import { dependentsOf } from "../../upce/parameters";
 import { CAD_TOOLS, CAD_TOOL_NAMES, componentsSummary, dispatchCadTool } from "./cadTools";
+import {
+  PRIMITIVE_LAYERS,
+  annotateConstruction,
+  booleanOp,
+  construct,
+  constructionEvaluation,
+  describeConstruction,
+  measure,
+  planScope,
+  recordPlan,
+  removeEntities,
+  transform,
+  verifyConstruction,
+  evalPointArg,
+} from "./construction";
+import { decodePng, deviations, distanceMap, inkMask, refineRegistration, registrationFromPairs, samplePolyline, toImage, type Registration } from "./reference";
+import { renderOverlay } from "./render";
 import { annotationPrims } from "../../cad/annotationPrims";
 import { indexShapes } from "../../cad/geometry";
 import { evaluateInstance } from "../../cad/document";
@@ -45,6 +62,8 @@ export interface ToolOutcome {
   /** The drawing changed; the UI should redraw. */
   mutated: boolean;
   image?: { mimeType: string; data: string };
+  /** Further images after `image` (several zoomed regions at once). */
+  images?: { mimeType: string; data: string }[];
   finished?: boolean;
   sources?: { title: string; uri: string }[];
 }
@@ -58,6 +77,14 @@ export interface ToolContext {
   suggestions: { revision: number; byId: Map<string, IntentAction> };
   research?: (question: string) => Promise<{ text: string; sources: { title: string; uri: string }[] }>;
   macroDepth: number;
+  /** The reference images the author attached (compare_reference reads them). */
+  references?: { data: string; mimeType: string }[];
+  /** Decoded reference and its distance map, built once. */
+  referenceCache?: { index: number; width: number; height: number; rgba: Uint8Array; dist: Float32Array };
+  /** The last fitted registration (model → reference pixels), reused when no pairs are given. */
+  lastFit?: { index: number; reg: Registration };
+  /** The last comparison with the reference: when, how much agreed, and what did not. */
+  lastCompare?: { revision: number; onShare: number; parts?: Record<string, { onShare: number; samples: number }>; off: { id: string; onInk: number; mean: number }[] };
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +101,201 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const REF_HELP =
   "Points: Line.start, Line.end, Rect.top_left/top_right/bottom_left/bottom_right, Circle.center, Poly.p3, or an existing point as \"(x, y)\". Edges: a line id, Rect.top/right/bottom/left, Poly.e3 (same as Poly_3).";
 
+const EXPR_XY = (description: string) => ({ type: "array", items: { type: "string" }, description: `${description} [x, y]: numbers or expressions of plan values and entity points, e.g. ["-HalfWidth", "Soffit * 1000"] or ["Box.p2.x", "Box.p2.y + 200"].` });
+const EXPR = (description: string) => ({ type: "string", description: `${description} — a number or an expression of plan values.` });
+
+/** Planning, construction and verification: the from-scratch route for a GAD or any reference drawing. */
+export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
+  {
+    name: "plan",
+    description:
+      "MANDATORY FIRST STEP — nothing can be drawn before a plan. Record your analysis of the reference/brief and the mathematics of the drawing: " +
+      "values = every number you read (typed, e.g. ClearSpan = 2180, FormationLevel = 59.913 m) and every relation between them (expressions the ENGINE evaluates, e.g. TopOfSlab = FormationLevel - Cushion / 1000, HalfWidth = (2 * ClearSpan + MidWall) / 2 + Wall); " +
+      "checks = numbers the reference ALSO writes, recomputed from your values (e.g. label 'F.B.', expr '(FormationLevel - HFL) * 1000', expect 2245) — they expose misread numbers before you draw; " +
+      "features = the parts you will construct and how (primitives, order, which values); expect = every dimension number, level and text the reference writes, which verify later measures back from your geometry. " +
+      "Revise with update:true, sending ONLY what changes (values/checks/features replace those of the same name; remove drops names; an expect list given replaces that list) — entities already constructed must still evaluate. route construction (default) builds with construct; route sketch only for one small profile to constrain with rules.",
+    parameters: obj(
+      {
+        update: B("Revise the current plan: send only the values, checks, features or expect lists that change"),
+        remove: LIST("With update: value names, check labels or feature names to drop"),
+        route: { type: "string", enum: ["construction", "sketch"], description: "construction for a GAD / any reference drawing; sketch for one small constrained profile" },
+        title: S("Drawing title, e.g. HALF SECTION / HALF ELEVATION AT (A-A)"),
+        analysis: S("What the reference shows: every part and what it is, topology (what sits on/inside what), section vs elevation halves, symmetry and centre line, line types (hidden, centre), materials/hatches, and inconsistencies you noticed between written numbers"),
+        frame: S("Origin and axes, e.g. 'x = 0 on the bridge centre line, y = RL × 1000 (mm)'"),
+        scale: N("Drawing scale 1:n as written on the reference (100 for SCALE 1:100)"),
+        values: {
+          type: "array",
+          description: "Named values in dependency order or any order: read ones as numbers, derived ones as expressions of others",
+          items: obj(
+            {
+              name: S("PascalCase name, e.g. ClearSpan, FormationLevel, HalfWidth, SoffitY"),
+              expr: S("A number (read from the reference) or an expression of other values"),
+              unit: { type: "string", enum: ["mm", "m", "deg", "-"], description: "mm for sizes and coordinates, m for levels (RL)" },
+              note: S("Where it comes from, e.g. 'written: PROP. SOFFIT LEVEL 59.258'"),
+            },
+            ["name", "expr", "unit"]
+          ),
+        },
+        checks: {
+          type: "array",
+          description: "Cross-checks: a number the reference writes, recomputed from your values",
+          items: obj({ label: S("What it is"), expr: S("Expression of plan values"), expect: N("The number the reference writes"), unit: { type: "string", enum: ["mm", "m", "deg", "-"], description: "Unit of expect" } }, ["label", "expr", "expect"]),
+        },
+        features: {
+          type: "array",
+          description: "The construction plan: logical parts in build order",
+          items: obj({ name: S("Feature name, e.g. BoxSection, Levels, ReturnWall, Foundation, Annotation"), description: S("What it is on the reference"), construction: S("How: which primitives/tools from which values") }, ["name", "description"]),
+        },
+        expect: obj({
+          dimensions: { type: "array", items: { type: "number" }, description: "Every dimension number written on the reference, in mm, repeats included (e.g. 2180 twice for two cells)" },
+          levels: { type: "array", items: obj({ label: S("Level text without the number, e.g. PROP. FORMATION LEVEL"), rl: N("Its RL in m") }, ["label", "rl"]), description: "Every level callout" },
+          texts: { type: "array", items: { type: "string" }, description: "Callouts, notes and titles that must appear (their words)" },
+          disputed: {
+            type: "array",
+            items: obj({ what: S("The number/text as written, e.g. 'dimension 225 over the box, right half'"), reason: S("Which other written numbers it contradicts and what they give") }, ["what", "reason"]),
+            description: "Only for numbers the reference writes that CONTRADICT its other numbers (never to hide your own error). Not drawn; reported to the author.",
+          },
+        }),
+      },
+      []
+    ),
+  },
+  {
+    name: "construct",
+    description:
+      "Construct entities of one planned feature. Every coordinate is a number or an EXPRESSION of plan values (the engine evaluates it — do not do arithmetic yourself) and may use points of entities already built: Box.p3.x, Box.start.y, Box.e2.mid.x, Pipe.center.y, Pipe.r. " +
+      "kinds: line (from, to) | polyline (points, open) | loop (points, closed outline) | rect (x, y = bottom-left, w, h) | circle (center, r) | arc (center, r, start, end in degrees CCW from +x). " +
+      "layer: outline (visible edges, default), hidden (dashed: below ground in elevation, behind), centre (dash-dot centre lines), water (HFL line), ground (ground/bed line), level (level lines), secondary (thin), construction (not plotted). draw:false = a loop that only bounds a hatch. The same id again replaces that entity. The result lists each entity's evaluated points — check them.",
+    parameters: obj(
+      {
+        feature: S("The planned feature these belong to"),
+        entities: {
+          type: "array",
+          items: obj(
+            {
+              id: S("Unique id, e.g. BoxOuter, LeftCell, RailLevelLine"),
+              kind: { type: "string", enum: ["line", "polyline", "loop", "rect", "circle", "arc"], description: "Entity kind" },
+              points: { type: "array", items: { type: "array", items: { type: "string" } }, description: "polyline / loop: [[x, y], …], numbers or expressions" },
+              from: EXPR_XY("line start"),
+              to: EXPR_XY("line end"),
+              x: EXPR("rect left x"),
+              y: EXPR("rect bottom y"),
+              w: EXPR("rect width"),
+              h: EXPR("rect height"),
+              center: EXPR_XY("circle / arc centre"),
+              r: EXPR("radius"),
+              start: EXPR("arc start angle, degrees"),
+              end: EXPR("arc end angle, degrees"),
+              layer: { type: "string", enum: PRIMITIVE_LAYERS, description: "Line type / layer" },
+              draw: B("false: a hatch boundary only, not drawn"),
+              role: S("Optional bridge role (bed_level, HFL, formation_level, clear_opening, earth_cushion, …)"),
+            },
+            ["id", "kind"]
+          ),
+          description: "What to construct",
+        },
+      },
+      ["feature", "entities"]
+    ),
+  },
+  {
+    name: "transform",
+    description:
+      "Derive entities from constructed ones, symbolically (the results stay expressions of your values): mirror (axis_x = a vertical line x = …, axis_y, or axis_from/axis_to; copies unless keep:false), copy (dx, dy, count — an array), move (dx, dy), rotate (center, angle degrees CCW; keep:true copies), offset (distance; side inside/outside for loops, left/right for open paths — exact parallel bands, mitred corners).",
+    parameters: obj(
+      {
+        op: { type: "string", enum: ["mirror", "copy", "move", "rotate", "offset"], description: "Operation" },
+        targets: LIST("Entity ids"),
+        ids: LIST("Ids for the new entities (optional)"),
+        feature: S("Planned feature of the new entities (default: the source's)"),
+        axis_x: EXPR("Mirror about the vertical line x = this"),
+        axis_y: EXPR("Mirror about the horizontal line y = this"),
+        axis_from: EXPR_XY("Mirror axis point"),
+        axis_to: EXPR_XY("Mirror axis point"),
+        dx: EXPR("Shift in x"),
+        dy: EXPR("Shift in y"),
+        count: N("copy: number of copies"),
+        angle: EXPR("rotate: degrees counter-clockwise"),
+        center: EXPR_XY("rotate: pivot"),
+        distance: EXPR("offset distance"),
+        side: { type: "string", enum: ["inside", "outside", "left", "right"], description: "offset side" },
+        keep: B("mirror: keep the original (default true); rotate: rotate a copy"),
+        layer: { type: "string", enum: PRIMITIVE_LAYERS, description: "Layer of the result" },
+      },
+      ["op", "targets"]
+    ),
+  },
+  {
+    name: "boolean",
+    description: "Union, difference (a minus b) or intersection of closed loops. The result's vertices are the sources' own expressions or the crossings of their edges, so it follows your values. Sources are replaced unless keep_sources. Holes in the result are reported (use them as hatch holes).",
+    parameters: obj(
+      {
+        op: { type: "string", enum: ["union", "difference", "intersection"], description: "Operation" },
+        a: LIST("Loop ids (base)"),
+        b: LIST("Loop ids (added / cut away / intersected)"),
+        id: S("Id of the result"),
+        feature: S("Planned feature"),
+        layer: { type: "string", enum: PRIMITIVE_LAYERS, description: "Layer of the result" },
+        keep_sources: B("Keep a and b as well"),
+      },
+      ["op", "a", "b"]
+    ),
+  },
+  {
+    name: "remove",
+    description: "Remove constructed entities or annotations by id (to rebuild them correctly).",
+    parameters: obj({ ids: LIST("Entity or annotation ids") }, ["ids"]),
+  },
+  {
+    name: "measure",
+    description:
+      "Measure the constructed geometry exactly. a (and b): a point (Box.p3, Box.e2.mid, \"(x, y)\"), an edge (Box.e2: length, direction, slope H:V), an entity (Box: bbox, perimeter, area), a dimension id (its measured value) or an expression. With b: distance point–point (dx, dy), point–edge (perpendicular), edge–edge (angle, gap if parallel).",
+    parameters: obj({ a: S("First reference or expression"), b: S("Second reference (optional)") }, ["a"]),
+  },
+  {
+    name: "verify",
+    description:
+      "Deterministic verification of the construction against your plan and the reference: plan checks, the engine's geometry checks (collapsed, crossed, inverted outlines), every planned feature constructed, every expected dimension MEASURED by your geometry, every expected level called out at its RL, every expected text present, plus drafting hygiene (leaders pointing at nothing, overlapping texts, duplicates). finish refuses until verify passes. Fix each problem at its cause.",
+    parameters: obj({}),
+  },
+  {
+    name: "zoom_reference",
+    description:
+      "Look closely at part of the reference image, magnified (up to 4×): read small numbers and texts exactly, see which band a callout's arrow points into, where a line starts and ends, whether a line is dashed. region is [left, top, right, bottom] in thousandths of the image width/height (0–1000). With overlay:true (after compare_reference has fitted your drawing) your construction is drawn over it. Use it BEFORE planning on every dense area, and on every deviation before you decide what is right.",
+    parameters: obj(
+      {
+        region: { type: "array", items: { type: "number" }, description: "[left, top, right, bottom], 0–1000 of the image" },
+        regions: { type: "array", items: { type: "array", items: { type: "number" } }, description: "Several regions at once (up to 6) — one image each, in one call" },
+        overlay: B("Draw your construction over it (needs a fit from compare_reference)"),
+        image: N("Which attached image (default 1)"),
+      },
+      []
+    ),
+  },
+  {
+    name: "compare_reference",
+    description:
+      "Lay your construction over the attached reference image and measure how far each constructed line runs from the reference's lines. Give two pairs pinning your drawing to the image — a point you can recognise on both (e.g. the outer bottom-left corner of the structure, the top of the centre line): img_x / img_y are its position in the image in thousandths of the width (from the left) and height (from the top), model is the same point in your coordinates. The fit is then refined automatically. Returns the overlay (reference faded, yours in blue, red dots where your lines leave the reference) and each entity's deviation in mm.",
+    parameters: obj({
+      pairs: {
+        type: "array",
+        items: obj({ img_x: N("0–1000 across the image from the left"), img_y: N("0–1000 down the image from the top"), model: EXPR_XY("The same point in your drawing") }, ["img_x", "img_y", "model"]),
+        description: "Two correspondences. Omit them to reuse the previous fit.",
+      },
+      image: N("Which attached image (default 1)"),
+      focus: S("An entity id: return the overlay magnified around where that entity leaves the reference"),
+      entities: LIST("Fit and score only these entities or planned features — for a reference whose parts are to scale but not their spacing (a span shortened by a break line): compare each part on its own, with pairs on that part"),
+      locate: {
+        type: "array",
+        items: obj({ img_x: N("0–1000 from the left"), img_y: N("0–1000 from the top"), label: S("What it is") }, ["img_x", "img_y"]),
+        description: "Reference image points to convert to your coordinates with the fitted scale — for sizes the reference does not write (where a wall ends, a kink, a line's extent)",
+      },
+    }),
+  },
+];
+
 export const BASE_TOOLS: FunctionDeclaration[] = [
+  ...CONSTRUCTION_TOOLS,
   ...CAD_TOOLS,
   {
     name: "look",
@@ -89,7 +310,11 @@ export const BASE_TOOLS: FunctionDeclaration[] = [
     name: "view",
     description:
       "Render the drawing as an image and look at it: ids beside edges, named dimensions in blue (derived in purple). Use it after drawing to check proportions, and to compare against the reference image when one was given.",
-    parameters: obj({ labels: B("Show shape ids. Default true.") }),
+    parameters: obj({
+      labels: B("Show shape ids. Default true."),
+      region: { type: "array", items: { type: "number" }, description: "Zoom to this window [minX, minY, maxX, maxY] in mm, Y up" },
+      focus: LIST("Zoom to these entities or planned features"),
+    }),
   },
   {
     name: "draw_line",
@@ -328,6 +553,11 @@ export const BASE_TOOLS: FunctionDeclaration[] = [
         title: S("Drawing title"),
         summary: S("What was drawn, the named values and formulas, and how it responds to change — for the author."),
         freedom_note: S("Only if some freedom is deliberately left: which and why."),
+        off_reference: {
+          type: "array",
+          items: obj({ id: S("Entity id compare_reference lists as off"), reason: S("Why the reference is not followed there") }, ["id", "reason"]),
+          description: "Construction route with a reference: every entity the last compare_reference still lists as off, with the reason you kept it (fix it instead whenever you can)",
+        },
       },
       ["title", "summary"]
     ),
@@ -335,6 +565,7 @@ export const BASE_TOOLS: FunctionDeclaration[] = [
 ];
 
 const STAGE: Record<string, ToolStage> = {
+  plan: "meta", construct: "draw", transform: "draw", boolean: "draw", remove: "draw", measure: "observe", verify: "observe", compare_reference: "observe", zoom_reference: "observe",
   look: "observe", view: "observe", check: "observe", flex_test: "observe", suggestions: "observe", calculate: "observe", research: "observe",
   draw_line: "draw", draw_polyline: "draw", draw_rectangle: "draw", draw_circle: "draw", chamfer: "draw", offset: "draw", trim: "draw",
   split: "draw", move: "draw", copy: "draw", mirror: "draw", rotate: "draw", delete: "draw", explode: "draw", rename: "draw",
@@ -345,8 +576,8 @@ const STAGE: Record<string, ToolStage> = {
 
 export function stageOf(tool: string): ToolStage {
   if (CAD_TOOL_NAMES.has(tool)) {
-    if (["list_components", "component_info", "describe_component", "audit", "recognize", "bridge_reference", "use_skill"].includes(tool)) return "observe";
-    if (["insert_component", "delete_component", "annotate", "layer", "classify", "edit_geometry"].includes(tool)) return "draw";
+    if (["describe_component", "audit", "recognize", "bridge_reference", "use_skill"].includes(tool)) return "observe";
+    if (["delete_component", "annotate", "layer", "classify", "edit_geometry"].includes(tool)) return "draw";
     return "parametrize";
   }
   return STAGE[tool] ?? (tool.startsWith("macro_") ? "draw" : "meta");
@@ -542,15 +773,19 @@ export function buildScene(ws: DraftingWorkspace): RenderScene {
   }
   // Component geometry and its dimensions, so the model sees what it placed.
   const dashed = new Set(ws.cad.layers.filter((l) => l.lineType !== "continuous").map((l) => l.id));
+  const own = ws.construction.instanceId;
   for (const s of ws.cadShapes) {
-    if (s.type === "line") scene.lines.push({ a: { x: s.x1, y: -s.y1 }, b: { x: s.x2, y: -s.y2 }, construction: s.isReference || dashed.has(s.layerId ?? "") });
+    // The agent's own entities carry their ids (on their first edge), so it can refer to them.
+    const label = own && s.componentInstanceId === own && s.name?.endsWith(".e1") ? s.name.slice(0, -3) : undefined;
+    if (s.type === "line") scene.lines.push({ a: { x: s.x1, y: -s.y1 }, b: { x: s.x2, y: -s.y2 }, construction: s.isReference || dashed.has(s.layerId ?? ""), label });
     else if (s.type === "circle") scene.circles.push({ c: { x: s.cx, y: -s.cy }, r: s.r });
   }
   // Every annotation as it will print — hatches, leaders, level callouts, notes,
   // dimension values — so the model sees the drawing, not just its outline.
   const ctx = { shapes: indexShapes(ws.allShapes()), settings: ws.cad.settings };
   const thin: { a: Pt; b: Pt }[] = [];
-  const notes: { at: Pt; text: string; align?: "left" | "center" | "right" }[] = [];
+  const notes: { at: Pt; text: string; align?: "left" | "center" | "right"; height?: number }[] = [];
+  const specks: Pt[] = [];
   const flip = (x: number, y: number): Pt => ({ x, y: -y });
   const MAX_THIN = 9000;
   for (const ann of ws.cad.annotations) {
@@ -574,12 +809,15 @@ export function buildScene(ws: DraftingWorkspace): RenderScene {
         case "circle":
           scene.circles.push({ c: flip(p.cx, p.cy), r: p.r });
           break;
+        case "dots":
+          for (const d of p.points) if (specks.length < 20000) specks.push(flip(d.x, d.y));
+          break;
         case "text": {
           const lines = p.text.split("\n");
           const lh = p.height * 1.3;
           // Baseline: the rasteriser writes from the top of a line.
           const top = p.baseline === "top" ? p.y : p.baseline === "middle" ? p.y - ((lines.length - 1) * lh) / 2 - p.height / 2 : p.y - (lines.length - 1) * lh - p.height;
-          lines.forEach((t, i) => notes.push({ at: flip(p.x, top + i * lh + p.height), text: t, align: p.align }));
+          lines.forEach((t, i) => notes.push({ at: flip(p.x, top + i * lh + p.height), text: t, align: p.align, height: p.height }));
           break;
         }
       }
@@ -587,6 +825,7 @@ export function buildScene(ws: DraftingWorkspace): RenderScene {
   }
   scene.thin = thin;
   scene.notes = notes;
+  scene.specks = specks;
   const seen = new Set<string>();
   for (const c of sk.constraints) {
     if (!c.paramRef || c.state === "suppressed" || seen.has(c.paramRef)) continue;
@@ -623,6 +862,40 @@ export function buildScene(ws: DraftingWorkspace): RenderScene {
     scene.dims.push({ a, b, text: `${p.name}=${fmt(p.value)}`, derived: p.role === "DERIVED" });
   }
   return scene;
+}
+
+function annotateOne(ctx: ToolContext, a: Args): { text: string } {
+  const kind = String(a.kind ?? "");
+  if (ctx.ws.construction.plan?.route === "construction" && ["dimension", "level", "leader", "text", "hatch"].includes(kind)) {
+    return { text: annotateConstruction(ctx.ws, a) };
+  }
+  const cad = dispatchCadTool(ctx.ws, "annotate", a);
+  if (!cad) throw new ToolError(`Unknown annotation kind "${kind}".`);
+  return cad;
+}
+
+/** The window `view` zooms to: an explicit region, or the extents of the named entities / features. */
+function viewWindow(ws: DraftingWorkspace, a: Args): [number, number, number, number] | undefined {
+  if (Array.isArray(a.region) && a.region.length === 4) {
+    const r = (a.region as unknown[]).map(Number);
+    if (r.every(Number.isFinite) && r[2] > r[0] && r[3] > r[1]) return r as [number, number, number, number];
+    throw new ToolError("region is [minX, minY, maxX, maxY] with max > min.");
+  }
+  if (!Array.isArray(a.focus) || !a.focus.length) return undefined;
+  const want = new Set((a.focus as unknown[]).map(String));
+  const ids = new Set(Object.entries(ws.construction.tags).filter(([id, f]) => want.has(id) || want.has(f)).map(([id]) => id));
+  for (const w of want) ids.add(w);
+  const ev = constructionEvaluation(ws);
+  const pts = [
+    ...(ev?.loops ?? []).filter((l) => ids.has(l.primitiveId)).flatMap((l) => l.points),
+    ...(ev?.circles ?? []).filter((c) => ids.has(c.primitiveId)).flatMap((c) => [{ x: c.center.x - c.r, y: c.center.y - c.r }, { x: c.center.x + c.r, y: c.center.y + c.r }]),
+  ];
+  if (!pts.length) throw new ToolError(`Nothing constructed matches ${[...want].join(", ")}.`);
+  const datum = ws.cad.settings.datumRL * 1000;
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y - datum);
+  const pad = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 0.15 + 500;
+  return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad];
 }
 
 /** The verification report, and whether it found anything that must be fixed. */
@@ -939,14 +1212,95 @@ export async function runTool(ctx: ToolContext, name: string, args: Args): Promi
   }
 }
 
+/** Tools that put free sketch geometry on the drawing (the sketch route). */
+const SKETCH_GEOMETRY = new Set(["draw_line", "draw_polyline", "draw_rectangle", "draw_circle", "chamfer", "offset", "trim", "split", "move", "copy", "mirror", "rotate", "explode", "classify", "make_parametric", "auto_rules", "rule", "dimension"]);
+
+/**
+ * Nothing is drawn before a plan. The plan also fixes the route: a sketch
+ * (one small profile held by rules) or a construction (everything else).
+ */
+function gate(ctx: ToolContext, name: string): void {
+  const plan = ctx.ws.construction.plan;
+  const draws = SKETCH_GEOMETRY.has(name) || name.startsWith("draw_") || name.startsWith("macro_") || name === "annotate";
+  if (!draws) return;
+  if (!plan) {
+    throw new ToolError(
+      "Plan first. Before any geometry, call plan: your analysis of the reference (parts, topology, symmetry, line types, materials), the values you read and the relations between them (the engine evaluates them), cross-checks against numbers the reference also writes, the features in build order, and everything the reference writes (dimensions, levels, texts) for verify."
+    );
+  }
+  if (plan.route === "construction" && name !== "annotate") {
+    const hasFree = ctx.ws.shapes.length > 0;
+    if (!hasFree || name.startsWith("draw_")) {
+      throw new ToolError(
+        name === "dimension"
+          ? "In the construction route a dimension is annotation: annotate kind=dimension from/to (the value is measured from your geometry)."
+          : `${name} belongs to the sketch route, and you planned the construction route. Use construct (coordinates as expressions of your plan values), transform (mirror, copy, offset, rotate, move), boolean, remove and annotate.`
+      );
+    }
+  }
+}
+
 async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<ToolOutcome, "ok" | "stage" | "mutated">> {
   const ws = ctx.ws;
+  gate(ctx, name);
   switch (name) {
-    case "look":
-      return { text: lookReport(ws, optStr(a, "detail") ?? "summary+shapes", optStr(a, "filter")) };
+    case "plan":
+      return { text: recordPlan(ws, a) };
+
+    case "construct":
+      return { text: construct(ws, a) };
+
+    case "transform":
+      return { text: transform(ws, a) };
+
+    case "boolean":
+      return { text: booleanOp(ws, a) };
+
+    case "remove":
+      return { text: removeEntities(ws, a) };
+
+    case "measure":
+      return { text: measure(ws, a) };
+
+    case "verify":
+      return { text: verifyConstruction(ws).text };
+
+    case "compare_reference":
+      return compareReference(ctx, a);
+
+    case "zoom_reference":
+      return zoomReference(ctx, a);
+
+    case "annotate": {
+      // Many at once: each item is one annotation; each is added or refused on its own.
+      if (Array.isArray(a.items) && a.items.length) {
+        const lines: string[] = [];
+        let failed = 0;
+        for (const [i, item] of (a.items as Args[]).entries()) {
+          try {
+            lines.push(`${i + 1}. ${annotateOne(ctx, { feature: a.feature, ...item }).text}`);
+          } catch (e) {
+            failed++;
+            lines.push(`${i + 1}. REFUSED: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        if (failed === a.items.length) throw new ToolError(lines.join("\n"));
+        return { text: `${a.items.length - failed} of ${a.items.length} added.\n${lines.join("\n")}` };
+      }
+      return annotateOne(ctx, a);
+    }
+
+    case "look": {
+      const detail = optStr(a, "detail") ?? "summary+shapes";
+      const built = ws.construction.plan ? describeConstruction(ws, detail) : "";
+      const free = ws.shapes.length || !built ? lookReport(ws, detail, optStr(a, "filter")) : "";
+      return { text: [built, free].filter(Boolean).join("\n\n") };
+    }
 
     case "view": {
-      const img = renderScene(buildScene(ws), { labels: a.labels !== false });
+      const built = ws.construction.plan?.route === "construction";
+      const window = viewWindow(ws, a);
+      const img = renderScene(buildScene(ws), { labels: a.labels !== false, window, ...(built ? { width: 1600, height: 1000 } : {}) });
       ctx.viewedRevision = ws.revision;
       return {
         text: `Rendered ${fmt(img.width)}x${fmt(img.height)} px at ${img.mmPerPixel.toFixed(1)} mm per pixel. The image is attached — compare it with the intent${ctx.hasReference ? " and the reference image" : ""}.`,
@@ -1269,6 +1623,8 @@ async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<T
 
 function finish(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "mutated"> {
   const ws = ctx.ws;
+  if (!ws.construction.plan) throw new ToolError("Not finished — there is no plan. Plan, construct, verify, compare, then finish.");
+  if (ws.construction.plan.route === "construction") return finishConstruction(ctx, a);
   const note = optStr(a, "freedom_note");
   // Freedom that only moves construction lines is not a design question.
   if (note || (ws.dof().dof > 0 && ws.structuralFreedom() === 0)) {
@@ -1299,5 +1655,259 @@ function finish(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "
   return {
     text: `Finished and published "${ws.title}". Run Mode shows: ${parts.join("; ") || "no values"}.${audit ? `\nAudit at finish: ${audit}` : ""}`,
     finished: true,
+  };
+}
+
+/**
+ * The construction route is done when verify passes on the drawing as it is
+ * now and the agent has looked at it against the reference since the last
+ * change. The component invariants still hold (checkReport).
+ */
+function finishConstruction(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "mutated"> {
+  const ws = ctx.ws;
+  const problems: string[] = [];
+  const report = verifyConstruction(ws);
+  if (!report.ok) problems.push(...report.problems);
+  problems.push(...checkReport(ws).blockers.filter((b) => b !== "nothing drawn"));
+  const explained = new Map<string, string>();
+  for (const o of (Array.isArray(a.off_reference) ? a.off_reference : []) as Args[]) {
+    const id = typeof o?.id === "string" ? o.id.trim() : "";
+    const why = typeof o?.reason === "string" ? o.reason.trim() : "";
+    if (id && why.length >= 15) explained.set(id, why);
+  }
+  const cmp = ctx.lastCompare;
+  if (ctx.hasReference) {
+    if (!cmp || cmp.revision !== ws.revision) {
+      problems.push("The drawing changed since you last compared it with the reference. Call compare_reference and read what is off.");
+    } else {
+      for (const o of cmp.off) {
+        if (!explained.has(o.id)) problems.push(`${o.id} is off the reference (${Math.round(o.onInk * 100)}% on its lines): fix it, or say in off_reference why the reference is not followed there (e.g. it draws that part out of scale and a written number governs).`);
+      }
+    }
+  }
+  if (problems.length) throw new ToolError(`Not finished — fix these first:\n${problems.map((p) => `  * ${p}`).join("\n")}`);
+  ws.publish(str(a, "title"));
+  if (!ws.cad.project.identity.drawingTitle || ws.cad.project.identity.drawingTitle === "General Arrangement Drawing") {
+    ws.applyCad({ type: "CAD_SET_PROJECT", project: { ...ws.cad.project, identity: { ...ws.cad.project.identity, drawingTitle: str(a, "title") } } });
+  }
+  const plan = ws.construction.plan!;
+  const typed = plan.values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim())).map((v) => v.name);
+  const derived = plan.values.filter((v) => !typed.includes(v.name)).map((v) => v.name);
+  return {
+    text: `Finished "${ws.title}" — constructed from scratch and verified.${cmp && ctx.hasReference ? ` Against the reference: ${Math.round(cmp.onShare * 100)}% of the linework lies on its lines${cmp.off.length ? `; kept off it, with reasons: ${cmp.off.map((o) => `${o.id} (${explained.get(o.id)})`).join("; ")}` : ""}.` : ""}${plan.expect.disputed.length ? ` Reported as contradictions on the reference: ${plan.expect.disputed.map((d) => `${d.what} (${d.reason})`).join("; ")}.` : ""} Run Mode shows the values you read (${typed.slice(0, 20).join(", ")}${typed.length > 20 ? "…" : ""}); ${derived.length} worked-out values follow them.\nAudit at finish: ${runAuditFor(ws)}`,
+    finished: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reference comparison
+// ---------------------------------------------------------------------------
+
+async function compareReference(ctx: ToolContext, a: Args): Promise<Omit<ToolOutcome, "ok" | "stage" | "mutated">> {
+  const ws = ctx.ws;
+  const refs = ctx.references ?? [];
+  if (!refs.length) throw new ToolError("No reference image was attached to this job; use view.");
+  const index = Math.max(0, Math.min(refs.length - 1, Math.round(Number(a.image ?? 1)) - 1));
+  const ev = constructionEvaluation(ws);
+  if (!ev || !ev.loops.length) throw new ToolError("Nothing constructed yet to compare.");
+  planScope(ws);
+  const R = loadReference(ctx, index);
+  // Construction frame → model (canvas Y flipped back): only the datum differs.
+  const datum = ws.cad.settings.datumRL * 1000;
+  const toModel = (p: { x: number; y: number }) => ({ x: p.x, y: p.y - datum });
+
+  const only = Array.isArray(a.entities) && a.entities.length ? new Set((a.entities as unknown[]).map(String)) : null;
+  const part = only ? new Set(Object.entries(ws.construction.tags).filter(([id, f]) => only.has(id) || only.has(f)).map(([id]) => id).concat([...only])) : null;
+  const lines = ev.loops.filter((l) => l.draw && l.layer !== "construction" && (!part || part.has(l.primitiveId)));
+  if (!lines.length) throw new ToolError("None of those entities is a drawn outline.");
+  const modelPts = lines.flatMap((l) => l.points.map(toModel));
+  let start: Registration;
+  const pairs = Array.isArray(a.pairs) ? (a.pairs as Args[]) : [];
+  if (pairs.length >= 2) {
+    try {
+      start = registrationFromPairs(
+        pairs.slice(0, 2).map((p, i) => ({
+          model: toModel(evalPointArg(ws, p.model, `pair ${i + 1} model`)),
+          px: { x: (Number(p.img_x) / 1000) * R.width, y: (Number(p.img_y) / 1000) * R.height },
+        }))
+      );
+    } catch (e) {
+      throw new ToolError(`Pairs: ${(e as Error).message}.`);
+    }
+  } else if (ctx.lastFit && ctx.lastFit.index === index) {
+    start = ctx.lastFit.reg;
+  } else {
+    // From the extents: the construction's outline box onto the ink's box.
+    const xs = modelPts.map((p) => p.x);
+    const ys = modelPts.map((p) => p.y);
+    let x0 = R.width;
+    let x1 = 0;
+    let y0 = R.height;
+    let y1 = 0;
+    for (let y = 0; y < R.height; y++) for (let x = 0; x < R.width; x++) if (R.dist[y * R.width + x] === 0) (x0 = Math.min(x0, x)), (x1 = Math.max(x1, x)), (y0 = Math.min(y0, y)), (y1 = Math.max(y1, y));
+    const s = Math.min((x1 - x0) / Math.max(1, Math.max(...xs) - Math.min(...xs)), (y1 - y0) / Math.max(1, Math.max(...ys) - Math.min(...ys)));
+    start = { s, ox: (x0 + x1) / 2 - s * ((Math.min(...xs) + Math.max(...xs)) / 2), oy: (y0 + y1) / 2 + s * ((Math.min(...ys) + Math.max(...ys)) / 2) };
+  }
+  // Sample every ~1.5 px of the reference, refine, then score each entity.
+  const step = 1.5 / start.s;
+  const entities = lines.map((l) => ({ id: l.primitiveId, samples: samplePolyline(l.points.map(toModel), l.closed, step) }));
+  const all = entities.flatMap((e) => e.samples);
+  const fit = refineRegistration(start, all.length > 6000 ? all.filter((_, i) => i % Math.ceil(all.length / 6000) === 0) : all, R.dist, R.width, R.height, 12);
+  const reg = fit.reg;
+  // A part's fit does not replace the whole drawing's.
+  if (!part) ctx.lastFit = { index, reg };
+  // A reference line is ~2 px wide and the fit is good to about a pixel: 3.5 px
+  // separates a line drawn on its face from one drawn on the wrong face.
+  const onPx = 3.5;
+  // Dash gaps up to ~8 px on the reference still count as its line.
+  const devs = deviations(entities, reg, R.dist, R.width, R.height, 40, onPx, 8);
+  const px = (mm: number) => mm * reg.s;
+  const total = devs.reduce((n, d) => n + d.onInk * (entities.find((e) => e.id === d.id)?.samples.length ?? 0), 0) / Math.max(1, all.length);
+  const worst = [...devs].sort((p, q) => q.mean - p.mean);
+  const off = worst.filter((d) => d.onInk < 0.85 && d.worst * reg.s > onPx);
+  const marks = entities.flatMap((e) =>
+    e.samples.filter((_, i) => i % 3 === 0).filter((p) => {
+      const q = toImage(reg, p);
+      const x = Math.round(q.x);
+      const y = Math.round(q.y);
+      return x < 0 || y < 0 || x >= R.width || y >= R.height || R.dist[y * R.width + x] > onPx * 1.6;
+    })
+  );
+  const focusId = typeof a.focus === "string" ? a.focus.trim() : "";
+  const focus = focusId ? devs.find((d) => d.id === focusId) : undefined;
+  if (focusId && !focus) throw new ToolError(`"${focusId}" is not a constructed outline.`);
+  let crop: { x: number; y: number; w: number; h: number } | undefined;
+  if (focus) {
+    // Around the entity's worst point, wide enough to show what the reference has there.
+    const c = toImage(reg, focus.worstAt);
+    const half = Math.max(90, Math.min(260, focus.worst * reg.s * 4));
+    crop = clampCrop({ x: c.x - half * 1.5, y: c.y - half, w: half * 3, h: half * 2 }, R);
+  }
+  const img = renderOverlay(buildScene(ws), R, (p) => toImage(reg, p), { maxWidth: crop ? 1400 : 1600, maxScale: crop ? 4 : 1, crop, marks: marks.slice(0, 4000) });
+  ctx.viewedRevision = ws.revision;
+  // Part by part: each part's result replaces what the last comparison said about its entities.
+  const kept = part && ctx.lastCompare?.revision === ws.revision ? ctx.lastCompare.off.filter((o) => !part.has(o.id)) : [];
+  const scored = part && ctx.lastCompare?.revision === ws.revision ? ctx.lastCompare.parts ?? {} : {};
+  const parts = { ...scored, [part ? [...(only ?? [])].join("+") : "*"]: { onShare: total, samples: all.length } };
+  const share = Object.values(parts).reduce((n, p) => n + p.onShare * p.samples, 0) / Math.max(1, Object.values(parts).reduce((n, p) => n + p.samples, 0));
+  ctx.lastCompare = { revision: ws.revision, onShare: part ? share : total, parts: part ? parts : undefined, off: [...kept, ...off.map((d) => ({ id: d.id, onInk: d.onInk, mean: d.mean }))] };
+  const mmPerPx = 1 / reg.s;
+  const text = [
+    `Overlay: the reference faded, your construction in blue, red dots where your lines are more than ${fmt(onPx * mmPerPx)} mm (${onPx} px) from any reference line.`,
+    `Fit: 1 px of the reference = ${fmt(mmPerPx)} mm; after refinement your lines sit on average ${fmt(fit.meanPx * mmPerPx)} mm from the reference's. ${Math.round(total * 100)}% of your linework lies on the reference's lines.`,
+    off.length
+      ? `Entities off the reference — fix each at its cause (a misread value, a wrong relation, a wrong face, a wrong extent); finish will ask you to explain any you keep, in off_reference:\n${off
+          .slice(0, 15)
+          .map((d) => `  ${d.id}: ${Math.round(d.onInk * 100)}% on the lines; where it is off, ${fmt(d.mean)} mm on average, worst ${fmt(d.worst)} mm near (${fmt(d.worstAt.x)}, ${fmt(d.worstAt.y + datum)})`)
+          .join("\n")}`
+      : "Every constructed outline lies on the reference's lines.",
+    focus ? `The image is magnified ${fmt(img.scale)}× around ${focus.id}'s worst point.` : "",
+    `The reference is a raster: ${fmt(mmPerPx)} mm per pixel is the finest this can see. Written numbers govern — a line off by less than a few pixels is drawn right if verify says its dimension is right. Before you explain a deviation away, look at it: compare_reference focus=<id>, or zoom_reference.`,
+    ...located(a, reg, R, datum),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { text, image: { mimeType: "image/png", data: img.data } };
+}
+
+/** Image points the agent asked for, in its own coordinates (the fitted scale). */
+function located(a: Args, reg: Registration, R: { width: number; height: number }, datum: number): string[] {
+  const pts = Array.isArray(a.locate) ? (a.locate as Args[]) : [];
+  if (!pts.length) return [];
+  return [
+    "Located (± one pixel of the reference):",
+    ...pts.map((p) => {
+      const u = (Number(p.img_x) / 1000) * R.width;
+      const v = (Number(p.img_y) / 1000) * R.height;
+      const x = (u - reg.ox) / reg.s;
+      const y = (reg.oy - v) / reg.s + datum;
+      return `  ${p.label ? `${p.label}: ` : ""}(${fmt(x)}, ${fmt(y)})${Math.abs(y) > 1000 ? ` — RL ${(y / 1000).toFixed(3)}` : ""}`;
+    }),
+  ];
+}
+
+function loadReference(ctx: ToolContext, index: number) {
+  const refs = ctx.references ?? [];
+  if (!refs.length) throw new ToolError("No reference image was attached to this job.");
+  if (!ctx.referenceCache || ctx.referenceCache.index !== index) {
+    const ref = refs[index];
+    let bmp;
+    try {
+      bmp = decodePng(Buffer.from(ref.data.replace(/^data:[^;]+;base64,/, ""), "base64"));
+    } catch (e) {
+      throw new ToolError(`The reference could not be read (${(e as Error).message}); compare it by eye with view.`);
+    }
+    ctx.referenceCache = { index, ...bmp, dist: distanceMap(inkMask(bmp), bmp.width, bmp.height) };
+  }
+  return ctx.referenceCache;
+}
+
+function clampCrop(c: { x: number; y: number; w: number; h: number }, R: { width: number; height: number }) {
+  const w = Math.min(R.width, Math.max(40, c.w));
+  const h = Math.min(R.height, Math.max(30, c.h));
+  return { x: Math.max(0, Math.min(R.width - w, c.x)), y: Math.max(0, Math.min(R.height - h, c.y)), w, h };
+}
+
+/** A magnified look at parts of the reference, optionally with the construction over them. */
+function zoomReference(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "mutated"> {
+  const refs = ctx.references ?? [];
+  if (!refs.length) throw new ToolError("No reference image was attached to this job.");
+  const index = Math.max(0, Math.min(refs.length - 1, Math.round(Number(a.image ?? 1)) - 1));
+  const list = (Array.isArray(a.regions) && a.regions.length ? (a.regions as unknown[]) : [a.region]).slice(0, 6);
+  const regions = list.map((raw, i) => {
+    const r = Array.isArray(raw) ? (raw as unknown[]).map(Number) : [];
+    if (r.length !== 4 || !r.every(Number.isFinite) || r[2] <= r[0] || r[3] <= r[1]) throw new ToolError(`Region ${i + 1} must be [left, top, right, bottom] in 0–1000 of the image, right > left, bottom > top.`);
+    return r;
+  });
+  const R = loadReference(ctx, index);
+  const withDrawing = a.overlay === true;
+  const fit = ctx.lastFit && ctx.lastFit.index === index ? ctx.lastFit.reg : null;
+  if (withDrawing && !fit) throw new ToolError("There is no fit yet: call compare_reference once, then zoom with overlay.");
+  const scene = withDrawing ? buildScene(ctx.ws) : { lines: [], circles: [], dims: [] };
+  const shots = regions.map((r) => {
+    const crop = clampCrop({ x: (r[0] / 1000) * R.width, y: (r[1] / 1000) * R.height, w: ((r[2] - r[0]) / 1000) * R.width, h: ((r[3] - r[1]) / 1000) * R.height }, R);
+    const img = renderOverlay(scene, R, (p) => (fit ? toImage(fit, p) : p), { maxWidth: 1400, maxScale: 4, crop, fade: withDrawing });
+    return { r, img };
+  });
+  const mm = fit ? ` 1 px of the reference = ${fmt(1 / fit.s)} mm.` : "";
+  const text = shots
+    .map((s, i) => `Image ${i + 1}: region x ${fmt(s.r[0])}–${fmt(s.r[2])}, y ${fmt(s.r[1])}–${fmt(s.r[3])} (thousandths), magnified ${fmt(s.img.scale)}×`)
+    .join("\n");
+  const [first, ...rest] = shots.map((s) => ({ mimeType: "image/png", data: s.img.data }));
+  return { text: `Reference ${index + 1}${withDrawing ? ", your construction in blue" : ""}.${mm}\n${text}`, image: first, images: rest };
+}
+
+/**
+ * The reference cut into overlapping tiles, magnified — sent with the brief so
+ * the model reads every number and text up close in its first turn instead of
+ * zooming region by region. Null when the image cannot be decoded (not PNG).
+ */
+export function readingTiles(ref: { data: string }): { text: string; images: { mimeType: string; data: string }[] } | null {
+  let bmp;
+  try {
+    bmp = decodePng(Buffer.from(ref.data.replace(/^data:[^;]+;base64,/, ""), "base64"));
+  } catch {
+    return null;
+  }
+  const cols = bmp.width >= bmp.height ? 3 : 2;
+  const rows = bmp.width >= bmp.height ? 2 : 3;
+  const overlap = 0.08;
+  const images: { mimeType: string; data: string }[] = [];
+  const lines: string[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x0 = Math.max(0, c / cols - overlap / 2);
+      const x1 = Math.min(1, (c + 1) / cols + overlap / 2);
+      const y0 = Math.max(0, r / rows - overlap / 2);
+      const y1 = Math.min(1, (r + 1) / rows + overlap / 2);
+      const crop = { x: x0 * bmp.width, y: y0 * bmp.height, w: (x1 - x0) * bmp.width, h: (y1 - y0) * bmp.height };
+      const img = renderOverlay({ lines: [], circles: [], dims: [] }, bmp, (p) => p, { maxWidth: 1200, maxScale: 3, crop, fade: false });
+      images.push({ mimeType: "image/png", data: img.data });
+      lines.push(`Tile ${images.length}: x ${Math.round(x0 * 1000)}–${Math.round(x1 * 1000)}, y ${Math.round(y0 * 1000)}–${Math.round(y1 * 1000)} (thousandths of the reference), magnified ${fmt(img.scale)}×`);
+    }
+  }
+  return {
+    text: `The reference, magnified in ${images.length} overlapping tiles (in reading order) so every number and text can be read exactly:\n${lines.join("\n")}`,
+    images,
   };
 }

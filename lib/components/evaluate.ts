@@ -488,10 +488,19 @@ function expand(
     t.rows.forEach((row, i) => {
       const scope: Scope = { ...ctx.scope, [repeat.index]: i };
       const strings: Strings = { ...ctx.strings };
+      // A text cell may quote its own row: "{thickness}THK. GRANULAR FILLING".
+      const own = (text: string) =>
+        text.replace(/\{([A-Za-z_][A-Za-z0-9_]*)(?::(label))?\}/g, (m, col: string, fmt?: string) => {
+          const c = t.def.columns.find((x) => x.name === col);
+          if (!c || c.kind === "text") return m;
+          const v = Number(row[col]);
+          if (fmt === "label") return c.options?.find((o) => o.value === v)?.label ?? String(v);
+          return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3)));
+        });
       for (const c of t.def.columns) {
         const key = `${t.def.name}_${c.name}`;
         if (c.kind === "text") {
-          strings[key] = String(row[c.name]);
+          strings[key] = own(String(row[c.name]));
           continue;
         }
         const v = Number(row[c.name]);

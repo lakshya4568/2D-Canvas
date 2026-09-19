@@ -49,9 +49,26 @@ With the defaults (bed 96.100, wearing course 150, clear height 4250, slabs 800,
 Examples:
 
 - *"Draw an RCC box culvert half section & half elevation: clear span 10700, walls 350, slabs 800, haunch 600, formation 105.000, bed 96.100, HFL 96.800, 850 granular filling."*
-- *"Reconstruct the attached drawing"* (attach the image). The agent reads the level callouts and sizes off it.
+- *"Reconstruct the attached drawing"* (attach the image; it is sent as PNG).
 
-The agent loads the `rcc-box-half-section` and `gad-drafting-style` skills, inserts the view with the values it read, and sets the foundation layers with `set_table`. It then checks the worked-out results (cushion, V.C., F.B.) against the drawing. For a non-standard arrangement it draws by hand and uses `make_parametric`. It looks formulas up with `bridge_reference` (your formula docs) and quotes their ids.
+The agent never uses the component library. That library is yours. The agent builds the drawing itself:
+
+1. **Plan** (`plan`, required before any geometry). The agent records:
+   - what it sees: parts, topology, which half is the section and which the elevation, symmetry, line types and materials;
+   - the numbers it read, and the relations between them as expressions the engine evaluates (level chain, widths, face positions);
+   - cross-checks against numbers the drawing also writes (F.B., clearance, levels);
+   - the features in build order;
+   - every dimension, level and callout on the reference.
+2. **Construct** (`construct`, `transform`, `boolean`). The agent builds lines, polylines, closed outlines, rectangles, circles and arcs. Every coordinate is an expression of the plan's values. Mirror, copy, offset and rotate derive new expressions from existing ones, and so do booleans, so derived geometry follows a value change too.
+3. **Annotate** (`annotate`):
+   - levels read their RL from the height of the line;
+   - dimensions measure the geometry;
+   - leaders, hatches, texts and titles are part of the same construction.
+4. **Verify** (`verify`). Plan checks, the engine's geometry checks, every planned feature, and every number the reference writes, measured back from the geometry. `finish` refuses until this passes.
+5. **Compare** (`compare_reference`). The agent pins the drawing to the image at two points. The fit is refined automatically. The agent then gets an overlay and each entity's distance from the reference's lines, in mm. It can also read unwritten sizes off the image (`locate`).
+6. **Correct** whatever failed at its cause: a misread value, a wrong relation, or an entity on the wrong face. Then verify again.
+
+The result is a component owned by the drawing (not a library part). Its values are the numbers the agent read, and you can change them in Run mode. Numbers on the reference that contradict each other are reported, not drawn. The agent still looks formulas up with `bridge_reference` and quotes their ids.
 
 ## Your own relationships
 

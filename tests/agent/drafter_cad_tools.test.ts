@@ -1,13 +1,15 @@
 /**
- * The drafting agent's CAD-document tools: components, understanding of its
- * own drawing, the design basis (enter, never confirm), audit and sheet.
+ * The drafting agent's CAD-document tools: no access to the component library,
+ * understanding of its own drawing, the design basis (enter, never confirm),
+ * audit and sheet.
  */
 
 import { describe, it, expect } from "vitest";
 import { DraftingWorkspace } from "@/lib/agent/drafter/workspace";
-import { runTool, ToolContext, checkReport } from "@/lib/agent/drafter/tools";
+import { runTool, ToolContext, BASE_TOOLS } from "@/lib/agent/drafter/tools";
+import { sketchPlanned } from "./plans";
 
-function context(ws = new DraftingWorkspace()): ToolContext {
+function context(ws = new DraftingWorkspace({ construction: sketchPlanned() })): ToolContext {
   return { ws, hasReference: false, viewedRevision: -1, suggestions: { revision: -1, byId: new Map() }, macroDepth: 0 };
 }
 
@@ -15,26 +17,35 @@ async function call(ctx: ToolContext, name: string, args: Record<string, unknown
   return runTool(ctx, name, args);
 }
 
-describe("component tools", () => {
-  it("inserts a component with the brief's values and reports what it worked out", async () => {
+describe("the component library is the draftsman's", () => {
+  it("offers the agent no library tool, and refuses one if called", async () => {
+    const names = BASE_TOOLS.map((t) => t.name);
+    for (const n of ["list_components", "component_info", "insert_component", "set_table"]) expect(names).not.toContain(n);
     const ctx = context();
-    const r = await call(ctx, "insert_component", { definition: "ir.box_culvert.gad", values: [{ name: "CellCount", value: 2 }, { name: "ClearSpan", value: 3000 }, { name: "HFL", value: 102.1 }] });
-    expect(r.ok).toBe(true);
-    expect(r.mutated).toBe(true);
-    expect(r.text).toMatch(/Earth cushion over box=/);
-    expect(ctx.ws.cad.components).toHaveLength(1);
-    expect(ctx.ws.cadShapes.length).toBeGreaterThan(20);
-    // A drawing made only of components passes the check without anchors or rules.
-    expect(checkReport(ctx.ws).blockers).toEqual([]);
+    for (const n of ["list_components", "insert_component", "component_info"]) {
+      const r = await call(ctx, n, { definition: "ir.box_culvert.gad" });
+      expect(r.ok).toBe(false);
+      expect(r.text).toMatch(/belongs to the draftsman/);
+    }
+    expect(ctx.ws.cad.components).toHaveLength(0);
   });
 
-  it("refuses values that break the component, with the reason", async () => {
+  it("will not read, change or reuse a library component the draftsman placed", async () => {
     const ctx = context();
-    await call(ctx, "insert_component", { definition: "ir.box_culvert.section" });
+    ctx.ws.applyCad({ type: "CAD_INSERT_COMPONENT", definitionId: "ir.box_culvert.section", at: { x: 0, y: 0 } });
     const id = ctx.ws.cad.components[0].id;
-    const r = await call(ctx, "set_component_values", { instance: id, values: [{ name: "HaunchSize", value: 2000 }] });
-    expect(r.ok).toBe(false);
-    expect(r.text).toMatch(/haunches would meet/i);
+    for (const [tool, args] of [
+      ["set_component_values", { instance: id, values: [{ name: "HaunchSize", value: 300 }] }],
+      ["describe_component", { instance: id }],
+      ["relationship", { instance: id, name: "HaunchSize", expr: "ClearSpan / 10" }],
+      ["edit_geometry", { instance: id }],
+      ["delete_component", { instance: id }],
+    ] as const) {
+      const r = await call(ctx, tool, args);
+      expect(r.ok, tool).toBe(false);
+      expect(r.text).toMatch(/library component/);
+    }
+    expect(ctx.ws.cad.components).toHaveLength(1);
     expect(ctx.ws.cad.components[0].values.HaunchSize).toBeUndefined();
   });
 });
@@ -69,9 +80,10 @@ describe("design basis authority", () => {
     expect(no.text).toMatch(/cannot confirm/);
   });
 
-  it("audits and lays out a sheet", async () => {
+  it("audits and lays out a sheet of the draftsman's drawing", async () => {
     const ctx = context();
-    await call(ctx, "insert_component", { definition: "ir.bridge.gad" });
+    // The draftsman placed a bridge GAD; the agent reviews it.
+    ctx.ws.applyCad({ type: "CAD_INSERT_COMPONENT", definitionId: "ir.bridge.gad", at: { x: 0, y: 0 } });
     await call(ctx, "project_info", { bridge_number: "123", chainage: "km 45/6-7" });
     const a = await call(ctx, "audit");
     expect(a.text).toMatch(/Audit: \d+ blocker/);

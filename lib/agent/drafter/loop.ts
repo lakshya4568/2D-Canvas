@@ -29,8 +29,14 @@ import {
   ModelCallError,
 } from "../../ai/geminiChat";
 import { DraftingWorkspace, DrafterState } from "./workspace";
-import { BASE_TOOLS, ToolContext, ToolStage, checkReport, lookReport, macroDeclarations, runTool, stageOf } from "./tools";
+import { BASE_TOOLS, ToolContext, ToolStage, checkReport, lookReport, macroDeclarations, readingTiles, runTool, stageOf } from "./tools";
 import { DRAFTER_SYSTEM_PROMPT, initialMessage, nudgeMessage } from "./prompt";
+import { verifyConstruction } from "./construction";
+
+/** Where the drawing stands: verify on the construction route, the sketch check otherwise. */
+function standing(ws: DraftingWorkspace): string {
+  return ws.construction.plan?.route === "construction" ? verifyConstruction(ws).text : checkReport(ws).text;
+}
 import type { TemplateManifest } from "../../upce/template";
 import type { Shape } from "../../geometry/types";
 import type { AuthoringSketch } from "../../upce/types";
@@ -129,8 +135,10 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
   const started = Date.now();
   const ws = new DraftingWorkspace(options.state);
   const emit = options.onEvent;
-  const maxTurns = options.maxTurns ?? 90;
-  const maxToolCalls = options.maxToolCalls ?? 220;
+  // A GAD built from scratch is long work: dozens of entities and annotations,
+  // several verify / compare rounds.
+  const maxTurns = options.maxTurns ?? 140;
+  const maxToolCalls = options.maxToolCalls ?? 400;
   const maxNudges = options.maxNudges ?? 3;
   const { model, transport, signal } = options;
 
@@ -160,6 +168,7 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
     suggestions: { revision: -1, byId: new Map() },
     research,
     macroDepth: 0,
+    references: (options.images ?? []).map((i) => ({ data: i.data, mimeType: i.mimeType || "image/png" })),
   };
 
   emit({ type: "start", model: model.model, thinkingLevel: model.thinkingLevel, label: model.label });
@@ -176,6 +185,12 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
     ...(options.images ?? []).map((img) => ({
       inlineData: { mimeType: img.mimeType || "image/png", data: img.data.replace(/^data:[^;]+;base64,/, "") },
     })),
+    // The first reference again, magnified in tiles: read up close in turn one.
+    ...(() => {
+      const first = options.images?.[0];
+      const tiles = first ? readingTiles(first) : null;
+      return tiles ? [{ text: tiles.text }, ...tiles.images.map((i) => ({ inlineData: i }))] : [];
+    })(),
   ];
   const tools = [...BASE_TOOLS, ...macroDeclarations(ws.macros)];
   const meter = new CostMeter();
@@ -204,7 +219,7 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
       summary,
       state: ws.toState(),
       manifest: ws.sketch.meta.publishedAt ? ws.manifest() : undefined,
-      check: checkReport(ws).text,
+      check: standing(ws),
       turns,
       toolCalls,
       elapsedMs: Date.now() - started,
@@ -273,7 +288,7 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
         nudges++;
         session.history.push({
           role: "user",
-          parts: [{ text: nudgeMessage(checkReport(ws).text, finishRefused) }],
+          parts: [{ text: nudgeMessage(standing(ws), finishRefused) }],
         });
         continue;
       }
@@ -313,7 +328,7 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
             name: call.name,
             ...(call.id ? { id: call.id } : {}),
             response: { ok: outcome.ok, result: outcome.text },
-            ...(outcome.image ? { parts: [{ inlineData: outcome.image }] } : {}),
+            ...(outcome.image ? { parts: [outcome.image, ...(outcome.images ?? [])].map((i) => ({ inlineData: i })) } : {}),
           },
         });
         if (signal?.aborted) break;

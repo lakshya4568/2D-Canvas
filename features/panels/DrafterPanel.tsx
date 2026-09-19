@@ -269,10 +269,12 @@ async function readImage(file: File): Promise<{ name: string; data: string; mime
     el.src = url;
   });
   const MAX = 2400;
-  if (Math.max(img.width, img.height) <= MAX) {
-    return { name: file.name, data: url.split(",")[1], mimeType: file.type || "image/png" };
+  // PNG as it came when it is small enough; everything else is re-encoded as
+  // PNG, which the agent's reference comparison (compare_reference) can read.
+  if (Math.max(img.width, img.height) <= MAX && file.type === "image/png") {
+    return { name: file.name, data: url.split(",")[1], mimeType: "image/png" };
   }
-  const k = MAX / Math.max(img.width, img.height);
+  const k = Math.min(1, MAX / Math.max(img.width, img.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(img.width * k);
   canvas.height = Math.round(img.height * k);

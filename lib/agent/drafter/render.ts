@@ -26,8 +26,10 @@ export interface RenderScene {
   dims: { a: P; b: P; text: string; derived?: boolean }[];
   /** Drafting linework drawn light: hatch patterns, leaders, dimension lines, level ticks. */
   thin?: { a: P; b: P }[];
+  /** Stipple (sand, concrete, PCC hatches) — drawn as specks so a hatched area reads as hatched. */
+  specks?: P[];
   /** Text written on the drawing (level callouts, notes, dimension values), at its true place. */
-  notes?: { at: P; text: string; align?: "left" | "center" | "right" }[];
+  notes?: { at: P; text: string; align?: "left" | "center" | "right"; height?: number }[];
   title?: string;
 }
 
@@ -35,6 +37,8 @@ export interface RenderOptions {
   width?: number;
   height?: number;
   labels?: boolean;
+  /** Fit this model window instead of everything: [minX, minY, maxX, maxY], mm, Y up. */
+  window?: [number, number, number, number];
 }
 
 type RGB = [number, number, number];
@@ -47,6 +51,9 @@ const DERIVED: RGB = [150, 90, 200];
 const PAPER: RGB = [255, 255, 255];
 const THIN: RGB = [150, 160, 178];
 const NOTE: RGB = [30, 70, 150];
+const OVERLAY: RGB = [16, 84, 214];
+const OVERLAY_THIN: RGB = [110, 150, 225];
+const MISS: RGB = [225, 30, 40];
 
 // prettier-ignore
 const FONT: Record<string, number[]> = {
@@ -190,43 +197,22 @@ function chunk(type: string, body: Buffer): Buffer {
 
 const fmt = (v: number) => String(Math.round(v * 10) / 10);
 
-/** Renders the scene fitted to the image. Returns base64 PNG. */
-export function renderScene(scene: RenderScene, options: RenderOptions = {}): { data: string; width: number; height: number; mmPerPixel: number } {
-  const W = options.width ?? 1024;
-  const H = options.height ?? 768;
-  const labels = options.labels ?? true;
-  const img = new Raster(W, H);
+type Palette = { ink: RGB; thin: RGB; note: RGB };
 
-  const xs: number[] = [];
-  const ys: number[] = [];
-  for (const l of scene.lines) xs.push(l.a.x, l.b.x), ys.push(l.a.y, l.b.y);
-  for (const c of scene.circles) xs.push(c.c.x - c.r, c.c.x + c.r), ys.push(c.c.y - c.r, c.c.y + c.r);
-  for (const l of scene.thin ?? []) xs.push(l.a.x, l.b.x), ys.push(l.a.y, l.b.y);
-  for (const n of scene.notes ?? []) xs.push(n.at.x), ys.push(n.at.y);
-
-  if (xs.length === 0) {
-    img.text("EMPTY DRAWING", 20, 20, LABEL, 3);
-    return { data: img.png().toString("base64"), width: W, height: H, mmPerPixel: 1 };
+/** Draws a scene through `map` (model → pixel); k is pixels per model mm. */
+function paint(img: Raster, scene: RenderScene, map: (p: P) => P, k: number, labels: boolean, colours: Palette) {
+  const W = img.w;
+  const H = img.h;
+  for (const l of scene.thin ?? []) img.line(map(l.a), map(l.b), colours.thin, 0.45);
+  for (const p of scene.specks ?? []) {
+    const q = map(p);
+    img.blend(Math.round(q.x), Math.round(q.y), colours.thin, 0.9);
   }
-
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const margin = 70;
-  const spanX = Math.max(maxX - minX, 1);
-  const spanY = Math.max(maxY - minY, 1);
-  const k = Math.min((W - 2 * margin) / spanX, (H - 2 * margin - 30) / spanY);
-  const ox = (W - spanX * k) / 2;
-  const oy = (H - 30 - spanY * k) / 2 + 30;
-  const map = (p: P): P => ({ x: ox + (p.x - minX) * k, y: oy + (maxY - p.y) * k });
-
-  for (const l of scene.thin ?? []) img.line(map(l.a), map(l.b), THIN, 0.45);
   for (const l of scene.lines) {
     if (l.construction) img.line(map(l.a), map(l.b), CONSTRUCTION, 0.7, [10, 6]);
   }
   for (const l of scene.lines) {
-    if (!l.construction) img.line(map(l.a), map(l.b), INK, 1.1);
+    if (!l.construction) img.line(map(l.a), map(l.b), colours.ink, 1.1);
   }
   for (const c of scene.circles) {
     const cc = map(c.c);
@@ -238,7 +224,7 @@ export function renderScene(scene: RenderScene, options: RenderOptions = {}): { 
       img.line(
         { x: cc.x + rr * Math.cos(t0), y: cc.y + rr * Math.sin(t0) },
         { x: cc.x + rr * Math.cos(t1), y: cc.y + rr * Math.sin(t1) },
-        INK,
+        colours.ink,
         1.1
       );
     }
@@ -267,9 +253,11 @@ export function renderScene(scene: RenderScene, options: RenderOptions = {}): { 
 
   for (const n of scene.notes ?? []) {
     const p = map(n.at);
-    const w = Raster.textWidth(n.text, 1);
+    // Written at its true height where the scale allows (the bitmap font is 7 units tall).
+    const size = n.height ? Math.max(1, Math.min(6, Math.round((n.height * k) / 7))) : 1;
+    const w = Raster.textWidth(n.text, size);
     const x = n.align === "center" ? p.x - w / 2 : n.align === "right" ? p.x - w : p.x;
-    img.text(n.text, x, p.y - 7, NOTE, 1);
+    img.text(n.text, x, p.y - 7 * size, colours.note, size);
   }
 
   if (labels) {
@@ -293,8 +281,100 @@ export function renderScene(scene: RenderScene, options: RenderOptions = {}): { 
     for (const c of scene.circles) if (c.label) place(c.label, map(c.c));
   }
 
+}
+
+/** Renders the scene fitted to the image. Returns base64 PNG. */
+export function renderScene(scene: RenderScene, options: RenderOptions = {}): { data: string; width: number; height: number; mmPerPixel: number } {
+  const W = options.width ?? 1024;
+  const H = options.height ?? 768;
+  const labels = options.labels ?? true;
+  const img = new Raster(W, H);
+
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const l of scene.lines) xs.push(l.a.x, l.b.x), ys.push(l.a.y, l.b.y);
+  for (const c of scene.circles) xs.push(c.c.x - c.r, c.c.x + c.r), ys.push(c.c.y - c.r, c.c.y + c.r);
+  for (const l of scene.thin ?? []) xs.push(l.a.x, l.b.x), ys.push(l.a.y, l.b.y);
+  for (const n of scene.notes ?? []) xs.push(n.at.x), ys.push(n.at.y);
+
+  if (xs.length === 0) {
+    img.text("EMPTY DRAWING", 20, 20, LABEL, 3);
+    return { data: img.png().toString("base64"), width: W, height: H, mmPerPixel: 1 };
+  }
+
+  const w = options.window;
+  const minX = w ? w[0] : Math.min(...xs);
+  const maxX = w ? w[2] : Math.max(...xs);
+  const minY = w ? w[1] : Math.min(...ys);
+  const maxY = w ? w[3] : Math.max(...ys);
+  const margin = 70;
+  const spanX = Math.max(maxX - minX, 1);
+  const spanY = Math.max(maxY - minY, 1);
+  const k = Math.min((W - 2 * margin) / spanX, (H - 2 * margin - 30) / spanY);
+  const ox = (W - spanX * k) / 2;
+  const oy = (H - 30 - spanY * k) / 2 + 30;
+  const map = (p: P): P => ({ x: ox + (p.x - minX) * k, y: oy + (maxY - p.y) * k });
+
+  paint(img, scene, map, k, labels, { ink: INK, thin: THIN, note: NOTE });
+
   const header = `${scene.title ? scene.title + "   " : ""}EXTENT ${fmt(spanX)} X ${fmt(spanY)} MM   Y UP   LOWER LEFT (${fmt(minX)}, ${fmt(minY)})`;
   img.text(header.slice(0, 80), 10, 8, INK, 2, false);
 
   return { data: img.png().toString("base64"), width: W, height: H, mmPerPixel: 1 / k };
+}
+
+/**
+ * The scene drawn over a reference image: the reference faded to a light
+ * tracing, the drawing on top in blue, and `marks` (model points where the
+ * drawing leaves the reference's lines) as red dots. `map` takes model mm to
+ * reference pixels.
+ */
+export function renderOverlay(
+  scene: RenderScene,
+  bg: { width: number; height: number; rgba: Uint8Array },
+  map: (p: P) => P,
+  options: { maxWidth?: number; marks?: P[]; crop?: { x: number; y: number; w: number; h: number }; maxScale?: number; fade?: boolean } = {}
+): { data: string; width: number; height: number; scale: number } {
+  const crop = options.crop ?? { x: 0, y: 0, w: bg.width, h: bg.height };
+  const k = Math.min(options.maxScale ?? 1, (options.maxWidth ?? 1600) / crop.w);
+  const W = Math.max(1, Math.round(crop.w * k));
+  const H = Math.max(1, Math.round(crop.h * k));
+  const img = new Raster(W, H);
+  const fade = options.fade ?? true;
+  // Bilinear, so small digits stay legible when a crop is magnified.
+  const at = (x: number, y: number, c: number) => {
+    const xi = Math.max(0, Math.min(bg.width - 1, x));
+    const yi = Math.max(0, Math.min(bg.height - 1, y));
+    const i = (yi * bg.width + xi) * 4;
+    const a = bg.rgba[i + 3] / 255;
+    return 255 - (255 - bg.rgba[i + c]) * a;
+  };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const fx = crop.x + x / k - 0.5;
+      const fy = crop.y + y / k - 0.5;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const tx = fx - x0;
+      const ty = fy - y0;
+      const rgb = [0, 1, 2].map((c) => at(x0, y0, c) * (1 - tx) * (1 - ty) + at(x0 + 1, y0, c) * tx * (1 - ty) + at(x0, y0 + 1, c) * (1 - tx) * ty + at(x0 + 1, y0 + 1, c) * tx * ty);
+      if (fade) {
+        const lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+        // A faded grey-rose tracing: visible, but never mistaken for the drawing.
+        const t = 255 - (255 - lum) * 0.38;
+        img.data.set([Math.min(255, t + 12), t, t], (y * W + x) * 3);
+      } else img.data.set(rgb, (y * W + x) * 3);
+    }
+  }
+  const m = (p: P): P => {
+    const q = map(p);
+    return { x: (q.x - crop.x) * k, y: (q.y - crop.y) * k };
+  };
+  const probe = Math.hypot(m({ x: 1000, y: 0 }).x - m({ x: 0, y: 0 }).x, m({ x: 1000, y: 0 }).y - m({ x: 0, y: 0 }).y) / 1000;
+  paint(img, { ...scene, dims: [] }, m, probe, false, { ink: OVERLAY, thin: OVERLAY_THIN, note: OVERLAY });
+  for (const p of options.marks ?? []) {
+    const q = m(p);
+    img.dot(q.x, q.y, 2.2, MISS, 1);
+  }
+  return { data: img.png().toString("base64"), width: W, height: H, scale: k };
 }

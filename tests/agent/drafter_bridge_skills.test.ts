@@ -1,7 +1,7 @@
 /**
- * The agent's bridge tooling: skills, the formula reference, the RCC box half
- * section component with its layer table and relationships, and the manual
- * route — draw by hand, make parametric, change a value, edit the shape.
+ * The agent's bridge tooling: skills, the formula reference, the design data
+ * rules, and the manual (sketch) route — draw by hand, make parametric,
+ * change a value, edit the shape.
  */
 
 import { describe, it, expect } from "vitest";
@@ -9,17 +9,24 @@ import { DraftingWorkspace } from "@/lib/agent/drafter/workspace";
 import { runTool, ToolContext, buildScene } from "@/lib/agent/drafter/tools";
 import { DRAFTER_SYSTEM_PROMPT } from "@/lib/agent/drafter/prompt";
 import { evaluateInstance } from "@/lib/cad/document";
+import { DRAFTING_SKILLS } from "@/lib/agent/drafter/skills";
+import { sketchPlanned } from "./plans";
 
-function context(ws = new DraftingWorkspace()): ToolContext {
+function context(ws = new DraftingWorkspace({ construction: sketchPlanned() })): ToolContext {
   return { ws, hasReference: false, viewedRevision: -1, suggestions: { revision: -1, byId: new Map() }, macroDepth: 0 };
 }
 const call = (ctx: ToolContext, name: string, args: Record<string, unknown> = {}) => runTool(ctx, name, args);
 
 describe("skills and the reference", () => {
-  it("the prompt lists the skills and both routes", () => {
-    expect(DRAFTER_SYSTEM_PROMPT).toMatch(/rcc-box-half-section/);
-    expect(DRAFTER_SYSTEM_PROMPT).toMatch(/make_parametric/);
-    expect(DRAFTER_SYSTEM_PROMPT).toMatch(/bridge_reference/);
+  it("the prompt teaches plan → construct → verify → compare, and never the library", () => {
+    for (const w of ["reference-reconstruction", "rcc-box-half-section", "bridge_reference", "plan", "construct", "verify", "compare_reference", "CONSTRUCT FROM SCRATCH"]) expect(DRAFTER_SYSTEM_PROMPT).toContain(w);
+    for (const w of ["insert_component", "list_components", "ir.rcc_box"]) expect(DRAFTER_SYSTEM_PROMPT).not.toContain(w);
+  });
+
+  it("no skill sends the agent to a library component", () => {
+    for (const k of DRAFTING_SKILLS) {
+      expect(k.body, k.name).not.toMatch(/insert_component|list_components|\bir\.[a-z_]+\.[a-z_]+/);
+    }
   });
 
   it("loads a skill by name and lists them without one", async () => {
@@ -27,18 +34,19 @@ describe("skills and the reference", () => {
     const list = await call(ctx, "use_skill");
     expect(list.ok).toBe(true);
     expect(list.text).toMatch(/gad-drafting-style/);
+    expect(list.text).toMatch(/reference-reconstruction/);
     const skill = await call(ctx, "use_skill", { name: "rcc-box-half-section" });
-    expect(skill.text).toMatch(/ir\.rcc_box\.half_section/);
     expect(skill.text).toMatch(/RCR-LVL-002/);
+    expect(skill.text).toMatch(/## Construction/);
     expect((await call(ctx, "use_skill", { name: "no-such-skill" })).ok).toBe(false);
   });
 
-  it("looks up a formula and says which component implements it", async () => {
+  it("looks up a formula without pointing at a library component", async () => {
     const ctx = context();
     const r = await call(ctx, "bridge_reference", { query: "RCR-LVL-002" });
     expect(r.ok).toBe(true);
     expect(r.text).toMatch(/earthCushion = max\(formLvl - rccBoxTopLvl, 0\)/);
-    expect(r.text).toMatch(/ir\.rcc_box\.half_section/);
+    expect(r.text).not.toMatch(/Implemented in component/);
     const s = await call(ctx, "bridge_reference", { query: "hume pipe barrel length" });
     expect(s.text).toMatch(/HPC-GEO-007/);
   });
@@ -54,43 +62,6 @@ describe("design data", () => {
     expect(lvl.ok).toBe(true);
     const typed = await call(ctx, "design_basis", { field: "designDischarge", value: "150", status: "PENDING_CONFIRMATION", note: "stated in the brief" });
     expect(typed.ok).toBe(true);
-  });
-});
-
-describe("component route", () => {
-  it("draws the half section, takes the foundation layers as a table and a relationship on rail level", async () => {
-    const ctx = context();
-    const ins = await call(ctx, "insert_component", { definition: "ir.rcc_box.half_section", values: [{ name: "FormationLevel", value: 105 }, { name: "BedLevel", value: 96.1 }, { name: "HFL", value: 96.8 }] });
-    expect(ins.ok).toBe(true);
-    expect(ins.text).toMatch(/RailLevel=105\.762m \(auto\)/);
-    const id = ctx.ws.cad.components[0].id;
-    const t = await call(ctx, "set_table", { instance: id, table: "Layers", rows: [{ name: "GRANULAR FILLING", thickness: 850, hatch: 2 }, { name: "SAND FILLING", thickness: 300, hatch: 6 }] });
-    expect(t.ok).toBe(true);
-    expect(t.text).toMatch(/SAND FILLING/);
-    const rel = await call(ctx, "relationship", { instance: id, name: "RailLevel", expr: "FormationLevel + 0.8" });
-    expect(rel.ok).toBe(true);
-    expect(rel.text).toMatch(/RailLevel=105\.8m \(relationship\)/);
-    const bad = await call(ctx, "relationship", { instance: id, name: "TopSlab", expr: "Nope * 2" });
-    expect(bad.ok).toBe(false);
-    expect(bad.text).toMatch(/Nope/);
-    const inp = await call(ctx, "add_input", { instance: id, name: "SlabRatio", value: 0.08, unit: "-" });
-    expect(inp.ok).toBe(true);
-    const rel2 = await call(ctx, "relationship", { instance: id, name: "TopSlab", expr: "SlabRatio * ClearSpan" });
-    expect(rel2.ok).toBe(true);
-    const ev = evaluateInstance(ctx.ws.cad.components[0], ctx.ws.cad)!.evaluation;
-    expect(ev.scope.TopSlab).toBeCloseTo(856, 6);
-    // The extra 300 mm layer lowers the bottom of the foundation by 300 mm.
-    expect(ev.scope.FoundationLevel).toBeCloseTo(94.15 - 0.3, 6);
-  });
-
-  it("the agent's view shows the callouts, not just the outline", async () => {
-    const ctx = context();
-    await call(ctx, "insert_component", { definition: "ir.rcc_box.half_section" });
-    const scene = buildScene(ctx.ws);
-    const notes = (scene.notes ?? []).map((n) => n.text);
-    expect(notes).toContain("PROP. RAIL LEVEL = 105.762M.");
-    expect(notes).toContain("HALF SECTION & HALF ELEVATION");
-    expect((scene.thin ?? []).length).toBeGreaterThan(100);
   });
 });
 

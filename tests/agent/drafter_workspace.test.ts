@@ -10,8 +10,9 @@ import { DraftingWorkspace } from "@/lib/agent/drafter/workspace";
 import { runTool, ToolContext, flexReport, checkReport } from "@/lib/agent/drafter/tools";
 import { regenerate } from "@/lib/upce/document";
 import { buildManifest } from "@/lib/upce/template";
+import { sketchPlanned } from "./plans";
 
-function context(ws = new DraftingWorkspace()): ToolContext {
+function context(ws = new DraftingWorkspace({ construction: sketchPlanned() })): ToolContext {
   return { ws, hasReference: false, viewedRevision: -1, suggestions: { revision: -1, byId: new Map() }, macroDepth: 0 };
 }
 

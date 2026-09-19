@@ -14,6 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { runDrafter, DrafterEvent } from "@/lib/agent/drafter/loop";
 import { AGENT_MODELS, ChatRequest, ChatResponse, ChatTransport, GeminiPart, ModelCallError } from "@/lib/ai/geminiChat";
+import { SKETCH_PLAN_ARGS } from "./plans";
 
 const model = AGENT_MODELS[0];
 
@@ -40,8 +41,9 @@ class Scripted implements ChatTransport {
 const square: GeminiPart[][] = [
   [
     { text: "**Plan** a 1000 square", thought: true },
-    { text: "I will draw the plate outline first." },
-    call("draw_rectangle", { name: "Plate", x: 0, y: 0, width: 1000, height: 1000 }, "sig-1"),
+    { text: "I will plan, then draw the plate outline." },
+    call("plan", SKETCH_PLAN_ARGS, "sig-1"),
+    call("draw_rectangle", { name: "Plate", x: 0, y: 0, width: 1000, height: 1000 }),
   ],
   [call("rule", { kind: "anchor", a: "Plate.bottom_left" }, "sig-2")],
   [
@@ -70,7 +72,8 @@ describe("drafting agent loop", () => {
     expect(echoed.parts.some((p) => p.thought)).toBe(true);
     // ...followed by the tool result in a user turn.
     expect(second[2].role).toBe("user");
-    expect(second[2].parts[0].functionResponse?.name).toBe("draw_rectangle");
+    expect(second[2].parts[0].functionResponse?.name).toBe("plan");
+    expect(second[2].parts[1].functionResponse?.name).toBe("draw_rectangle");
 
     // Two calls in one turn produce two responses in one turn, in order.
     const fourth = transport.requests[3].contents;
@@ -84,7 +87,7 @@ describe("drafting agent loop", () => {
 
     // The author saw each step as it happened.
     expect(events.filter((e) => e.type === "tool").map((e) => (e as { name: string }).name)).toEqual([
-      "draw_rectangle", "rule", "dimension", "dimension", "view", "finish",
+      "plan", "draw_rectangle", "rule", "dimension", "dimension", "view", "finish",
     ]);
     expect(events.some((e) => e.type === "snapshot")).toBe(true);
     expect(events.some((e) => e.type === "thinking")).toBe(true);
@@ -93,7 +96,7 @@ describe("drafting agent loop", () => {
 
   it("pushes a model that stops early, then reports incomplete", async () => {
     const transport = new Scripted([
-      [call("draw_rectangle", { name: "Plate", x: 0, y: 0, width: 400, height: 250 }, "s")],
+      [call("plan", SKETCH_PLAN_ARGS, "s"), call("draw_rectangle", { name: "Plate", x: 0, y: 0, width: 400, height: 250 })],
       [{ text: "Done!" }],
       [{ text: "Really done." }],
     ]);
@@ -108,7 +111,7 @@ describe("drafting agent loop", () => {
 
   it("keeps going after finish is refused", async () => {
     const transport = new Scripted([
-      [call("draw_rectangle", { name: "Plate", x: 0, y: 0, width: 400, height: 250 }, "s")],
+      [call("plan", SKETCH_PLAN_ARGS, "s"), call("draw_rectangle", { name: "Plate", x: 0, y: 0, width: 400, height: 250 })],
       [call("finish", { title: "Plate", summary: "early" }, "s")],
       ...structuredClone(square).slice(1).map((turn) =>
         turn.map((p) =>

@@ -221,7 +221,8 @@ describe("holes that run into each other", () => {
   it("fails the publish sweep when a value puts two holes on top of each other", async () => {
     const { DraftingWorkspace } = await import("@/lib/agent/drafter/workspace");
     const { runTool } = await import("@/lib/agent/drafter/tools");
-    const ws = new DraftingWorkspace();
+    const { sketchPlanned } = await import("../agent/plans");
+    const ws = new DraftingWorkspace({ construction: sketchPlanned() });
     const ctx = { ws, hasReference: false, viewedRevision: -1, suggestions: { revision: -1, byId: new Map() }, macroDepth: 0 };
     const run = async (name: string, args: Record<string, unknown>) => {
       const r = await runTool(ctx, name, args);

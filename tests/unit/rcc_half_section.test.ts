@@ -127,9 +127,9 @@ describe("auto values and relationships", () => {
 describe("foundation layers (table)", () => {
   it("each row is a layer with its own callout, hatch and thickness", () => {
     const rows: TableRow[] = [
-      { name: "GRANULAR FILLING", thickness: 850, hatch: 2 },
-      { name: "NEW LAYER", thickness: 200, hatch: 3 },
-      { name: "NEW LAYER", thickness: 300, hatch: 0 },
+      { name: "{thickness}THK. GRANULAR FILLING", thickness: 850, hatch: 2 },
+      { name: "{thickness}THK. NEW LAYER", thickness: 200, hatch: 3 },
+      { name: "{thickness}THK. NEW LAYER", thickness: 300, hatch: 0 },
     ];
     const e = ev({}, { tables: { Layers: rows } });
     expect(e.scope.Layers_count).toBe(3);
@@ -139,6 +139,18 @@ describe("foundation layers (table)", () => {
     // The third row asked for no hatch.
     expect(layerHatches.map((h) => h.material)).toEqual(["gravel", "earth"]);
     expect(e.tables.Layers).toHaveLength(3);
+  });
+
+  it("a row's label is its callout; a zero-thickness row is a callout only", () => {
+    const rows: TableRow[] = [
+      { name: "{thickness}THK. GRANULAR FILLING", thickness: 850, hatch: 2 },
+      { name: "150 mm. SAND BLANKET (BY OTHERS)", thickness: 0, hatch: 0 },
+    ];
+    const e = ev({}, { tables: { Layers: rows } });
+    expect(e.leaders.filter((l) => l.path.startsWith("layer[")).map((l) => l.text)).toEqual(["850THK. GRANULAR FILLING", "150 mm. SAND BLANKET (BY OTHERS)"]);
+    // It adds no thickness and no hatch.
+    expect(e.scope.FoundationLevel).toBeCloseTo(94.15, 6);
+    expect(e.hatches.filter((h) => h.path.startsWith("layer_hatch"))).toHaveLength(1);
   });
 
   it("no rows: the foundation stops at the PCC", () => {

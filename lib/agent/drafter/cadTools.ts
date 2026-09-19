@@ -19,7 +19,6 @@
 import type { FunctionDeclaration } from "../../ai/geminiChat";
 import type { Annotation, HatchMaterial, LayerCategory } from "../../cad/types";
 import { canvasYOfLevel } from "../../cad/types";
-import { COMPONENT_LIBRARY } from "../../components/library";
 import { definitionFor, evaluateInstance } from "../../cad/document";
 import { DBR_FIELD_META, type DbrFields, type InputStatus, type Lifecycle, type StructureType } from "../../bridge/project";
 import { runAudit, auditToText } from "../../bridge/audit";
@@ -40,7 +39,7 @@ type Args = Record<string, unknown>;
 
 const S = (description: string) => ({ type: "string", description });
 const N = (description: string) => ({ type: "number", description });
-const XY = (description: string) => ({ type: "array", items: { type: "number" }, description: `${description} [x, y] in mm, Y up.` });
+const XY = (description: string) => ({ type: "array", items: { type: "string" }, description: `${description} [x, y] in mm, Y up — numbers, or (construction route) expressions of plan values.` });
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required });
 const VALUES = {
   type: "array",
@@ -48,37 +47,57 @@ const VALUES = {
   items: obj({ name: S("Value name exactly as component_info lists it"), value: N("The value") }, ["name", "value"]),
 };
 
+const ANNOTATION_FIELDS: Record<string, unknown> = {
+  kind: { type: "string", enum: ["dimension", "level", "leader", "text", "hatch", "note", "north", "flow", "kilometrage", "section"], description: "What to add (one annotation; or use items)" },
+  id: S("Id for it (optional; later remove or replace it by id)"),
+  feature: S("The planned feature it belongs to"),
+  at: XY("Point"),
+  to: XY("Second point"),
+  from: XY("Dimension first point"),
+  points: { type: "array", items: { type: "array", items: { type: "string" } }, description: "Leader: arrow tip, elbow(s), shelf end — [[x, y], …], numbers or expressions" },
+  along: { type: "array", items: { type: "array", items: { type: "string" } }, description: "Text: write along the direction from the first to the second point" },
+  text: S("Text; \\n starts a new line"),
+  label: S("Level label"),
+  offset: S("Dimension line offset in mm, number or expression (e.g. \"-2 * DIM\")"),
+  orientation: { type: "string", enum: ["horizontal", "vertical", "aligned"], description: "Dimension direction (default: the larger of dx, dy)" },
+  aligned: { type: "boolean", description: "Aligned dimension (same as orientation aligned)" },
+  prefix: S("Dimension text before the number, e.g. 'FB-' or 'V.C. '"),
+  suffix: S("Dimension text after the number"),
+  hide_value: { type: "boolean", description: "Dimension without its number" },
+  drives: S("Construction: the plan value this dimension shows"),
+  material: { type: "string", enum: Object.keys(HATCH_MATERIALS), description: "Hatch material" },
+  boundary: S("Hatch: id of the constructed loop to fill"),
+  holes: { type: "array", items: { type: "string" }, description: "Hatch: loop ids cut out of it" },
+  style: { type: "string", enum: ["marker", "gad"], description: "Level: gad writes the text on the line (IR GAD); marker is a triangle" },
+  format: S("Level text template with {label} and {rl}, e.g. '{label} {rl}'"),
+  side: { type: "string", enum: ["left", "right"], description: "Level: which way the text runs from the point" },
+  symbol: { type: "string", enum: ["none", "water", "ground"], description: "Level symbol: water for HFL/LWL, ground for bed" },
+  placement: { type: "string", enum: ["end", "above"], description: "Leader: above writes the text on the shelf (IR callout style)" },
+  arrow: { type: "string", enum: ["arrow", "dot", "none"], description: "Leader tip" },
+  height: N("Text height, paper mm (default 2.5)"),
+  align: { type: "string", enum: ["left", "center", "right"], description: "Text alignment" },
+  valign: { type: "string", enum: ["top", "middle", "bottom"], description: "Text vertical alignment" },
+  bold: { type: "boolean", description: "Bold text (titles)" },
+  rotation: S("Text rotation, degrees counter-clockwise"),
+  angle: S("Hatch pattern angle, degrees"),
+  scale: S("Hatch pattern spacing multiplier"),
+  layer: S("Layer category, e.g. water for FB/VC dimensions"),
+};
+
 export const CAD_TOOLS: FunctionDeclaration[] = [
   {
-    name: "list_components",
-    description:
-      "The parametric component library: bridge GAD assemblies, box and pipe culverts, piers, abutments, spans, deck sections, pile groups, well foundations, retaining walls, level sets. A component's geometry is written from named values, so it is fully defined by construction — no rules or degrees of freedom to manage. Prefer a component whenever one fits the brief.",
-    parameters: obj({}),
-  },
-  {
-    name: "component_info",
-    description: "A component's values (name, meaning, unit, default, usual range, group), derived results and named anchor points.",
-    parameters: obj({ definition: S("Component id from list_components, e.g. ir.box_culvert.gad") }, ["definition"]),
-  },
-  {
-    name: "insert_component",
-    description:
-      "Place a component with the values from the brief or reference. Values not given take the template default — a drafting aid, which the audit will flag until real values are entered. Components with level values (RL in m) are drawn at true reduced levels; `at` then only sets x. Refused, with the reason, if the values break the component (e.g. haunches meeting across an opening).",
-    parameters: obj({ definition: S("Component id"), values: VALUES, at: XY("Where its origin goes"), name: S("A readable name, e.g. 'Major bridge 123'") }, ["definition"]),
-  },
-  {
     name: "set_component_values",
-    description: "Change values of a placed component. It regenerates exactly what depends on them, or refuses and changes nothing. reset hands typed values back to their default (an auto value then follows its formula again).",
+    description: "Change values of a component this drawing made itself (by make_parametric from free geometry). It regenerates exactly what depends on them, or refuses and changes nothing. reset hands typed values back to their default. Library components are the draftsman's, not yours; your own construction changes through plan.",
     parameters: obj({ instance: S("Instance id, e.g. BRIDGE-1"), values: VALUES, reset: { type: "array", items: { type: "string" }, description: "Value names to hand back to their default/auto" } }, ["instance"]),
   },
   {
     name: "describe_component",
-    description: "A placed component's current values, derived results (heights, clearances, free board…) and any problems.",
+    description: "A component this drawing owns (your construction, or one made with make_parametric): current values, worked-out results and any problems.",
     parameters: obj({ instance: S("Instance id") }, ["instance"]),
   },
   {
     name: "delete_component",
-    description: "Remove a placed component and everything it generated.",
+    description: "Remove a component this drawing owns and everything it generated.",
     parameters: obj({ instance: S("Instance id") }, ["instance"]),
   },
   {
@@ -121,31 +140,21 @@ export const CAD_TOOLS: FunctionDeclaration[] = [
   {
     name: "annotate",
     description:
-      "Add drawing annotation (see skill gad-drafting-style for how IR drawings use them). kind: text (at, text, height, align, rotation), note (text — appended to the sheet's general notes), leader (points [tip, elbow, shelf end] or at → to, text, placement above = text on the shelf), level (at a point on the geometry, label e.g. 'BED LEVEL', style gad, symbol — the RL is read from the point), dimension (from, to, offset mm, prefix, hide_value; linear unless aligned:true), hatch (at = a point inside a closed free-drawn outline, material, angle), north (at), flow / kilometrage (at → to, label), section (at → to).",
+      "Add drawing annotation (skill gad-drafting-style says how IR drawings use it). In the construction route it becomes part of your construction and follows your values: coordinates are numbers or expressions of plan values and entity points (\"Box.p3.x\"). " +
+      "kind: dimension (from, to; offset mm from the measured points, + above/right, − below/left, default one row DIM; orientation horizontal/vertical/aligned; prefix e.g. 'FB-', suffix, hide_value, drives = the plan value it shows) | " +
+      "level (at = a point ON the level line, usually its left end; label e.g. 'PROP. FORMATION LEVEL'; the RL is READ from the point's height, never typed; format '{label} {rl}' writes 'PROP. FORMATION LEVEL 59.913' — the default gad format is '{label} = {rl}M.'; side right = text runs right from the point; symbol water for HFL, ground for bed) | " +
+      "leader (points [tip, elbow, shelf end]; text; placement above writes the text ON the shelf — IR callout style, the default) | text (at, text, height paper mm, align, valign, bold, rotation deg, along [p1, p2] to write along a slope) | " +
+      "hatch (boundary = a constructed loop id, or at = a point inside one; holes = loop ids cut out; material; angle) | note (sheet general note) | north | flow / kilometrage / section (at → to, label).",
     parameters: obj(
       {
-        kind: { type: "string", enum: ["text", "note", "leader", "level", "dimension", "hatch", "north", "flow", "kilometrage", "section"], description: "What to add" },
-        at: XY("Point"),
-        to: XY("Second point"),
-        from: XY("Dimension first point"),
-        text: S("Text"),
-        label: S("Label"),
-        offset: N("Dimension line offset in mm (positive: above/right)"),
-        aligned: { type: "boolean", description: "Aligned dimension" },
-        material: { type: "string", enum: Object.keys(HATCH_MATERIALS), description: "Hatch material" },
-        style: { type: "string", enum: ["marker", "gad"], description: "Level: gad writes 'LABEL = 101.000M.' on the line (IR GAD); marker is a triangle" },
-        format: S("Level text template with {label} and {rl}, e.g. '{label} = {rl}M' for HFL"),
-        symbol: { type: "string", enum: ["none", "water", "ground"], description: "Level symbol: water for HFL/LWL, ground for bed" },
-        placement: { type: "string", enum: ["end", "above"], description: "Leader: above writes the text on the shelf (IR callout style)" },
-        points: { type: "array", items: { type: "array", items: { type: "number" } }, description: "Leader: arrow tip, elbow(s), shelf end — [[x,y],…]" },
-        prefix: S("Dimension text before the number, e.g. 'V.C. '"),
-        hide_value: { type: "boolean", description: "Dimension without its number (the value is written in a note)" },
-        height: N("Text height, paper mm (default 2.5)"),
-        align: { type: "string", enum: ["left", "center", "right"], description: "Text alignment" },
-        rotation: N("Text rotation, degrees counter-clockwise"),
-        angle: N("Hatch pattern angle, degrees"),
+        items: {
+          type: "array",
+          description: "Many annotations in one call (each an object with the fields below, kind required) — use it: a GAD has dozens",
+          items: { type: "object", properties: ANNOTATION_FIELDS, required: ["kind"] },
+        },
+        ...ANNOTATION_FIELDS,
       },
-      ["kind"]
+      []
     ),
   },
   {
@@ -217,18 +226,6 @@ export const CAD_TOOLS: FunctionDeclaration[] = [
     parameters: obj({ instance: S("Instance id"), name: S("PascalCase name"), value: N("Value"), unit: { type: "string", enum: ["mm", "m", "-", "deg", "m2"], description: "Unit" } }, ["instance", "name", "value"]),
   },
   {
-    name: "set_table",
-    description: "Set the rows of a component's table value (e.g. foundation layers of the RCC half section: [{name, thickness, hatch}]). Rows are listed top to bottom.",
-    parameters: obj(
-      {
-        instance: S("Instance id"),
-        table: S("Table name, e.g. Layers"),
-        rows: { type: "array", items: { type: "object" }, description: "Rows: objects with the table's columns (component_info lists them)" },
-      },
-      ["instance", "table", "rows"]
-    ),
-  },
-  {
     name: "edit_geometry",
     description: "Turn a placed component back into free lines and annotations so its SHAPE can be edited (names stay on its dimensions). Make it parametric again afterwards (make_parametric with replace=<definition id> keeps its relationships).",
     parameters: obj({ instance: S("Instance id") }, ["instance"]),
@@ -251,16 +248,27 @@ function optStr(a: Args, k: string): string | undefined {
   const v = a[k];
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
-function xy(a: Args, k: string): { x: number; y: number } | undefined {
+function xy(a: Args, k: string, ws?: DraftingWorkspace): { x: number; y: number } | undefined {
   const v = a[k];
   if (!Array.isArray(v) || v.length < 2) return undefined;
-  const x = Number(v[0]);
-  const y = Number(v[1]);
+  const read = (c: unknown) => {
+    if (typeof c === "number") return c;
+    const t = String(c).trim();
+    if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+    if (!ws) return NaN;
+    try {
+      return ws.calculate(t);
+    } catch {
+      return NaN;
+    }
+  };
+  const x = read(v[0]);
+  const y = read(v[1]);
   if (!Number.isFinite(x) || !Number.isFinite(y)) throw new ToolError(`"${k}" must be [x, y] numbers.`);
   return { x, y };
 }
-function need(a: Args, k: string) {
-  const p = xy(a, k);
+function need(a: Args, k: string, ws?: DraftingWorkspace) {
+  const p = xy(a, k, ws);
   if (!p) throw new ToolError(`"${k}" [x, y] is required.`);
   return p;
 }
@@ -289,9 +297,13 @@ function values(a: Args): Record<string, number> {
 
 const f = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3))));
 
+/** A component this drawing made itself — the agent's construction or a make_parametric result. Library parts are off limits. */
 function instanceOf(ws: DraftingWorkspace, id: string) {
   const inst = ws.cad.components.find((c) => c.id === id || c.name === id);
   if (!inst) throw new ToolError(`No component "${id}". Placed: ${ws.cad.components.map((c) => c.id).join(", ") || "none"}.`);
+  if (definitionFor(ws.cad, inst.definitionId)?.origin?.kind !== "drawn") {
+    throw new ToolError(`${inst.id} is a library component the draftsman placed. You do not edit or reuse library components; construct what you need.`);
+  }
   return inst;
 }
 
@@ -327,40 +339,18 @@ export function componentsSummary(ws: DraftingWorkspace): string {
   return `Components: ${ws.cad.components.map((c) => `${c.id} (${definitionFor(ws.cad, c.definitionId)?.name ?? c.definitionId})`).join("; ")}. Annotations: ${ws.cad.annotations.filter((a) => !a.componentInstanceId).length} free.`;
 }
 
+/** Tools the component library offers the draftsman. The agent constructs; it never takes a library part. */
+export const LIBRARY_TOOLS = new Set(["list_components", "component_info", "insert_component", "set_table"]);
+
 export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): { text: string } | null {
+  if (LIBRARY_TOOLS.has(name)) {
+    throw new ToolError("The component library belongs to the draftsman, not to you. Construct the geometry yourself: plan, then construct, transform, boolean and annotate.");
+  }
   switch (name) {
-    case "list_components":
-      return {
-        text: [...(ws.cad.definitions ?? []), ...COMPONENT_LIBRARY].map((d) => `${d.id} — ${d.name} [${d.origin?.kind === "drawn" ? "made from this drawing" : d.category}, ${d.view}, ${d.parameters.length} values]: ${d.description}`).join("\n"),
-      };
-
-    case "component_info": {
-      const def = definitionFor(ws.cad, str(a, "definition"));
-      if (!def) throw new ToolError(`No component "${a.definition}". Call list_components.`);
-      const params = def.parameters.map(
-        (p) => `  ${p.name} (${p.label ?? p.name}) ${p.unit} default ${f(p.default)}${p.defaultExpr !== undefined ? " (auto: follows its formula until typed)" : ""}${p.min !== undefined || p.max !== undefined ? ` usual ${p.min ?? "…"}–${p.max ?? "…"}` : ""}${p.options ? ` options ${p.options.map((o) => `${o.value}=${o.label}`).join(", ")}` : ""} [${p.group ?? ""}]`
-      );
-      const derived = (def.formulas ?? []).filter((x) => x.report).map((x) => `  ${x.name}: ${x.label ?? ""} ${x.unit ?? ""}${x.cites?.length ? ` [${x.cites.join(", ")}]` : ""}`);
-      const anchors = (def.anchors ?? []).map((x) => x.id);
-      const tables = (def.tables ?? []).map((t) => `  ${t.name} (${t.label ?? ""}): columns ${t.columns.map((c) => `${c.name} ${c.kind}${c.unit ? " " + c.unit : ""}${c.options ? ` [${c.options.map((o) => `${o.value}=${o.label}`).join(", ")}]` : ""}`).join("; ")}; default rows ${JSON.stringify(t.rows)}`);
-      return {
-        text: `${def.name} (${def.id}). ${def.description}\nValues:\n${params.join("\n")}${tables.length ? `\nTables (set_table):\n${tables.join("\n")}` : ""}${derived.length ? `\nWorked out (read-only):\n${derived.join("\n")}` : ""}${anchors.length ? `\nAnchors: ${anchors.join(", ")}` : ""}`,
-      };
-    }
-
-    case "insert_component": {
-      const id = str(a, "definition");
-      if (!definitionFor(ws.cad, id)) throw new ToolError(`No component "${id}". Call list_components.`);
-      const at = xy(a, "at") ?? { x: 0, y: 0 };
-      const r = ws.applyCad({ type: "CAD_INSERT_COMPONENT", definitionId: id, values: values(a), at: toCanvas(at), name: optStr(a, "name") });
-      if (!r.ok) throw new ToolError(r.message);
-      const inst = ws.cad.components[ws.cad.components.length - 1];
-      return { text: `${r.message}\n${describeInstance(ws, inst.id)}` };
-    }
-
     case "set_component_values": {
       const inst = str(a, "instance");
-      const id = ws.cad.components.find((c) => c.id === inst || c.name === inst)?.id ?? inst;
+      const id = instanceOf(ws, inst).id;
+      if (id === ws.construction.instanceId) throw new ToolError("This is your construction: change a value by revising it in plan (the drawing follows).");
       const msgs: string[] = [];
       const reset = Array.isArray(a.reset) ? (a.reset as string[]) : [];
       if (reset.length) {
@@ -379,10 +369,12 @@ export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): {
     }
 
     case "describe_component":
-      return { text: describeInstance(ws, str(a, "instance")) };
+      return { text: describeInstance(ws, instanceOf(ws, str(a, "instance")).id) };
 
     case "delete_component": {
-      const r = ws.applyCad({ type: "CAD_DELETE_COMPONENT", instanceId: str(a, "instance") });
+      const inst = instanceOf(ws, str(a, "instance"));
+      const r = ws.applyCad({ type: "CAD_DELETE_COMPONENT", instanceId: inst.id });
+      if (r.ok && inst.id === ws.construction.instanceId) ws.construction = { ...ws.construction, instanceId: null };
       if (!r.ok) throw new ToolError(r.message);
       return { text: r.message };
     }
@@ -504,13 +496,9 @@ export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): {
       const q = str(a, "query");
       const hits = searchKnowledge(q, Math.max(1, Math.min(8, numOr(a, "limit", 4))));
       if (!hits.length) return { text: `Nothing in the bridge reference matches "${q}". Documents: ${knowledgeFiles().map((d) => d.title).join("; ")}.` };
-      const cited = (id: string) =>
-        [...(ws.cad.definitions ?? []), ...COMPONENT_LIBRARY]
-          .filter((d) => (d.formulas ?? []).some((x) => x.cites?.includes(id)))
-          .map((d) => d.id);
       return {
         text:
-          hits.map((e) => formatEntry(e) + (cited(e.id).length ? `\n(Implemented in component ${cited(e.id).join(", ")}.)` : "")).join("\n\n") +
+          hits.map((e) => formatEntry(e)).join("\n\n") +
           "\n\nProject reference, not a code: limits here still require review against the clause.",
       };
     }
@@ -569,18 +557,6 @@ export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): {
       return { text: `${name} = ${value} ${unit} added to ${inst.name}; use it in a relationship.` };
     }
 
-    case "set_table": {
-      const inst = instanceOf(ws, str(a, "instance"));
-      const table = str(a, "table");
-      const def = definitionFor(ws.cad, inst.definitionId);
-      if (!def?.tables?.some((t) => t.name === table)) throw new ToolError(`${inst.name} has no table "${table}". Tables: ${(def?.tables ?? []).map((t) => t.name).join(", ") || "none"}.`);
-      if (!Array.isArray(a.rows)) throw new ToolError(`"rows" must be a list of objects.`);
-      const rows = (a.rows as TableRow[]).map((r) => ({ ...r }));
-      const r = ws.applyCad({ type: "CAD_EDIT_COMPONENT_INPUTS", instanceId: inst.id, tables: { [table]: rows } });
-      if (!r.ok) throw new ToolError(r.message);
-      return { text: `${r.message}\n${describeInstance(ws, inst.id)}` };
-    }
-
     case "edit_geometry": {
       const inst = instanceOf(ws, str(a, "instance"));
       const def = definitionFor(ws.cad, inst.definitionId);
@@ -612,19 +588,19 @@ function annotate(ws: DraftingWorkspace, a: Args): string {
     case "text":
       ann = {
         type: "text",
-        at: P(need(a, "at")),
-        text: str(a, "text"),
+        at: P(need(a, "at", ws)),
+        text: str(a, "text").replace(/\\n/g, "\n"),
         height: numOr(a, "height", ws.cad.settings.textHeight),
         align: (optStr(a, "align") as "left" | "center" | "right" | undefined) ?? "left",
         rotation: numOr(a, "rotation", 0) || undefined,
       } as Omit<Annotation, "id">;
       break;
     case "leader": {
-      const pts = Array.isArray(a.points) && a.points.length >= 2 ? (a.points as unknown[]).map((p, i) => xy({ [`p${i}`]: p }, `p${i}`)!) : [need(a, "at"), need(a, "to")];
+      const pts = Array.isArray(a.points) && a.points.length >= 2 ? (a.points as unknown[]).map((p, i) => xy({ [`p${i}`]: p }, `p${i}`, ws)!) : [need(a, "at", ws), need(a, "to", ws)];
       ann = {
         type: "leader",
         points: pts.map(P),
-        text: str(a, "text"),
+        text: str(a, "text").replace(/\\n/g, "\n"),
         height: numOr(a, "height", ws.cad.settings.textHeight),
         placement: optStr(a, "placement") === "above" ? "above" : undefined,
       } as Omit<Annotation, "id">;
@@ -633,12 +609,12 @@ function annotate(ws: DraftingWorkspace, a: Args): string {
     case "level": {
       const style = optStr(a, "style") === "gad" ? "gad" : undefined;
       const symbol = optStr(a, "symbol") as "none" | "water" | "ground" | undefined;
-      ann = { type: "level", at: P(need(a, "at")), label: (optStr(a, "label") ?? "").toUpperCase(), style, format: optStr(a, "format"), symbol } as Omit<Annotation, "id">;
+      ann = { type: "level", at: P(need(a, "at", ws)), label: (optStr(a, "label") ?? "").toUpperCase(), style, format: optStr(a, "format"), symbol } as Omit<Annotation, "id">;
       break;
     }
     case "dimension": {
-      const p1 = need(a, "from");
-      const p2 = need(a, "to");
+      const p1 = need(a, "from", ws);
+      const p2 = need(a, "to", ws);
       const off = Number(a.offset ?? 0);
       const extra = { prefix: optStr(a, "prefix"), hideValue: a.hide_value === true ? true : undefined };
       if (a.aligned === true) {
@@ -650,7 +626,7 @@ function annotate(ws: DraftingWorkspace, a: Args): string {
       break;
     }
     case "hatch": {
-      const at = toCanvas(need(a, "at"));
+      const at = toCanvas(need(a, "at", ws));
       const r = regionAt(ws.displayShapes(), at);
       if (!r) throw new ToolError("No closed free-drawn outline around that point. Components hatch themselves; for your own geometry close the outline first.");
       const material = (optStr(a, "material") ?? "concrete") as HatchMaterial;
@@ -658,12 +634,12 @@ function annotate(ws: DraftingWorkspace, a: Args): string {
       break;
     }
     case "north":
-      ann = { type: "marker", kind: "north", at: P(need(a, "at")) } as Omit<Annotation, "id">;
+      ann = { type: "marker", kind: "north", at: P(need(a, "at", ws)) } as Omit<Annotation, "id">;
       break;
     case "flow":
     case "kilometrage":
     case "section":
-      ann = { type: "marker", kind, at: P(need(a, "at")), to: P(need(a, "to")), label: optStr(a, "label") } as Omit<Annotation, "id">;
+      ann = { type: "marker", kind, at: P(need(a, "at", ws)), to: P(need(a, "to", ws)), label: optStr(a, "label") } as Omit<Annotation, "id">;
       break;
     default:
       throw new ToolError(`Unknown annotation kind "${kind}".`);

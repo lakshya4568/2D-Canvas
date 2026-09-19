@@ -83,6 +83,17 @@ Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch
 - Component formulas cite the ids they implement (`cites: ["RCR-LVL-002"]`); a test checks every cited id exists.
 - `lib/agent/drafter/skills.ts` holds drafting playbooks (rcc-box-half-section, gad-drafting-style, make-parametric, bridge-levels, per bridge type). The prompt lists them; the agent loads one with `use_skill`. Its view (`buildScene`) renders the full draw list — hatches, leaders, level callouts, notes — so it can see whether its drawing looks like a GAD.
 
+### 2.13 The Agent Constructs; the Library Is the Draftsman's (decision, 2026-09-19)
+- The drafting agent never uses the component library: `list_components`, `component_info`, `insert_component` and `set_table` are not offered to it and are refused if called. It may not read, change or reuse a library instance a person placed. Component tools act only on drawing-owned definitions (`origin.kind = "drawn"`).
+- **Plan first.** `plan` (analysis, values, relations, cross-checks, features, expected content) gates every geometry and annotation tool. The plan picks the route.
+- **Construction route** (`lib/agent/drafter/construction.ts`): the agent writes its own drawing-owned `ComponentDefinition` (`drawing.agent-N`), primitive by primitive:
+  - every coordinate is an expression of plan values, evaluated by the engine (typed values become parameters, relations become formulas);
+  - mirror, copy, rotate, offset and polygon booleans derive new expressions from existing ones (`lib/components/symbolic.ts`); topology is fixed when the construction is made, coordinates stay parametric;
+  - there is no DOF gate (§2.7).
+- **Verification.** `verify` gates `finish`. It covers plan checks, the engine's geometry checks, every planned feature, and every expected dimension, level and text, measured back from the geometry. With a reference attached, `compare_reference` must run after the last change. It lives in `lib/agent/drafter/reference.ts` and does four things: decodes the PNG, builds an ink distance map, registers the drawing at two points refined by chamfer matching, and reports each entity's deviation in mm.
+- Numbers on a reference that contradict each other go to `expect.disputed`, with a reason. They are never drawn to match, and they are always reported.
+- The **sketch route** (`route: "sketch"`) stays for one small profile held by rules (DOF, `flex_test`, `make_parametric`).
+
 ---
 
 ## 3. Key Engine Subsystems & Mathematical Models
@@ -158,7 +169,7 @@ UPCE maintains two complementary representations:
 │   │   └── dragSolver.ts       # SVD minimum-norm solver & column damping
 │   ├── geometry/               # Primitives, predicates (P1–P10), tolerance.ts, DCEL
 │   ├── topology/               # booleanFusion.ts (Clipper2 union & web collapse)
-│   ├── agent/drafter/          # The drafting agent: workspace, tools, CAD tools (cadTools.ts), skills.ts, loop, prompt
+│   ├── agent/drafter/          # The drafting agent: workspace, tools, CAD tools (cadTools.ts), construction.ts (plan/construct/verify), reference.ts (compare with the reference image), skills.ts, loop, prompt
 │   ├── cad/                    # CAD document: layers, annotations, draw list, hatch, modify ops, sheets, DXF/SVG/PDF
 │   ├── components/             # Constructive component engine + library (library/*.ts are DATA); fromDrawing.ts = Make parametric
 │   ├── bridge/                 # Railway domain: glossary, recognition, drawn facts, project/DBR, sources, audit; knowledge/ = formula docs search
