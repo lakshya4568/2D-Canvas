@@ -7,7 +7,7 @@
  * text on the drawing is `height × scale` model mm. The readout says what that
  * comes to against the drawing itself, and "Fit to drawing" picks the standard
  * scale at which text reads comfortably when the drawing is seen whole (about
- * 1/50 of its larger side). Every change regenerates component annotation, so
+ * 1/100 of its larger side). Every change regenerates component annotation, so
  * dimension rows respace with it.
  */
 

@@ -35,9 +35,9 @@ describe("sizes that follow the settings", () => {
 });
 
 describe("a readable scale from the drawing's own size", () => {
-  it("sizes text at about 1/50 of the drawing, on a standard scale", () => {
-    expect(readableAnnotationScale(400, 250, 2.5)).toBe(5); // 12.5 mm text beside a 400 mm plate
-    expect(readableAnnotationScale(26000, 10000, 2.5)).toBe(200);
+  it("sizes text at about 1/100 of the drawing, on a standard scale", () => {
+    expect(readableAnnotationScale(400, 250, 2.5)).toBe(2); // 5 mm text beside a 400 mm plate
+    expect(readableAnnotationScale(26000, 10000, 2.5)).toBe(100);
     expect(readableAnnotationScale(50, 20, 2.5)).toBe(1);
     expect(ANNOTATION_SCALES).toContain(readableAnnotationScale(9000, 3000, 3.5));
   });
@@ -56,7 +56,7 @@ describe("the agent's drawings can be read", () => {
     const ctx = context();
     await runTool(ctx, "plan", PLATE);
     await runTool(ctx, "construct", { feature: "Plate", entities: [{ id: "P", kind: "rect", x: "0", y: "0", w: "W", h: "H" }] });
-    expect(ctx.ws.cad.settings.annotationScale).toBe(5);
+    expect(ctx.ws.cad.settings.annotationScale).toBe(2);
     expect((await runTool(ctx, "verify", {})).text).not.toMatch(/too small to read/);
   });
 
@@ -66,6 +66,6 @@ describe("the agent's drawings can be read", () => {
     await runTool(ctx, "construct", { feature: "Plate", entities: [{ id: "P", kind: "rect", x: "0", y: "0", w: "W", h: "H" }] });
     const r = await runTool(ctx, "verify", {});
     expect(r.text).toMatch(/Text and dimensions are 2.5 mm high on a 400 mm drawing — too small to read/);
-    expect(r.text).toMatch(/1:5/);
+    expect(r.text).toMatch(/1:2/);
   });
 });

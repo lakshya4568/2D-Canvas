@@ -99,16 +99,16 @@ export function sheetLayout(size: PaperSize): SheetLayout {
 /** Scales an annotation can be sized for, from full size up. */
 export const ANNOTATION_SCALES = [1, 2, ...STANDARD_SCALES];
 
-/** Text on a drawing this wide reads comfortably when it is about 1/50 of it. */
-export const READABLE_TEXT_FRACTION = 1 / 50;
+/** Text on a drawing this wide reads comfortably when it is about 1/100 of it — a GAD at its drawn scale. */
+export const READABLE_TEXT_FRACTION = 1 / 100;
 /** Below 1/150 of the drawing, text cannot be read when the drawing is seen whole. */
 export const ILLEGIBLE_TEXT_FRACTION = 1 / 150;
 
 /**
  * The standard annotation scale at which text of `textHeight` paper mm reads
  * well against a drawing of this size — the scale nearest (on a log scale) to
- * the one that makes text 1/50 of the drawing's larger side. A 400 mm plate
- * gets 1:5 (12.5 mm text), a 26 m bridge section 1:200.
+ * the one that makes text 1/100 of the drawing's larger side. A 400 mm plate
+ * gets 1:2 (5 mm text), a 26 m bridge section 1:100.
  */
 export function readableAnnotationScale(width: number, height: number, textHeight: number): number {
   const extent = Math.max(width, height, 1);
