@@ -1,0 +1,241 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge Type: PSC (Pre-Stressed Concrete) Slab Bridge
+Standard References: IRS T-39, IRS BRules, RDSO/B-10271R, IS:1343
+Module: src/app/features/bridges/utils/psc-slab-rule-engine.ts
+================================================================================
+
+PURPOSE
+-------
+A Pre-Stressed Concrete (PSC) Slab Bridge uses pre-tensioned or post-tensioned
+concrete solid or U-shaped slabs as superstructure over piers/abutments.
+Common standard spans: 3.05m, 3.66m, 4.57m, 6.10m, 9.15m, 12.2m, 18.3m.
+
+
+SECTION 1: RDSO STANDARD PARAMETERS (BG Track)
+------------------------------------------------
+
+Constant                   Symbol              Value     Unit    Reference
+--------                   ------              -----     ----    ---------
+Formation width            BG_STANDARDS.formation_width 8.534  m  IRS
+Track gauge                BG_STANDARDS.track_gauge     1.676  m  IRS
+Sleeper spacing            BG_STANDARDS.sleeper_spacing 0.600  m  IRS
+Ballast depth              BG_STANDARDS.ballast_depth   0.300  m  IRS BRules Cl.4
+Rail height                BG_STANDARDS.rail_height     0.172  m  RDSO
+HFL clearance (minimum)    BG_STANDARDS.hfl_clearance   0.600  m  IRS BRules Cl.6
+Free board                 BG_STANDARDS.free_board      1.500  m  IRS
+Pier min shaft width       PIER_RDSO.min_shaft_width_m  1.200  m  RDSO
+Pier min shaft depth       PIER_RDSO.min_shaft_depth_m  6.100  m  RDSO
+Pier min cap height        PIER_RDSO.min_cap_height_m   0.600  m  RDSO
+Min bearing seat depth     PIER_RDSO.min_bearing_seat_m 0.300  m  IRS
+Cap overhang               PIER_RDSO.cap_overhang_m     0.300  m  RDSO
+Pier taper rate            PIER_RDSO.taper_rate         0.020  m/m RDSO
+OHE mast from CL           PIER_RDSO.ohe_mast_from_cl  3.638  m  RDSO
+OHE wire height            PIER_RDSO.ohe_wire_height    5.500  m  RDSO
+Inspection path width      PIER_RDSO.inspection_path_w  0.608  m  RDSO
+RDSO BG cap width          PIER_RDSO.rdso_bg_cap_width  9.750  m  RDSO
+
+
+SECTION 2: SPAN ARRANGEMENT GEOMETRY
+---------------------------------------
+
+--- FORMULA PSC-GEO-001 ---
+Name:         Number of Spans and Piers
+Formula:      nS = spans.length
+              nP = nS - 1
+Output:       nS = number of spans
+              nP = number of intermediate piers
+
+--- FORMULA PSC-GEO-002 ---
+Name:         Centre-to-Centre Span Length for Position Calculation
+Formula:      IF (first AND last span, i.e. single span):
+                cToc = clearSpan
+              IF first span (not last):
+                cToc = clearSpan + 0.5325
+              IF last span (not first):
+                cToc = clearSpan + 0.5325
+              IF middle span:
+                cToc = clearSpan + capWidth
+Output:       cToc [m]  Effective c/c bearing length for positioning
+Explanation:
+  0.5325m = abutment face offset (0.1725m) + half pier cap contribution.
+  For middle spans, a full capWidth offset is added on each side.
+Source:       psc-slab-rule-engine.ts lines 130-143
+
+--- FORMULA PSC-GEO-003 ---
+Name:         Total Bridge Length
+Formula:      totalLength = sum of all cToc values
+            = positions[nS]    (last position in the accumulated array)
+Output:       totalLength [m]  Total bridge longitudinal length
+
+--- FORMULA PSC-GEO-004 ---
+Name:         RDSO Pier Cap Width
+Formula:      rdso_cap_w = deck_w + 2 * inspection_path_w
+            = deck_w + 2 * 0.608
+Output:       rdso_cap_w [m]  Minimum pier cap width per RDSO standard
+Note:         The 0.608m inspection walkway is required on each side.
+
+
+SECTION 3: SLAB DIMENSIONS (RDSO STANDARD LOOKUP)
+---------------------------------------------------
+
+--- FORMULA PSC-SLAB-001 ---
+Name:         RDSO Slab Depth at Centre (Post-tensioned, by span)
+Table:        clearSpan  -> slabD_center (m)
+              3.05m      -> 0.365m (or 0.350m pretensioned)
+              3.66m      -> 0.425m (or 0.410m pretensioned)
+              4.57m      -> 0.425m (post-tensioned) / 0.490m (pretensioned) / 0.300m (U-slab)
+              6.10m      -> 0.575m (post-tensioned) / 0.560m (pretensioned) / 0.300m (U-slab)
+              9.15m      -> 0.830m (post-tensioned) / 0.780m (pretensioned) / 0.350m (U-slab)
+              12.2m      -> 0.850m / 1.100m (RDSO/B-10271R) / 0.350m (U-slab)
+              18.3m      -> 1.250m
+Source:       psc-slab-rule-engine.ts getSlabDimensions() lines 26-79
+
+--- FORMULA PSC-SLAB-002 ---
+Name:         RDSO Slab Depth at Support
+Table:        clearSpan  -> slabD_support (m)
+              3.05m      -> 0.365m (post-tensioned) / 0.280m (pretensioned)
+              3.66m      -> 0.425m (post-tensioned) / 0.325m (pretensioned)
+              4.57m      -> 0.425m (post-tensioned) / 0.400m (pretensioned) / 0.300m (U-slab)
+              6.10m      -> 0.460m (post-tensioned, default) / 0.460m (pretensioned) / 0.300m (U-slab)
+              9.15m      -> 0.600m (post-tensioned) / 0.560m (pretensioned) / 0.350m (U-slab)
+              12.2m      -> 0.850m / 0.350m (U-slab)
+              18.3m      -> 1.250m
+
+--- FORMULA PSC-SLAB-003 ---
+Name:         PSC Slab Camber
+Formula:      camber = slabD_center - slabD_support
+Output:       camber [m]  Mid-span upward deflection (camber) of the pre-stressed slab
+Explanation:
+  PSC slabs are pre-stressed (stressed before use), giving them an upward bow
+  (camber) at mid-span. The camber equals the difference in slab depth
+  between centre and support sections.
+Source:       psc-slab-rule-engine.ts lines 72-77
+
+--- FORMULA PSC-SLAB-004 ---
+Name:         PSC Overall Slab Length (by type and span)
+Table (post-tensioned):
+              3.05m -> 3.940m   |   3.66m -> 4.555m   |   4.57m -> 5.545m
+              6.10m -> 7.145m   |   9.15m -> 10.280m  |   12.2m -> 13.380m
+Table (pretensioned):
+              3.05m -> 3.940m   |   3.66m -> 4.555m   |   4.57m -> 5.545m
+              6.10m -> 7.145m   |   9.15m -> 10.280m
+Table (U-slab):
+              4.57m -> 5.545m   |   6.10m -> 7.145m   |   9.15m -> 10.280m
+              12.2m -> 13.375m
+General:      overallLength = clearSpan + 2 * overhang
+              overhang = stemThick - dirtWallWidth - gap
+              gap = 0.020m (construction tolerance)
+Source:       psc-slab-rule-engine.ts getPSCSlabOverallLength() lines 343-370
+
+--- FORMULA PSC-SLAB-005 ---
+Name:         Minimum Slab Thickness (IRS T-39 Rule)
+Formula:      minSlabThk = maxSpan / 25
+Output:       minSlabThk [m]  RDSO minimum required slab depth
+Standard:     IRS T-39 Clause — slab thickness >= L/25
+Validation:   slab.thickness >= maxSpan / 25
+
+--- FORMULA PSC-SLAB-006 ---
+Name:         Maximum Slab Thickness (RDSO Guideline)
+Formula:      prefT = maxSpan / 12
+Output:       prefT [m]  Upper recommended limit on slab depth
+Note:         If slab thickness > L/12, the section may be over-designed.
+
+--- FORMULA PSC-SLAB-007 ---
+Name:         Wearing Coat Thickness (by type and span)
+Formula:      wcT = 0.060m  (default for most spans)
+              wcT = 0.080m  (for U-slab at 4.57m, 6.1m, 9.15m, 12.2m)
+              wcT = user_input (if explicitly provided)
+Output:       wcT [m]  Wearing coat / protective concrete layer thickness
+
+
+SECTION 4: VERTICAL LEVEL COMPUTATION (PSC SLAB)
+--------------------------------------------------
+
+--- FORMULA PSC-LVL-001 ---
+Name:         Rail Level to Top of Slab (Railway Deck)
+Formula:      z_slab_t = z_formation - wcT - camber
+Output:       z_slab_t [m]  Top of slab level
+Explanation:
+  For railway bridges, the slab top sits below the formation level by
+  the wearing coat thickness and the pre-stress camber.
+  z_formation = rail_level (z_top for railway decks)
+
+--- FORMULA PSC-LVL-002 ---
+Name:         Bottom of Slab (Railway Deck)
+Formula:      z_slab_b = z_slab_t - slabD_support
+Output:       z_slab_b [m]  Underside of PSC slab at support
+
+--- FORMULA PSC-LVL-003 ---
+Name:         Top of Bearing
+Formula:      z_bearing_t = z_slab_b - girderDepth
+Output:       z_bearing_t [m]  Top of bearing level
+Note:         girderDepth = 0 for slab bridges without girders.
+
+--- FORMULA PSC-LVL-004 ---
+Name:         Bottom of Bearing
+Formula:      z_bearing_b = z_bearing_t - bearing_h
+Output:       z_bearing_b [m]  Bottom of bearing (= top of pier cap)
+
+--- FORMULA PSC-LVL-005 ---
+Name:         Bottom of Pier Cap
+Formula:      z_cap_b = z_bearing_b - cap_height
+Output:       z_cap_b [m]  Bottom of pier cap / top of pier shaft
+
+--- FORMULA PSC-LVL-006 ---
+Name:         Top of Footing
+Formula:      z_footing_t = z_soil - (depth - footing_thickness)
+Output:       z_footing_t [m]  Top of the foundation footing
+
+--- FORMULA PSC-LVL-007 ---
+Name:         Bottom of Footing
+Formula:      z_footing_b = z_soil - depth
+Output:       z_footing_b [m]  Bottom of foundation
+
+--- FORMULA PSC-LVL-008 ---
+Name:         HFL Clearance
+Formula:      hflClrnce = z_slab_b - hfl
+Output:       hflClrnce [m]  Vertical clearance between soffit and HFL
+Standard:     IRS BRules Cl.6 — minimum 0.600m required; 1.5m preferred (freeboard)
+
+--- FORMULA PSC-LVL-009 ---
+Name:         OHE (Overhead Electric) Offset
+Formula:      ohe_offset = track_gauge / 2 + 2.800
+            = 1.676 / 2 + 2.800 = 3.638m
+Output:       ohe_offset [m]  Horizontal distance from track CL to OHE mast
+
+
+SECTION 5: ROAD DECK VARIANT
+------------------------------
+
+--- FORMULA PSC-LVL-010 ---
+Name:         Slab Top (Road Deck variant)
+Formula:      z_slab_t = z_formation   [= formation level directly]
+              z_slab_b = z_slab_t - slabD_support
+Explanation:
+  For road decks, there is no ballast/wearing coat offset. The slab
+  top coincides with the formation/road surface.
+
+
+SECTION 6: DESIGN CODE VALIDATION (PSC SLAB)
+---------------------------------------------
+
+Check ID      Condition                                         Standard
+--------      ---------                                         --------
+PSC-VAL-001   slab.thickness >= maxSpan / 25                   IRS T-39
+PSC-VAL-002   slab.thickness <= maxSpan / 12 (warn if over)    RDSO guideline
+PSC-VAL-003   ballast_thickness >= 0.300m                      IRS BRules Cl.4
+PSC-VAL-004   hflClrnce >= 0.600m                              IRS BRules Cl.6
+PSC-VAL-005   pier shaft width >= 1.200m                       RDSO
+PSC-VAL-006   pier cap width >= deck_w + 2*0.608m              RDSO (OHE+inspection)
+PSC-VAL-007   bearing seat depth >= 0.300m                     IRS
+PSC-VAL-008   abutment base thickness > 0.5m                   IRS Sub
+PSC-VAL-009   pile count >= 2                                   RDSO
+PSC-VAL-010   track gauge = 1.676m (BG standard)               IRS
+PSC-VAL-011   maxSpan <= 30m (with PSC girder)                 RDSO
+PSC-VAL-012   maxSpan <= 12.2m (plain PSC slab)                RDSO
+PSC-VAL-013   deck width >= 8.534m (BG formation width)        IRS
+
+================================================================================
+END OF PSC SLAB BRIDGE FORMULA DOCUMENTATION
+================================================================================

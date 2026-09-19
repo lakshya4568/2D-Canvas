@@ -24,6 +24,10 @@ export interface RenderScene {
   circles: { c: P; r: number; label?: string }[];
   /** Named dimensions: witness points and the text to show. */
   dims: { a: P; b: P; text: string; derived?: boolean }[];
+  /** Drafting linework drawn light: hatch patterns, leaders, dimension lines, level ticks. */
+  thin?: { a: P; b: P }[];
+  /** Text written on the drawing (level callouts, notes, dimension values), at its true place. */
+  notes?: { at: P; text: string; align?: "left" | "center" | "right" }[];
   title?: string;
 }
 
@@ -41,6 +45,8 @@ const LABEL: RGB = [90, 100, 125];
 const DIM: RGB = [20, 100, 220];
 const DERIVED: RGB = [150, 90, 200];
 const PAPER: RGB = [255, 255, 255];
+const THIN: RGB = [150, 160, 178];
+const NOTE: RGB = [30, 70, 150];
 
 // prettier-ignore
 const FONT: Record<string, number[]> = {
@@ -55,6 +61,7 @@ const FONT: Record<string, number[]> = {
   "4":[2,6,10,18,31,2,2], "5":[31,16,30,1,1,17,14], "6":[6,8,16,30,17,17,14], "7":[31,1,2,4,8,8,8],
   "8":[14,17,17,14,17,17,14], "9":[14,17,17,15,1,2,12],
   ".":[0,0,0,0,0,12,12], "-":[0,0,0,31,0,0,0], _:[0,0,0,0,0,0,31], "=":[0,0,31,0,31,0,0],
+  "&":[12,18,20,8,21,18,13], "%":[24,25,2,4,8,19,3], "'":[4,4,8,0,0,0,0], "℄":[14,21,20,20,20,21,14],
   "(":[2,4,8,8,8,4,2], ")":[8,4,2,2,2,4,8], ",":[0,0,0,0,12,4,8], ":":[0,12,12,0,12,12,0],
   "/":[1,2,2,4,8,8,16], "+":[0,4,4,31,4,4,0], "*":[0,4,21,14,21,4,0], " ":[0,0,0,0,0,0,0],
 };
@@ -194,6 +201,8 @@ export function renderScene(scene: RenderScene, options: RenderOptions = {}): { 
   const ys: number[] = [];
   for (const l of scene.lines) xs.push(l.a.x, l.b.x), ys.push(l.a.y, l.b.y);
   for (const c of scene.circles) xs.push(c.c.x - c.r, c.c.x + c.r), ys.push(c.c.y - c.r, c.c.y + c.r);
+  for (const l of scene.thin ?? []) xs.push(l.a.x, l.b.x), ys.push(l.a.y, l.b.y);
+  for (const n of scene.notes ?? []) xs.push(n.at.x), ys.push(n.at.y);
 
   if (xs.length === 0) {
     img.text("EMPTY DRAWING", 20, 20, LABEL, 3);
@@ -212,6 +221,7 @@ export function renderScene(scene: RenderScene, options: RenderOptions = {}): { 
   const oy = (H - 30 - spanY * k) / 2 + 30;
   const map = (p: P): P => ({ x: ox + (p.x - minX) * k, y: oy + (maxY - p.y) * k });
 
+  for (const l of scene.thin ?? []) img.line(map(l.a), map(l.b), THIN, 0.45);
   for (const l of scene.lines) {
     if (l.construction) img.line(map(l.a), map(l.b), CONSTRUCTION, 0.7, [10, 6]);
   }
@@ -253,6 +263,13 @@ export function renderScene(scene: RenderScene, options: RenderOptions = {}): { 
     for (let k = 0; k < 12 && !free(tx, ty, tw); k++) ty = Math.min(H - 16, ty + 16);
     taken.push({ x: tx, y: ty, w: tw });
     img.text(d.text, tx, ty, colour, 2);
+  }
+
+  for (const n of scene.notes ?? []) {
+    const p = map(n.at);
+    const w = Raster.textWidth(n.text, 1);
+    const x = n.align === "center" ? p.x - w / 2 : n.align === "right" ? p.x - w : p.x;
+    img.text(n.text, x, p.y - 7, NOTE, 1);
   }
 
   if (labels) {

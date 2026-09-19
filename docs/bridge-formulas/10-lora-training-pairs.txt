@@ -1,0 +1,218 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM
+STRUCTURED Q&A TRAINING PAIRS FOR LoRA FINE-TUNING
+Format: QUESTION | ANSWER pairs, one per block
+================================================================================
+
+Each entry is formatted as:
+  Q: [Question a civil engineer or AI assistant might ask]
+  A: [Complete, precise answer with formula and explanation]
+  DOMAIN: [bridge type]
+  FORMULA_IDS: [space-separated formula IDs]
+
+================================================================================
+
+Q: What is the formula for the total external width of an RCC box culvert?
+A: The total external width is: total_w = (cW * cells) + (tOW * 2) + (tIW * (cells - 1))
+   Where cW = clear width of each barrel (m), cells = number of barrel openings,
+   tOW = outer wall thickness (m), tIW = inner wall (partition) thickness (m).
+   For example, 2 cells of 5.0m with outer walls 0.35m and inner wall 0.35m:
+   total_w = 5.0*2 + 0.35*2 + 0.35*1 = 11.05m.
+DOMAIN: RCC Box Culvert (Railway and Highway)
+FORMULA_IDS: RCR-GEO-001 HWB-GEO-001
+
+---
+
+Q: How is the earth cushion thickness calculated for a railway RCC box culvert?
+A: earthCushion = max(formLvl - rccBoxTopLvl, 0)
+   Where formLvl = proposed formation level (m) and rccBoxTopLvl = top of box level.
+   rccBoxTopLvl = bedLvl - wearC + cH + tST
+   (bedLvl = hydraulic bed level, wearC = wearing course thickness,
+    cH = clear height, tST = top slab thickness).
+   The result is clamped to zero because the cushion cannot be negative.
+   Minimum required per IRS: 75mm (0.075m).
+   If earthCushion = 0, the 225mm parapet gap line and cushion callouts
+   are suppressed in the drawing.
+DOMAIN: RCC Box Culvert (Railway)
+FORMULA_IDS: RCR-LVL-002 RCR-GEO-006
+
+---
+
+Q: What is the hydraulic flow area of a Hume Pipe culvert with 3 pipes of 1.2m diameter?
+A: flowArea = numPipes * pi * (spanVal / 2)^2
+   = 3 * pi * (1.2 / 2)^2
+   = 3 * pi * 0.36
+   = 3 * 1.1310 = 3.393 m2
+   The flow area represents the total waterway cross-sectional area available
+   for water passage. It must exceed Q/V where Q is design discharge (m3/s)
+   and V is allowable velocity (m/s).
+DOMAIN: Hume Pipe Culvert
+FORMULA_IDS: HPC-GEO-004
+
+---
+
+Q: What is the minimum slab thickness for a 9.15m span PSC slab bridge?
+A: Per IRS T-39, minimum slab thickness = maxSpan / 25 = 9.15 / 25 = 0.366m.
+   The preferred maximum is maxSpan / 12 = 9.15 / 12 = 0.763m.
+   For a 9.15m post-tensioned PSC slab, RDSO standard depth at support = 0.600m
+   and at centre = 0.830m, giving a camber of 0.830 - 0.600 = 0.230m.
+   The support depth 0.600m > 0.366m minimum, so it satisfies IRS T-39.
+DOMAIN: PSC Slab Bridge
+FORMULA_IDS: PSC-SLAB-005 PSC-SLAB-006 PSC-SLAB-002 PSC-SLAB-001 PSC-SLAB-003
+
+---
+
+Q: How does the RCC box culvert drawing determine where the 1:1 embankment slope intersects the cutting plane?
+A: The intersection X coordinate is computed by linear interpolation:
+   xCut = (bxL - slopeWPx) + (bxL_ext - (bxL - slopeWPx)) * ((cutY - bTop) / (yPccTop - bTop))
+   Where:
+   - bxL = left box face in canvas pixels (wx(-boxW/2))
+   - slopeWPx = pixel height from top of box to PCC bottom (yPccBot - bTop)
+   - bxL_ext = bxL - 0.15 * scale (PCC extension)
+   - cutY = wy(bedLvl + wearC) = the cutting plane Y (wearing course top)
+   - bTop = wy(bedLvl + cH + tST) = top of box Y
+   - yPccTop = bBot = wy(bedLvl - tSB) = PCC top Y
+   The parameter t = (cutY - bTop) / (yPccTop - bTop) ranges 0..1 along the slope.
+   xCut is the x-pixel where the slope meets the bed level cutting plane.
+DOMAIN: RCC Box Culvert (Railway)
+FORMULA_IDS: RCR-CUT-006
+
+---
+
+Q: When does the boulder backing polygon morph from 4 points to 5 points in the RCC box drawing?
+A: The polygon morphs when the 1:1 embankment slope passes through the 600mm boulder backing column.
+   Condition: IF xCut < (bxL - bldPx) -> 4-point rectangle (slope clears the column)
+              IF xCut >= (bxL - bldPx) -> 5-point clipped polygon (slope cuts through column)
+   Where bldPx = 0.6m * scale = the boulder backing column width in pixels.
+   4-point: [(bxL-bldPx, bTop), (bxL, bTop), (bxL, cutY), (bxL-bldPx, cutY)]
+   5-point: [(bxL-bldPx, bTop), (bxL, bTop), (bxL, cutY),
+             (xCut, cutY), (bxL-bldPx, yHitBldLeft)]
+   yHitBldLeft = bTop + slopeWPx - bldPx
+DOMAIN: RCC Box Culvert (Railway)
+FORMULA_IDS: RCR-CUT-007 RCR-CUT-004
+
+---
+
+Q: What is the RDSO minimum pier cap width for a BG railway bridge?
+A: Per RDSO standards: rdso_cap_w = deck_w + 2 * inspection_path_w
+   = deck_w + 2 * 0.608m
+   Where deck_w = deck/slab width (m) and 0.608m = inspection walkway width on each side.
+   For a standard BG formation width deck of 8.534m:
+   rdso_cap_w = 8.534 + 2 * 0.608 = 9.750m
+   This matches the RDSO standard cap width constant: PIER_RDSO.rdso_bg_cap_width = 9.750m.
+DOMAIN: PSC Slab Bridge
+FORMULA_IDS: PSC-GEO-004
+
+---
+
+Q: How is the soffit level computed for a railway RCC box culvert?
+A: soffit = z_top - tST
+   Where z_top = top of the box (= bedLvl - wearC + cH + tST for railway),
+   tST = top slab thickness.
+   Therefore: soffit = bedLvl - wearC + cH + tST - tST = bedLvl - wearC + cH
+   The soffit is the underside of the top slab — the hydraulic crown of the culvert.
+   Validation: soffit must be >= hfl (Highest Flood Level) to ensure the
+   culvert operates as a free-surface channel, not a pressurised pipe.
+DOMAIN: RCC Box Culvert (Railway and Highway)
+FORMULA_IDS: RCR-GEO-007
+
+---
+
+Q: What is the parabolic camber formula for an OWG truss bridge?
+A: zCamber = 4 * camber * ratio * (1 - ratio)
+   Where ratio = px / spanLen (fractional position along span, 0 at US abutment, 1 at DS)
+   and px = i * pLen (x position of panel point i), pLen = spanLen / nPanels.
+   At mid-span: ratio = 0.5, zCamber = 4 * camber * 0.5 * 0.5 = camber (maximum).
+   At supports: ratio = 0 or 1, zCamber = 0.
+   This parabolic profile approximates the natural deflection shape of a
+   simply supported beam under uniform distributed load.
+DOMAIN: Open Web Girder (OWG)
+FORMULA_IDS: OWG-GEO-004
+
+---
+
+Q: How does the Parametric Template Engine handle parameter updates reactively?
+A: The engine uses a Directed Acyclic Graph (DAG) solved by Kahn's algorithm:
+   1. Build dependency graph: for each COMPUTED parameter, parse its formula to find dependsOn().
+   2. Compute in_degree(v) = number of parameters v depends on.
+   3. Initialize queue with all INPUT, STATIC, and API_FETCHED parameters (in_degree = 0).
+   4. Dequeue parameter u, evaluate formula(u), store in resolved_scope.
+   5. For each v that depends on u: decrement in_degree(v). If in_degree(v) == 0, enqueue v.
+   6. Repeat until queue is empty.
+   7. If any formulas remain unevaluated: cycle detected — report error.
+   After solving, CanvasLiveSyncService re-evaluates all entity parametric bindings
+   against resolved_scope, mutates entity coordinates, refreshes bounding boxes,
+   and invalidates the canvas viewport for 60 FPS repainting.
+DOMAIN: Parametric Template Engine
+FORMULA_IDS: TPE-DAG-001 TPE-DAG-002 TPE-DAG-003 TPE-DAG-004 TPE-SYNC-001 TPE-SYNC-002
+
+---
+
+Q: How is the barrel length of a Hume Pipe culvert calculated?
+A: barrelLength = formationWidth + 4 * cushionHeight
+   Where formationWidth = total road width (m), cushionHeight = earth fill above pipe crown (m).
+   cushionHeight = max(0, fl - actualPipeTopM)
+   actualPipeTopM = bl + spanVal + (wallThickness / 1000)
+   The 4x multiplier accounts for embankment slopes on both sides of the road:
+   each metre of cushion height requires 2m of horizontal slope run (1:2 slope),
+   and there are two sides (upstream + downstream), giving 2 * 2 = 4.
+DOMAIN: Hume Pipe Culvert
+FORMULA_IDS: HPC-GEO-007 HPC-GEO-006 HPC-GEO-005
+
+---
+
+Q: What is the canvas coordinate transformation for the RCC box culvert views?
+A: Two coordinate transforms are used:
+   X: wx(worldX) = centreX + worldX * scale
+      (centreX = W/2 + panX, scale = pixels per meter, worldX in metres from bridge CL)
+   Y: wy(worldZ) = bedY - (worldZ - bedLvl) * scale
+      (bedY = H * 0.70 + panY, worldZ in metres elevation, bedLvl = bed level reference)
+   Note: canvas Y increases downward, world Z increases upward — hence the negative sign.
+   Scale factor: sf = scale / 40.0 (normalised to 1:40 reference scale)
+   World-to-pixel size: wm(m) = m * sf * 1000 or equivalently wm(px_ref) = px_ref * sf
+DOMAIN: RCC Box Culvert (Railway)
+FORMULA_IDS: RCR-DRAW-001 RCR-DRAW-002 RCR-DRAW-003 RCR-DRAW-004
+
+---
+
+Q: What validation does the system perform for HFL clearance on a PSC slab bridge?
+A: The system checks: hflClrnce = z_slab_b - hfl
+   Where z_slab_b = bottom of PSC slab (soffit level), hfl = Highest Flood Level.
+   Validation rules (IRS BRules Cl.6):
+   - FAIL: hflClrnce < 0.600m  (IRS minimum clearance violated)
+   - WARN: hflClrnce < 1.500m  (below preferred freeboard)
+   - OK:   hflClrnce >= 1.500m (both minimum and freeboard satisfied)
+   For composite girder bridges, the clearance is measured to the girder bottom
+   (z_gird_b), and the minimum is 1.000m (RDSO standard for composite bridges).
+DOMAIN: PSC Slab Bridge / Composite Girder
+FORMULA_IDS: PSC-LVL-008 CG-LVL-006 PSC-VAL-004
+
+---
+
+Q: How are multi-cell barrel offsets calculated in the RCC box parametric template?
+A: For cells repeated with index i = 0 to (cells-1):
+   x_start[0] = -boxW/2 + tOW               (first barrel left face, in world metres)
+   x_start[i] = x_start[0] + i * (cW + tIW)  (each subsequent barrel)
+   In pixels: cxL = wx(x_start[i]), cxR = wx(x_start[i] + cW)
+   This is a special case of the general indexed repetition formula:
+   repeated_coord[i] = base_value + i * step_size
+   where base_value = -boxW/2 + tOW and step_size = cW + tIW.
+DOMAIN: RCC Box Culvert (Railway) / Parametric Template Engine
+FORMULA_IDS: RCR-CELL-001 TPE-IDX-002
+
+---
+
+Q: What is the default rail level formula when no rail level is provided?
+A: For Railway RCC Box: railLvl = formLvl + RAIL_FORMATION_OFFSET
+   RAIL_FORMATION_OFFSET = 0.762m for BG (Broad Gauge).
+   This represents the standard height from the top of formation
+   (compacted embankment surface) to the top of rail.
+   For Hume Pipe: rl = fl + 0.762m (same constant)
+   The 0.762m includes: rail height (0.172m) + ballast depth (0.300m) +
+   sleeper thickness + packing allowance.
+DOMAIN: RCC Box Railway / Hume Pipe
+FORMULA_IDS: RCR-LVL-006 HPC-LVL-008
+
+================================================================================
+END OF LoRA TRAINING PAIRS
+================================================================================

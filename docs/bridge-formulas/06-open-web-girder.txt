@@ -1,0 +1,130 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge Type: Open Web Girder (OWG) — Through Truss Bridge
+Standard References: RDSO/B-10022, RDSO Civil Civil Rules
+Module: src/app/features/bridges/utils/owg/owg-rule-engine.ts
+       src/app/features/bridges/utils/owg/owg-rdso-civil-rules.ts
+       src/app/features/bridges/utils/owg/owg-standards.ts
+================================================================================
+
+PURPOSE
+-------
+An Open Web Girder (OWG) is a through-truss steel bridge where the train
+runs at the bottom chord level (through the truss). Used for long spans
+(30.5m, 45.7m, 61.0m, 76.2m, 91.42m, 106.7m clear span).
+Standard panel configurations: 6, 8, 10, 12, 14, 18 panels.
+
+
+SECTION 1: RDSO STANDARD PARAMETERS (SPAN-DEPENDENT LOOKUP)
+-------------------------------------------------------------
+
+The following parameters are looked up from RDSO standard tables based on span:
+  - trussHeight (h)         : Total vertical depth of truss [m]
+  - mainGirderCC (cWidth)   : Centre-to-centre distance between main girders [m]
+  - trackGauge              : BG track gauge = 1.676m
+  - stringerSpacing (strW)  : Spacing of stringers (floor beams) [m]
+  - crossGirderDepth (cgDepth) : Depth of cross girders [m]
+  - stringerDepth (strDepth): Depth of stringers [m]
+  - topChordDepthMm         : Top chord section depth [mm]
+  - bottomChordDepthMm      : Bottom chord section depth [mm]
+  - endRakerDepthMm         : End raker (inclined end post) depth [mm]
+  - verticalsWidthMm        : Vertical member section depth [mm]
+  - diagonalsOuterMm        : Outer diagonal member depth [mm]
+  - diagonalsMiddleMm       : Middle diagonal member depth [mm]
+  - diagonalsInnerMm        : Inner diagonal member depth [mm]
+
+Source: owg-rdso-civil-rules.ts (getRulesForSpan, getMemberDimensionsForSpan)
+
+
+SECTION 2: TRUSS GEOMETRY FORMULAS
+------------------------------------
+
+--- FORMULA OWG-GEO-001 ---
+Name:         Panel Length
+Formula:      pLen = spanLen / nPanels
+Output:       pLen [m]  Length of each truss panel
+Inputs:       spanLen = clear span (e.g. 31.926m for 30.5m clear span with bearing offsets)
+              nPanels = number of panels (typically 6, 8, 10, 12, 14, 18)
+
+--- FORMULA OWG-GEO-002 ---
+Name:         Half Girder Width
+Formula:      hw = cWidth / 2
+Output:       hw [m]  Half the distance between main girder centrelines
+Note:         Nodes are placed at y = -hw (left girder) and y = +hw (right girder)
+
+--- FORMULA OWG-GEO-003 ---
+Name:         Bearing Gap (span extension beyond truss nodes)
+Formula:      gap = 1.06m   (RDSO standard = 1060mm)
+Output:       gap [m]  Distance from end node to dirt wall face
+
+--- FORMULA OWG-GEO-004 ---
+Name:         Parabolic Camber at Panel Point
+Formula:      zCamber = 4 * camber * ratio * (1 - ratio)
+Where:        ratio = px / spanLen    (fractional position along span)
+              px = i * pLen           (x position of panel point i)
+Output:       zCamber [m]  Vertical camber ordinate at panel point i
+Explanation:
+  A parabolic camber profile is applied to the bottom chord. The formula
+  4*c*r*(1-r) gives a parabola with maximum deflection c at mid-span
+  (r=0.5) and zero at the supports (r=0 and r=1).
+
+
+SECTION 3: 14-PANEL AND 18-PANEL SUB-DIVIDED WARREN TRUSS
+-----------------------------------------------------------
+
+For 14-panel (91.42m) and 18-panel (106.7m) clear span bridges, the
+truss uses a sub-divided Warren configuration:
+
+--- FORMULA OWG-GEO-005 ---
+Name:         Half-Height for Sub-Divided Warren
+Formula:      halfH = h / 2
+              halfPanels = nPanels / 2
+Output:       halfH = vertical mid-point of the truss
+
+--- FORMULA OWG-GEO-006 ---
+Name:         Top Chord Apex Height (Warren Crown)
+Formula:      For panels 0 to halfPanels: apex rises linearly from 0 to halfH
+              For panels halfPanels to nPanels: apex falls linearly back to 0
+              z_top_chord[i] = halfH - abs(i - halfPanels) * (halfH / halfPanels)
+Output:       z_top_chord [m]  Height of top chord at panel i (Warren configuration)
+
+
+SECTION 4: VERTICAL LEVEL FORMULAS (OWG)
+------------------------------------------
+
+--- FORMULA OWG-LVL-001 ---
+Name:         Formation Level (Default)
+Formula:      formLvl = formation_level   (or 28.120m default)
+              IF formLvl is not set: formLvl = 28.120m
+
+--- FORMULA OWG-LVL-002 ---
+Name:         HFL Level (Default)
+Formula:      hflLvl = hyd.hfl   (or formLvl - 4.0m default)
+
+--- FORMULA OWG-LVL-003 ---
+Name:         Bed Level (Default)
+Formula:      bedLvl = hyd.bed_lvl   (or formLvl - 12.950m default)
+Constraint:   bedLvl must be strictly below hflLvl
+
+
+SECTION 5: DRAFTING STANDARDS (OWG)
+--------------------------------------
+
+Line Weight / Category    Symbol               Value   Unit
+--------------------------  ------               -----   ----
+Heavy (main steel members)  lineWeights.heavy    1.2     px at reference scale
+Medium (civil outlines)     lineWeights.medium   0.8     px
+Light (dimensions/hatch)    lineWeights.light    0.5     px
+Hidden (dashed foundations) lineWeights.hidden   0.8     px
+
+Spacing / Offset            Symbol                Value   Unit
+----------------------------  ------                -----   ----
+Concrete hatch spacing        spacing.concreteHatch 4.0     world units
+Stone pitching arc spacing    spacing.pitchingArc   2.0     world units
+Dimension line offset         spacing.dimensionOffset 12.0  world units
+Section bubble radius         spacing.sectionBubble  5.0    world units
+Bearing gap (RDSO)            rdso.bearingGap        1060   mm
+
+================================================================================
+END OF OPEN WEB GIRDER FORMULA DOCUMENTATION
+================================================================================

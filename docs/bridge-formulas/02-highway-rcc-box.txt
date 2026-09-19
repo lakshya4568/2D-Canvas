@@ -1,0 +1,150 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge Type: RCC Box Culvert (Highway)
+Standard References: IRC (Indian Roads Congress), IRC:SP:13
+Module: src/app/features/bridges/utils/highway-rcc-box-rule-engine.ts
+       src/app/features/bridges/utils/highway-rcc-box-half-section-view.ts
+================================================================================
+
+PURPOSE
+-------
+Highway RCC Box Culvert is a rectangular closed section placed below road
+formation level. It carries vehicular traffic loads (IRC Class A / Class AA)
+through the road carriage way above.
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter        Symbol    Unit    Description
+-----------      ------    ----    -----------
+cells            n         count   Number of barrel openings
+clear_w          cW        m       Clear width of each barrel
+clear_h          cH        m       Clear height of each barrel
+t_wall_o         tOW       m       Outer wall thickness (min 0.3m)
+t_wall_i         tIW       m       Inner wall thickness
+t_slab_t         tST       m       Top slab thickness
+t_slab_b         tSB       m       Bottom slab thickness
+haunch_size      haunch    m       Haunch chamfer size
+wearing_course   wearC     m       Road wearing course thickness (default 0 for highway)
+bed_lvl          bedLvl    m       Hydraulic invert (bed) level in m above datum
+road_level       roadLvl   m       Proposed finished road surface level
+pcc_sub_base     pccB      m       PCC sub-base thickness below bottom slab
+sand_fill_depth  sandFill  m       Granular bedding depth below PCC
+carriageway_width          m       Width of the road carriageway
+embankment_slope slope     H:V     Embankment slope ratio (default 2.0 i.e. 2H:1V)
+
+
+SECTION 2: GEOMETRIC FORMULAS (HIGHWAY RCC BOX)
+-------------------------------------------------
+
+--- FORMULA HWB-GEO-001 ---
+Name:         Total Box Width
+Formula:      total_w = (cW * cells) + (tOW * 2) + (tIW * (cells - 1))
+Output:       total_w [m]  External culvert width
+[IDENTICAL to RCR-GEO-001]
+
+--- FORMULA HWB-GEO-002 ---
+Name:         Total Box Height
+Formula:      total_h = cH + tST + tSB
+Output:       total_h [m]  External culvert height
+[IDENTICAL to RCR-GEO-002]
+
+--- FORMULA HWB-GEO-003 ---
+Name:         Hydraulic Flow Area
+Formula:      flow_area = cW * cH * cells
+Output:       flow_area [m2]  Waterway area
+[IDENTICAL to RCR-GEO-003]
+
+--- FORMULA HWB-GEO-004 ---
+Name:         Bottom of Box Level (Highway variant)
+Formula:      z_bot = bedLvl - tSB
+Output:       z_bot [m]  Underside of bottom slab
+Key Difference from Railway:
+  Highway uses z_bot = bedLvl - tSB directly (no wearing course subtraction),
+  because the wearing course for highway is on the road surface above,
+  not inside the barrel.
+
+--- FORMULA HWB-GEO-005 ---
+Name:         Top of Box Level
+Formula:      z_top = z_bot + total_h
+            = bedLvl - tSB + cH + tST + tSB
+            = bedLvl + cH + tST
+Output:       z_top [m]  Top of top slab elevation
+
+--- FORMULA HWB-GEO-006 ---
+Name:         Soffit Level
+Formula:      soffit = z_top - tST
+Output:       soffit [m]  Underside of top slab (hydraulic crown)
+
+
+SECTION 3: LEVEL COMPUTATION FORMULAS (HIGHWAY)
+-------------------------------------------------
+
+--- FORMULA HWB-LVL-001 ---
+Name:         RCC Box Top Level
+Formula:      rccBoxTopLvl = bedLvl + cH + tST
+Output:       rccBoxTopLvl [m]  Top of structure elevation
+
+--- FORMULA HWB-LVL-002 ---
+Name:         Earth Cushion (Highway)
+Formula:      earthCushion = max(roadLvl - rccBoxTopLvl - wearC, 0)
+Output:       earthCushion [m]  Fill between top of box and road surface
+Key Difference from Railway:
+  Highway subtracts wearC (road wearing course) from the road level before
+  computing the fill, since the wearing coat sits on top of the fill.
+  Railway computes cushion directly from formation level to top of box.
+
+--- FORMULA HWB-LVL-003 ---
+Name:         Highway Span Length (Drawing Extent)
+Formula:      spanLen = total_w + 2 * earthCushion
+Output:       spanLen [m]  Drawing extent for the plan view
+Note:         Simplified formula (no berm correction as in railway).
+
+--- FORMULA HWB-LVL-004 ---
+Name:         PCC Top Level
+Formula:      pccTop = z_bot  [same as Railway RCR-LVL-003]
+
+--- FORMULA HWB-LVL-005 ---
+Name:         PCC Bottom Level
+Formula:      pccBot = z_bot - pccB  [same as Railway RCR-LVL-004]
+
+--- FORMULA HWB-LVL-006 ---
+Name:         Granular Fill Bottom Level
+Formula:      granBot = pccBot - sandFill  [same as Railway RCR-LVL-005]
+
+
+SECTION 4: DESIGN CODE VALIDATION CHECKS (HIGHWAY)
+----------------------------------------------------
+
+Check ID       Condition                                             Standard
+--------       ---------                                             --------
+HWB-VAL-001    t_wall_o >= 0.3m                                     IRC:SP:13
+HWB-VAL-002    t_slab_t >= 0.3m                                     IRC:SP:13
+HWB-VAL-003    clear_h >= 1.0m                                      IRC minimum
+HWB-VAL-004    hfl < (bed_lvl + clear_h)                            IRC hydraulic
+HWB-VAL-005    hfl <= soffit_level                                   IRC hydraulic
+HWB-VAL-006    computed_soffit ≈ input soffit (diff < 0.01m)        Consistency
+HWB-VAL-007    haunch_size >= 0.15m                                  IRC:SP:13 (lower than railway min)
+HWB-VAL-008    road_level >= rccBoxTopLvl                            IRC geometric
+              [If road surface is below top of box, it's an error]
+
+
+SECTION 5: KEY DIFFERENCES — HIGHWAY vs. RAILWAY RCC BOX
+----------------------------------------------------------
+
+Aspect                   Railway                    Highway
+------                   -------                    -------
+z_bot formula            bedLvl - wearC - tSB       bedLvl - tSB
+earthCushion formula     max(formLvl-rccBoxTopLvl,0) max(roadLvl-rccBoxTopLvl-wearC,0)
+spanLen formula          formWidth + 4*earthCushion  total_w + 2*earthCushion
+Wearing course location  Inside barrel (ballast)     Road surface (above fill)
+Min haunch size          0.3m                        0.15m
+Rail level               Required parameter          Not applicable
+Formation level label    PROP. FORMATION LEVEL       Road level
+Scaling engine           Zoom-invariant wm()         Hardcoded pixel sizes
+Collision avoidance      DimensionTracker + getSafeY Hardcoded 450px leader arms
+
+================================================================================
+END OF HIGHWAY RCC BOX FORMULA DOCUMENTATION
+================================================================================

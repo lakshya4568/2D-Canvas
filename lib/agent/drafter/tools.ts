@@ -345,8 +345,8 @@ const STAGE: Record<string, ToolStage> = {
 
 export function stageOf(tool: string): ToolStage {
   if (CAD_TOOL_NAMES.has(tool)) {
-    if (["list_components", "component_info", "describe_component", "audit", "recognize"].includes(tool)) return "observe";
-    if (["insert_component", "delete_component", "annotate", "layer", "classify"].includes(tool)) return "draw";
+    if (["list_components", "component_info", "describe_component", "audit", "recognize", "bridge_reference", "use_skill"].includes(tool)) return "observe";
+    if (["insert_component", "delete_component", "annotate", "layer", "classify", "edit_geometry"].includes(tool)) return "draw";
     return "parametrize";
   }
   return STAGE[tool] ?? (tool.startsWith("macro_") ? "draw" : "meta");
@@ -541,22 +541,52 @@ export function buildScene(ws: DraftingWorkspace): RenderScene {
     }
   }
   // Component geometry and its dimensions, so the model sees what it placed.
+  const dashed = new Set(ws.cad.layers.filter((l) => l.lineType !== "continuous").map((l) => l.id));
   for (const s of ws.cadShapes) {
-    if (s.type === "line") scene.lines.push({ a: { x: s.x1, y: -s.y1 }, b: { x: s.x2, y: -s.y2 }, construction: s.isReference });
+    if (s.type === "line") scene.lines.push({ a: { x: s.x1, y: -s.y1 }, b: { x: s.x2, y: -s.y2 }, construction: s.isReference || dashed.has(s.layerId ?? "") });
     else if (s.type === "circle") scene.circles.push({ c: { x: s.cx, y: -s.cy }, r: s.r });
   }
+  // Every annotation as it will print — hatches, leaders, level callouts, notes,
+  // dimension values — so the model sees the drawing, not just its outline.
   const ctx = { shapes: indexShapes(ws.allShapes()), settings: ws.cad.settings };
+  const thin: { a: Pt; b: Pt }[] = [];
+  const notes: { at: Pt; text: string; align?: "left" | "center" | "right" }[] = [];
+  const flip = (x: number, y: number): Pt => ({ x, y: -y });
+  const MAX_THIN = 9000;
   for (const ann of ws.cad.annotations) {
-    if (ann.type !== "dimension" && ann.type !== "level") continue;
     for (const p of annotationPrims(ann, ctx)) {
-      if (p.k !== "text") continue;
-      if (ann.type === "dimension" && ann.p1.kind === "point" && ann.p2.kind === "point") {
-        scene.dims.push({ a: { x: ann.p1.x, y: -ann.p1.y }, b: { x: ann.p2.x, y: -ann.p2.y }, text: p.text, derived: !ann.drives });
-      } else if (ann.type === "level" && ann.at.kind === "point") {
-        scene.dims.push({ a: { x: ann.at.x, y: -ann.at.y }, b: { x: ann.at.x, y: -ann.at.y }, text: p.text, derived: true });
+      if (thin.length > MAX_THIN && p.k !== "text") continue;
+      switch (p.k) {
+        case "line":
+          thin.push({ a: flip(p.x1, p.y1), b: flip(p.x2, p.y2) });
+          break;
+        case "polyline":
+        case "fill":
+          for (let i = 0; i + 1 < p.points.length + (p.k === "fill" || p.closed ? 1 : 0); i++) {
+            const a = p.points[i];
+            const b = p.points[(i + 1) % p.points.length];
+            thin.push({ a: flip(a.x, a.y), b: flip(b.x, b.y) });
+          }
+          break;
+        case "segments":
+          for (let i = 0; i + 3 < p.segs.length; i += 4) thin.push({ a: flip(p.segs[i], p.segs[i + 1]), b: flip(p.segs[i + 2], p.segs[i + 3]) });
+          break;
+        case "circle":
+          scene.circles.push({ c: flip(p.cx, p.cy), r: p.r });
+          break;
+        case "text": {
+          const lines = p.text.split("\n");
+          const lh = p.height * 1.3;
+          // Baseline: the rasteriser writes from the top of a line.
+          const top = p.baseline === "top" ? p.y : p.baseline === "middle" ? p.y - ((lines.length - 1) * lh) / 2 - p.height / 2 : p.y - (lines.length - 1) * lh - p.height;
+          lines.forEach((t, i) => notes.push({ at: flip(p.x, top + i * lh + p.height), text: t, align: p.align }));
+          break;
+        }
       }
     }
   }
+  scene.thin = thin;
+  scene.notes = notes;
   const seen = new Set<string>();
   for (const c of sk.constraints) {
     if (!c.paramRef || c.state === "suppressed" || seen.has(c.paramRef)) continue;

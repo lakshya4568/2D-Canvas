@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "generate:types": "bun run scripts/generate-types.ts",
     "lint:tolerance": "bun run scripts/lint-tolerance.ts",
-    "license:scan": "bun run scripts/license-scan.ts"
+    "license:scan": "bun run scripts/license-scan.ts",
+    "knowledge:build": "bun run scripts/build-bridge-knowledge.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

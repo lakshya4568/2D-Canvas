@@ -1,0 +1,118 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge Type: Composite Girder Bridge (Steel-Concrete Composite)
+Standard References: RDSO, IS:1343, IS:800
+Module: src/app/features/bridges/utils/composite-girder-rule-engine.ts
+================================================================================
+
+PURPOSE
+-------
+A Composite Girder Bridge uses steel plate girders (or I-girders) acting
+compositely with an RCC deck slab. The steel girder carries bending during
+construction; the composite section (steel + slab) carries live loads.
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter                  Path                            Unit    Description
+---------                  ----                            ----    -----------
+spans.arrangement          spans[]                         m       Array of clear span lengths
+levels.top_level           z_top                           m       Top deck level (elevation)
+superstructure.deck.thickness                              m       Concrete deck slab thickness
+superstructure.deck.wearing_course_thickness               m       Wearing course thickness on deck
+substructure.girder.depth                                  m       Steel girder depth
+superstructure.bearings_config.height                      m       Bearing height
+substructure.pier_template.cap_height                      m       Pier cap height
+hydraulics.bed_level                                       m       River bed level
+superstructure.deck.total_width                            m       Total deck width
+substructure.girder.spacing                                m       Centre-to-centre girder spacing
+substructure.girder.manual_count                           count   Manual override for girder count
+
+
+SECTION 2: SPAN AND GEOMETRY FORMULAS
+---------------------------------------
+
+--- FORMULA CG-GEO-001 ---
+Name:         Total Bridge Length
+Formula:      positions = cumulative sum of span lengths
+              totalLength = positions[nS]    = sum of all span lengths
+Output:       totalLength [m]  Bridge longitudinal length
+
+--- FORMULA CG-GEO-002 ---
+Name:         Number of Piers
+Formula:      nP = nS - 1
+Output:       nP  count  Number of intermediate piers
+
+--- FORMULA CG-GEO-003 ---
+Name:         Number of Girders
+Formula:      nG = floor(total_deck_width / girder_spacing)  (minimum 2)
+              nG = manual_count if manually specified
+Output:       nG  count  Number of parallel girders in each span
+
+--- FORMULA CG-GEO-004 ---
+Name:         Total Bearing Count
+Formula:      bearCount = (nP + 2) * nG
+Output:       bearCount  count  Total number of bearings
+Explanation:
+  (nP + 2) bearing lines = nP piers + 2 abutments.
+  Each bearing line has nG bearings (one per girder).
+
+--- FORMULA CG-GEO-005 ---
+Name:         Total Girder Count
+Formula:      girderCount = nS * nG
+Output:       girderCount  count  Total number of individual girders
+
+
+SECTION 3: VERTICAL LEVEL FORMULAS
+------------------------------------
+
+--- FORMULA CG-LVL-001 ---
+Name:         Bottom of Deck Slab
+Formula:      z_deck_b = z_top - deck.thickness - deck.wearing_course_thickness
+Output:       z_deck_b [m]  Underside of concrete deck slab
+
+--- FORMULA CG-LVL-002 ---
+Name:         Bottom of Girder (Bottom Flange)
+Formula:      z_gird_b = z_deck_b - girder.depth
+Output:       z_gird_b [m]  Elevation of the bottom flange of the steel girder
+
+--- FORMULA CG-LVL-003 ---
+Name:         Top of Bearing
+Formula:      z_bear = z_gird_b - bearings_config.height
+Output:       z_bear [m]  Top of bearing pad / pot bearing
+
+--- FORMULA CG-LVL-004 ---
+Name:         Bottom of Pier Cap
+Formula:      z_cap_b = z_bear - pier_template.cap_height
+Output:       z_cap_b [m]  Bottom of pier cap (top of shaft)
+
+--- FORMULA CG-LVL-005 ---
+Name:         Pier Height
+Formula:      pierHeight = max(0.1, z_bear - pier_cap_height - z_base)
+            = max(0.1, z_cap_b - z_base)
+Output:       pierHeight [m]  Net pier shaft height
+Inputs:       z_base = hydraulics.bed_level (river bed)
+
+--- FORMULA CG-LVL-006 ---
+Name:         HFL Clearance
+Formula:      clearance = z_gird_b - hydraulics.hfl
+Output:       clearance [m]  Vertical gap between bottom flange and flood level
+Standard:     Minimum 1.0m required (composite girder — greater than plain slab)
+
+
+SECTION 4: DESIGN CODE VALIDATION (COMPOSITE GIRDER)
+------------------------------------------------------
+
+Check ID      Condition                                     Standard
+--------      ---------                                     --------
+CG-VAL-001    sum(spans) == totalLength (diff < 0.01m)      Consistency
+CG-VAL-002    girder.depth >= maxSpan / 20                  RDSO (warn if under)
+CG-VAL-003    girder.spacing < deck.total_width             Structural adequacy
+CG-VAL-004    nG >= 2                                       RDSO (minimum 2 girders)
+CG-VAL-005    bearings_config.height >= 0.05m               RDSO minimum
+CG-VAL-006    clearance >= 1.0m                             IRS / RDSO
+
+================================================================================
+END OF COMPOSITE GIRDER FORMULA DOCUMENTATION
+================================================================================

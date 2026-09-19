@@ -1,0 +1,214 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — CROSS-REFERENCE OF SHARED FORMULAS
+================================================================================
+
+This section identifies formulas that appear in multiple bridge types, noting
+where they are identical, where they differ, and how to adapt them.
+
+
+CROSS-REF TABLE 1: TOTAL BOX WIDTH
+------------------------------------
+
+Formula:  total_w = (cW * cells) + (tOW * 2) + (tIW * (cells - 1))
+
+Used in:  RCC Box Railway (RCR-GEO-001)
+          RCC Box Highway (HWB-GEO-001)
+
+Status:   IDENTICAL in both. Difference is only in default values.
+Note:     For single-cell (cells=1): total_w = cW + 2*tOW  (no tIW term needed)
+
+
+CROSS-REF TABLE 2: TOTAL BOX HEIGHT
+--------------------------------------
+
+Formula:  total_h = cH + tST + tSB
+
+Used in:  RCC Box Railway (RCR-GEO-002)
+          RCC Box Highway (HWB-GEO-002)
+
+Status:   IDENTICAL in both.
+
+
+CROSS-REF TABLE 3: HYDRAULIC FLOW AREA
+-----------------------------------------
+
+Formula:  flow_area = cW * cH * cells   [RCC Box types]
+          flowArea = numPipes * pi * (spanVal/2)^2   [Hume Pipe]
+
+Used in:  RCC Box Railway (RCR-GEO-003)
+          RCC Box Highway (HWB-GEO-003)
+          Hume Pipe (HPC-GEO-004)
+
+Status:   Different formulas — rectangular vs circular cross-section.
+Common:   All three compute total waterway area for hydraulic adequacy check.
+Purpose:  The flow area must be sufficient for the design discharge Q.
+          Q = A * V (where V is allowable flow velocity)
+
+
+CROSS-REF TABLE 4: BOTTOM OF BOX / STRUCTURE LEVEL
+-----------------------------------------------------
+
+RCC Box Railway:  z_bot = bedLvl - wearC - tSB
+RCC Box Highway:  z_bot = bedLvl - tSB
+Key Difference:   Railway subtracts wearing course (ballast inside barrel)
+                  before computing z_bot.
+                  Highway does NOT — wearing course is on the road above.
+
+Used in:  RCR-GEO-005, HWB-GEO-004
+
+
+CROSS-REF TABLE 5: TOP OF STRUCTURE LEVEL
+-------------------------------------------
+
+RCC Box Railway:  z_top = z_bot + total_h = bedLvl - wearC + cH + tST
+RCC Box Highway:  z_top = z_bot + total_h = bedLvl + cH + tST
+Key Difference:   Railway's z_top is lower by wearC compared to highway.
+
+Alias:  rccBoxTopLvl (in the code)
+
+
+CROSS-REF TABLE 6: EARTH CUSHION THICKNESS
+--------------------------------------------
+
+RCC Box Railway:  earthCushion = max(formLvl - rccBoxTopLvl, 0)
+RCC Box Highway:  earthCushion = max(roadLvl - rccBoxTopLvl - wearC, 0)
+Hume Pipe:        cushionHeight = max(fl - actualPipeTopM, 0)
+
+Common concept:  All three compute the vertical fill between the top of the
+                 structure and the overlying surface level.
+Key Differences:
+  - Railway: Formation Level is the top surface reference.
+  - Highway: Road Level is the reference, minus road wearing course.
+  - Hume Pipe: Formation Level minus the actual pipe outer crown.
+
+
+CROSS-REF TABLE 7: BARREL LENGTH / SPAN EXTENT
+------------------------------------------------
+
+RCC Box Railway:  spanLen = (formLeft + formRight) + 4 * earthCushion
+RCC Box Highway:  spanLen = total_w + 2 * earthCushion
+Hume Pipe:        barrelLength = formationWidth + 4 * cushionHeight
+
+Common concept:  The culvert extends beyond the structure footprint to
+                 accommodate embankment slopes.
+Derivation:      A 1:1 slope (45 degrees) from each side of the embankment
+                 adds earthCushion meters of horizontal run per side, and with
+                 both US and DS sides: 2 * 2 * cushion = 4 * cushion.
+                 Railway uses 4x (both banks, both sides of embankment).
+                 Highway uses 2x (symmetric, both sides only).
+
+
+CROSS-REF TABLE 8: PCC SUB-BASE LEVELS
+-----------------------------------------
+
+Formula (all RCC types):
+  pccTop = z_bot
+  pccBot = z_bot - pccB
+  granBot = pccBot - sandFill
+
+Used in:  RCR-LVL-003/4/5, HWB-LVL-004/5/6
+Status:   IDENTICAL in Railway and Highway RCC Box.
+Note:     Hume Pipe uses a different leveling sequence:
+          beddingBotM = bl - beddingThk
+          levelingBotM = beddingBotM - levelingCourse
+          foundBotM = levelingBotM - rubbleSoling
+
+
+CROSS-REF TABLE 9: SOFFIT LEVEL
+---------------------------------
+
+RCC Box types:    soffit = z_top - tST
+PSC Slab:         z_slab_b = z_slab_t - slabD_support
+
+Common concept:  The underside of the load-bearing structural element
+                 (top slab for box, slab for PSC).
+HFL check:       soffit / z_slab_b must be >= hfl + minimum clearance
+
+
+CROSS-REF TABLE 10: PIER CAP WIDTH
+-------------------------------------
+
+PSC Slab:           rdso_cap_w = deck_w + 2 * 0.608
+Composite Girder:   Not explicitly computed (uses pier_template.cap_width)
+
+Common: RDSO requires pier cap to accommodate deck width + inspection walkways
+        (0.608m each side for BG tracks).
+
+
+CROSS-REF TABLE 11: HFL CLEARANCE CHECK
+------------------------------------------
+
+Formula (all bridge types):
+  clearance = soffit_or_girder_bottom - hfl
+
+Minimum values by bridge type:
+  RCC Box Railway:     hfl < soffit (per IRS — free surface flow only)
+  PSC Slab:           clearance >= 0.600m (IRS BRules Cl.6)
+                       clearance >= 1.500m (free board preferred)
+  Composite Girder:   clearance >= 1.000m (RDSO)
+  Open Web Girder:    Clearance assessed differently (through truss — bottom chord at track level)
+  Hume Pipe:          hfl <= fl (formation level — pipe flow can be pressurised)
+
+
+CROSS-REF TABLE 12: SPAN LENGTH TO SLAB/GIRDER DEPTH RATIO
+------------------------------------------------------------
+
+Bridge Type      Formula                     Standard
+-----------      -------                     --------
+PSC Slab         min_depth = span / 25       IRS T-39 (minimum)
+                 pref_max  = span / 12       RDSO (maximum preferred)
+Composite Girder min_depth = span / 20       RDSO (warn if under)
+OWG Truss        height from RDSO table      RDSO/B-10022
+
+Common principle: Structural depth is proportional to span length to control
+                  deflection and bending stresses.
+
+
+CROSS-REF TABLE 13: DRAWING COORDINATE SYSTEMS
+------------------------------------------------
+
+System           Origin            X Direction    Y Direction
+------           ------            -----------    -----------
+RCC Box Canvas   centreX = W/2     left = negative  down = positive (canvas)
+                 bedY = H*0.70     right = positive up = negative (canvas)
+OWG Truss        X=0 at US abut.   X increases DS   Z increases upward
+PSC Slab         X=0 at US abut.   X increases DS   Z increases upward
+
+Canvas-to-World conversions (RCC Box):
+  wx(worldX) = centreX + worldX * scale
+  wy(worldZ) = bedY - (worldZ - bedLvl) * scale
+  [NOTE: canvas Y increases downward, world Z increases upward — hence the negation]
+
+
+CROSS-REF TABLE 14: PARABOLIC DISTRIBUTION FORMULAS
+----------------------------------------------------
+
+OWG Camber:
+  zCamber = 4 * camber * ratio * (1 - ratio)
+  [max at ratio=0.5, zero at ratio=0 and ratio=1]
+
+PSC Camber (implicit in depth variation):
+  camber = slabD_center - slabD_support
+  [depth at centre > depth at support = equivalent upward bow]
+
+Common: Both use the parabolic (second-order) shape to model pre-stress or
+        dead-load camber, which is the natural deflection shape for uniform load.
+
+
+CROSS-REF TABLE 15: GRANULAR FILL LAYER AUTO-ALLOCATION
+---------------------------------------------------------
+
+RCC Box Railway:
+  autoPx = (totalGranPx - specifiedPx) / autoCount
+  [Layers without height get equal share of remaining pixel space]
+
+Hume Pipe Foundation:
+  beddingThk, levelingCourse, rubbleSoling are fixed individual layers
+  [No auto-allocation; each layer has explicit thickness]
+
+Common: Both systems stack fill layers from bottom to top (granBot upward)
+        and render each layer with a domain-specific hatch pattern.
+
+================================================================================
+END OF CROSS-REFERENCE DOCUMENT
+================================================================================

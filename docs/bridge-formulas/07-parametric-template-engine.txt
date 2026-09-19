@@ -1,0 +1,196 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+System: Parametric Template Engine & DAG Formula Solver
+Module: src/app/features/bridges/template-engine/services/formula-solver.ts
+        src/app/features/bridges/template-engine/services/expression-engine.ts
+        src/app/features/bridges/template-engine/services/index-aware-resolver.ts
+        src/app/features/cad/components/cad-editor/features/template-mode/
+================================================================================
+
+PURPOSE
+-------
+The Parametric Template Engine models bridge geometry as a Directed Acyclic
+Graph (DAG) where engineering parameters are nodes and formulas define directed
+edges (data flow). This allows any change in an input parameter to automatically
+propagate through all dependent computed values and update the drawing in real time.
+
+
+SECTION 1: PARAMETER TYPES
+----------------------------
+
+Type          Symbol     Description
+----          ------     -----------
+INPUT         I          User-editable design variables (clear_w, cells, bed_lvl, etc.)
+COMPUTED      C          Derived values computed by formulas (total_w, z_bot, etc.)
+STATIC        S          Fixed constants / engineering defaults (pcc_sub_base = 0.15m)
+API_FETCHED   A          Looked up from RDSO standard design tables or Reference Data Sets
+
+
+SECTION 2: COORDINATE BINDING FIELDS
+---------------------------------------
+
+Entity Type     Bindable Fields
+-----------     ---------------
+LINE            x1, y1, x2, y2
+CIRCLE          cx, cy, r
+ARC             cx, cy, r, startAngle, endAngle
+POLYLINE        pt0x, pt0y, pt1x, pt1y, ..., ptNx, ptNy  (dynamic by vertex count)
+TEXT / MTEXT    x, y, height, text
+DIMENSION       x1, y1, x2, y2, textOverride
+
+
+SECTION 3: DAG FORMULA SOLVING — KAHN'S ALGORITHM
+----------------------------------------------------
+
+--- FORMULA TPE-DAG-001 ---
+Name:         In-Degree of a Parameter Node
+Formula:      in_degree(v) = |{ u in V | u is in dependsOn(formula_v) }|
+Output:       integer  Count of parameters v depends on
+Explanation:
+  For each parameter node v with a formula, count how many other computed
+  parameters its formula references. Parameters with no computed dependencies
+  (input or static) have in_degree = 0.
+
+--- FORMULA TPE-DAG-002 ---
+Name:         Kahn's Algorithm Queue Initialization
+Formula:      queue = { v in V | in_degree(v) == 0 }
+Explanation:
+  All parameters without unresolved dependencies are enqueued first.
+  This includes all INPUT, STATIC, and API_FETCHED parameters whose values
+  are already known.
+
+--- FORMULA TPE-DAG-003 ---
+Name:         Topological Evaluation Step
+Formula:      FOR each u dequeued from queue:
+                evaluate formula(u) using current resolved_scope
+                resolved_scope[u] = result
+                FOR each v where u in dependsOn(formula_v):
+                  in_degree(v) -= 1
+                  IF in_degree(v) == 0:
+                    enqueue(v)
+Explanation:
+  Each formula is evaluated in dependency order. After evaluating u,
+  any formula that depended on u now has one fewer unresolved dependency.
+  When all dependencies are satisfied, v becomes evaluatable.
+
+--- FORMULA TPE-DAG-004 ---
+Name:         Cycle Detection
+Formula:      IF evaluated_count < total_formula_count:
+                CYCLE EXISTS
+                Cyclic parameters = { v | v not in resolved_scope }
+Explanation:
+  After running Kahn's algorithm, if some formulas were never evaluated,
+  they form a cycle. The system reports the cyclic parameter set as an error.
+
+
+SECTION 4: INDEX-AWARE RESOLVER (MULTI-CELL / MULTI-GIRDER)
+-------------------------------------------------------------
+
+--- FORMULA TPE-IDX-001 ---
+Name:         Index Variable Range
+Formula:      FOR i = 0 TO (countParam - 1):
+                resolve index-dependent formulas with scope[indexVar] = i
+Inputs:       countParam = parameter whose value is the number of copies (e.g. cells)
+              indexVar   = loop index name (default "i")
+Explanation:
+  For each repetition (barrel, girder, pier), the index-dependent formulas
+  are solved with i substituted. This allows expressions like:
+    x_start = origin_x + i * (clear_w + t_wall_i)
+  to produce unique coordinates for each instance.
+
+--- FORMULA TPE-IDX-002 ---
+Name:         Offset Formula for Repeated Member
+Formula:      x_start[i] = origin_x + i * (clear_w + t_wall_i)   [example]
+Output:       x_start [m]  Left edge x-coordinate of the i-th barrel
+General form: repeated_coord[i] = base_value + i * step_size
+
+
+SECTION 5: EXPRESSION ENGINE (MATHJS SANDBOX)
+-----------------------------------------------
+
+The ExpressionEngine uses mathjs for safe formula evaluation with the
+following custom extensions:
+
+--- FORMULA TPE-EXPR-001 ---
+Name:         Degree-Mode Sine
+Formula:      sind(angle_deg) = sin(angle_deg * pi / 180)
+Output:       [-1, 1]  sine of angle given in degrees (not radians)
+
+--- FORMULA TPE-EXPR-002 ---
+Name:         Degree-Mode Cosine
+Formula:      cosd(angle_deg) = cos(angle_deg * pi / 180)
+Output:       [-1, 1]  cosine in degrees
+
+--- FORMULA TPE-EXPR-003 ---
+Name:         Degree-Mode Tangent
+Formula:      tand(angle_deg) = tan(angle_deg * pi / 180)
+Output:       tangent in degrees
+
+--- FORMULA TPE-EXPR-004 ---
+Name:         Step Lookup Function
+Formula:      lookup(x, table)
+              WHERE table = [[x0, y0], [x1, y1], ..., [xn, yn]]
+Output:       Interpolated y value for given x using step interpolation
+Explanation:
+  Used to look up RDSO design table values (e.g. slab thickness vs span length)
+  by finding the table row where x0 <= x < x1 and returning y0 (step, not linear).
+
+
+SECTION 6: CANVAS LIVE SYNC PIPELINE
+---------------------------------------
+
+--- FORMULA TPE-SYNC-001 ---
+Name:         Entity Coordinate Update
+Formula:      FOR each entity in active_drawing:
+                IF entity has parametricBindings:
+                  FOR each (field, expression) in parametricBindings:
+                    entity[field] = evaluate(expression, resolved_scope)
+Explanation:
+  After the DAG solver produces resolved_scope, each entity's bound coordinate
+  fields are recalculated by evaluating their symbolic expressions.
+
+--- FORMULA TPE-SYNC-002 ---
+Name:         Bounding Box Refresh
+Formula:      entity.bounds = computeBounds(entity)
+              spatial_index.update(entity.id, entity.bounds)
+Explanation:
+  After coordinate mutation, bounding boxes and the R-tree spatial index
+  are updated to ensure object-snap and selection remain accurate.
+
+
+SECTION 7: CONDITIONAL VISIBILITY
+------------------------------------
+
+--- FORMULA TPE-VIS-001 ---
+Name:         Entity / Group Conditional Visibility
+Formula:      isVisible = evaluate(conditional_expression, resolved_scope)
+              entity._hidden = !isVisible
+Example:      conditional: "show_wing_wall == 1"
+              conditional: "earthCushionThickness > 0"
+Explanation:
+  Any entity or component group can carry a conditional expression.
+  If it evaluates to falsy (0, false, null), the entity is hidden from
+  the canvas and excluded from DXF export and bounds calculations.
+
+
+SECTION 8: REPEAT GROUP EXPANSION
+------------------------------------
+
+--- FORMULA TPE-REP-001 ---
+Name:         Repeat Group Count
+Formula:      repeatCount = resolved_scope[countParam]
+Explanation:
+  The number of instances is read from the resolved scope at runtime.
+
+--- FORMULA TPE-REP-002 ---
+Name:         Repeat Instance Coordinate
+Formula:      FOR i in [0..repeatCount-1]:
+                instance_bounds[i] = resolve_index_formulas(i)
+                draw_entity(instance_bounds[i])
+Explanation:
+  Each instance is drawn independently with its own coordinate set,
+  computed by the IndexAwareResolver for that value of i.
+
+================================================================================
+END OF PARAMETRIC TEMPLATE ENGINE FORMULA DOCUMENTATION
+================================================================================

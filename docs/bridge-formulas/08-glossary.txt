@@ -1,0 +1,195 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — MASTER GLOSSARY OF VARIABLES
+All Bridge Types: Railway RCC Box, Highway RCC Box, Hume Pipe, PSC Slab,
+                  Composite Girder, OWG, and Parametric Template Engine
+================================================================================
+
+This glossary defines every variable and parameter used across all formula
+documents. Variables are listed alphabetically by symbol.
+
+
+SYMBOL     FULL NAME                           UNIT    TYPE    USED IN
+------     ---------                           ----    ----    -------
+actualPipeTopM  Actual Pipe Top Level          m       C       Hume Pipe
+abutmentHeight  Net Headwall Height            m       C       Hume Pipe
+apronL     Apron / Flexible Apron Length       m       I       RCC Box (both)
+autoPx     Auto Layer Height in Pixels         px      C       RCC Box Railway
+abutFaceOffset  Abutment Face Offset           m       S=0.1725  PSC Slab
+barrelLength    Barrel/Pipe Length             m       C       Hume Pipe
+bBot       Bottom of Bottom Slab Y (pixels)   px      C       RCC Box (canvas)
+bearCount  Total Bearing Count                count   C       Composite Girder
+bearing_h  Bearing Height                     m       I       PSC Slab / Comp Girder
+bedLvl     Hydraulic Bed / Invert Level       m       I       All bridge types
+beddingBotM   Bedding Bottom Level            m       C       Hume Pipe
+beddingThk    Bedding / Bedding Thickness     mm      I       Hume Pipe
+bldPx      Boulder Backing Width (pixels)     px      C       RCC Box Railway
+bl         Bed Level (Hume Pipe notation)     m       I       Hume Pipe
+bTop       Top of Box Y (pixels)              px      C       RCC Box (canvas)
+bxL        Left Box Boundary X (pixels)       px      C       RCC Box (canvas)
+bxR        Right Box Boundary X (pixels)      px      C       RCC Box (canvas)
+bxL_ext    PCC Extended Left X (pixels)       px      C       RCC Box (canvas)
+bxR_ext    PCC Extended Right X (pixels)      px      C       RCC Box (canvas)
+camber     PSC Slab Pre-stress Camber         m       C       PSC Slab / OWG
+capHeight  Pier Cap Height                    m       I       All bridge types
+capWidth   Pier Cap Width                     m       I/C     PSC Slab / OWG
+carriagewayWidth  Carriageway Width           m       I       Highway RCC Box
+cells      Number of Barrel Openings          count   I       RCC Box (both)
+centreX    Canvas Center X (pixels)           px      C       RCC Box (canvas)
+cH         Clear Height (clear_h)             m       I       RCC Box (both)
+clearance  HFL Vertical Clearance             m       C       PSC Slab / OWG / Comp Girder
+cToc       Centre-to-Centre Span (for positioning)  m C      PSC Slab
+curtainWallDepth   Curtain Wall Depth         mm      I       Hume Pipe
+curtainWallThk     Curtain Wall Thickness     mm      I       Hume Pipe
+cW         Clear Width (clear_w)              m       I       RCC Box (both)
+deck_w     Deck Width                         m       I       PSC Slab / OWG
+derivedCushionM  Earth Cushion (derived)      m       C       Hume Pipe
+diagInnerT  Inner Diagonal Member Depth       m       I/RDSO  OWG
+diagOuterT  Outer Diagonal Member Depth       m       I/RDSO  OWG
+dropWallDepth   Drop Wall Depth               mm      I       Hume Pipe
+earthCushion  Earth Cushion Thickness         m       C       RCC Box (both) / Hume Pipe
+embankmentSlope  Embankment Slope H:V         -       I       RCC Box (both)
+faceWallBaseWidth  Face Wall Base Width       mm      C       Hume Pipe
+faceWallFoundThk   Face Wall Foundation Thk   mm      I       Hume Pipe
+faceWallHeelProj   Face Wall Heel Projection  mm      I       Hume Pipe
+faceWallStemAboveGL  Face Wall Above GL       mm      I/C     Hume Pipe
+faceWallStemBelowGL  Face Wall Below GL       mm      I       Hume Pipe
+faceWallStemBotW    Face Wall Bottom Width    mm      I       Hume Pipe
+faceWallStemTopW    Face Wall Top Width       mm      I       Hume Pipe
+faceWallTier1Width  Face Wall Tier 1 Width    mm      C       Hume Pipe
+faceWallToeProj     Face Wall Toe Projection  mm      I       Hume Pipe
+fl         Formation Level (Hume Pipe)        m       I       Hume Pipe
+flBase     Foundation Base Level              m       C       Hume Pipe
+flow_area  Hydraulic Flow Area                m2      C       RCC Box (both)
+flowArea   Hydraulic Flow Area                m2      C       Hume Pipe
+formLvl    Formation Level                    m       I       RCC Box Railway / PSC Slab
+formLeft   Formation Width Left               m       I/C     Hume Pipe
+formRight  Formation Width Right              m       I/C     Hume Pipe
+formationWidth  Total Formation Width         m       I/C     Hume Pipe
+foundBotM  Foundation Bottom Level            m       C       Hume Pipe
+foundationThickness  Foundation Total Thk     m       S=1.219  Hume Pipe
+foundingDepthBelowScour  Found. Depth Below Scour  m  I=1.750  Hume Pipe
+foundingLevel  Founding Level                 m       C       Hume Pipe
+gap        Bearing Gap (OWG)                  m       S=1.06  OWG
+girderDepth  Steel Girder Depth               m       I       Composite Girder / PSC Slab
+girderCount  Total Girder Count               count   C       Composite Girder
+granBot    Granular Fill Bottom Level         m       C       RCC Box (both)
+granFillThick  Granular Fill Thickness        m       I/C     RCC Box Railway
+h          Truss Height                       m       I/RDSO  OWG
+haunch     Haunch Chamfer Size                m       I       RCC Box (both)
+hfl        Highest Flood Level                m       I       All bridge types
+hflClrnce  HFL Clearance (slab underside)     m       C       PSC Slab
+hflLvl     HFL Level (OWG notation)           m       I       OWG
+hPx        Haunch Size in Pixels              px      C       RCC Box (canvas)
+hw         Half Girder Width (OWG)            m       C       OWG
+inspection_w  Inspection Walkway Width        m       S=0.608  PSC Slab
+layerHeights  Per-Layer Pixel Heights         px[]    C       RCC Box (canvas, foundation)
+leaderBendY  Leader Bend Y (pixels)           px      C       RCC Box (canvas)
+levelingBotM  Leveling Course Bottom Level    m       C       Hume Pipe
+levelingCourse  Leveling Course Thickness     mm      I       Hume Pipe
+line225Y   225mm Parapet Gap Line Y (pixels)  px      C       RCC Box Railway
+lvlExtL    Level Callout Left Extent X (px)  px      C       RCC Box (canvas)
+minClearance  Minimum Leader Clearance        px      S       RCC Box (canvas)
+minSlabThk  Minimum Slab Thickness (L/25)    m       C       PSC Slab
+nG         Number of Girders                  count   C       Composite Girder
+nP         Number of Piers                    count   C       PSC Slab / Composite Girder
+nPanels    Number of Truss Panels             count   I       OWG
+nS         Number of Spans                    count   C       PSC Slab / Composite Girder
+numPipes   Number of Pipes                    count   I       Hume Pipe
+ohe_offset  OHE Mast Horizontal Offset        m       C=3.638  PSC Slab
+pccB       PCC Sub-Base Thickness             m       I=0.15  RCC Box (both)
+pccBot     PCC Bottom Level                   m       C       RCC Box (both)
+pccTop     PCC Top Level                      m       C       RCC Box (both)
+pLen       Truss Panel Length                 m       C       OWG
+pierHeight  Pier Shaft Height                 m       C       Composite Girder
+pierWidth  Pier Shaft Width                   m       I       All multi-span
+pipeSpacing  Pipe Centre-to-Centre Spacing    mm      I       Hume Pipe
+pipeWallThk  Pipe Wall Thickness              mm      I       Hume Pipe
+positions  Cumulative Span Position Array     m[]     C       PSC Slab / Composite Girder / OWG
+prefT      Maximum Preferred Slab Thickness   m       C       PSC Slab
+railLvl    Rail Level                         m       I       RCC Box Railway / PSC Slab
+rccBoxTopLvl  Top of Box Level                m       C       RCC Box (both)
+rdso_cap_w  RDSO Standard Pier Cap Width      m       C       PSC Slab
+rl         Rail Level (Hume Pipe notation)    m       I       Hume Pipe
+roadLvl    Road Level (Highway)               m       I       Highway RCC Box
+rubbleSoling  Rubble Soling Thickness         mm      I       Hume Pipe
+sf         Drawing Scale Factor               -       C       RCC Box (canvas)
+scale      Viewport Scale (px per meter)      px/m    I       RCC Box (canvas)
+scourLevel  Hydraulic Scour Level             m       C       Hume Pipe
+shiftStep  Leader Y Shift Step                px      S       RCC Box (canvas)
+slabD_center  PSC Slab Depth at Centre        m       C/RDSO  PSC Slab
+slabD_support  PSC Slab Depth at Support      m       C/RDSO  PSC Slab
+slopeHM    Slope Height in World Meters       m       C       RCC Box Railway
+slopeWPx   Slope Vertical Extent (pixels)     px      C       RCC Box Railway
+soffit     Soffit Level (slab underside)      m       C       RCC Box (both)
+soffit_level  Soffit Level (input)            m       I       RCC Box (both)
+spanLen    Clear Span Length                  m       I       PSC Slab / OWG
+spanVal    Pipe Diameter (Hume Pipe)          m       I       Hume Pipe
+specifiedPx  Explicitly-Specified Layer Height px     C       RCC Box (canvas)
+stonePitchingThk  Stone Pitching Thickness    mm      I       Hume Pipe
+strDepth   Stringer Depth (OWG)               m       I/RDSO  OWG
+strW       Stringer Spacing (OWG)             m       I/RDSO  OWG
+structTopBotSlab  Structural Top of Bot Slab  m       C       RCC Box Railway
+tIW        Inner Wall Thickness (t_wall_i)    m       I       RCC Box (both)
+tOW        Outer Wall Thickness (t_wall_o)    m       I       RCC Box (both)
+tSB        Bottom Slab Thickness (t_slab_b)   m       I       RCC Box (both)
+tST        Top Slab Thickness (t_slab_t)      m       I       RCC Box (both)
+toeWallAboveGL   Toe Wall Above GL            mm      I       Hume Pipe
+toeWallBeddingProj  Toe Wall Bedding Proj.    mm      I       Hume Pipe
+toeWallBeddingThk   Toe Wall Bedding Thk.     mm      I       Hume Pipe
+toeWallProjection   Toe Wall Projection       mm      I       Hume Pipe
+toeWallStemBotW     Toe Wall Bottom Width     mm      I       Hume Pipe
+toeWallStemH        Toe Wall Stem Height      mm      I       Hume Pipe
+toeWallStemTopW     Toe Wall Top Width        mm      I       Hume Pipe
+toeWallUpperFootingThk  Toe Wall Upper Footing mm     I       Hume Pipe
+total_h    External Box/Structure Height      m       C       RCC Box (both)
+total_w    External Box/Structure Width       m       C       RCC Box (both) / Hume Pipe
+totalGranPx  Total Granular Layer Height (px) px      C       RCC Box (canvas)
+totalHeight  Total Structural Height          m       C       Hume Pipe
+totalLength  Total Bridge Length              m       C       PSC Slab / Composite / OWG
+trackGauge  Railway Track Gauge               m       I/S=1.676  OWG / PSC Slab
+wallThickness  Hume Pipe Wall Thickness       mm      I       Hume Pipe
+wearC      Wearing Course Thickness           m       I       RCC Box Railway
+wearingCourseThk  Wearing Course Thickness    mm      I       Hume Pipe
+wingL      Wing Wall Length                   m       I       RCC Box (both)
+wcT        Wearing Coat Thickness (PSC)       m       I/RDSO  PSC Slab
+wx         World-to-Canvas X function         -       func    RCC Box (canvas)
+wy         World-to-Canvas Y function         -       func    RCC Box (canvas)
+wm         World-Metric-to-Pixel function     -       func    RCC Box (canvas)
+xCut       Slope Intersection X (pixels)      px      C       RCC Box Railway
+xHitBBot   Slope Hits Box Bottom X (pixels)   px      C       RCC Box Railway
+yGranBot   Granular Fill Bottom Y (pixels)    px      C       RCC Box (canvas)
+yGranTop   Granular Fill Top Y (pixels)       px      C       RCC Box (canvas)
+yHitBldLeft  Boulder Inner Face Intersection Y px     C       RCC Box Railway
+yPccBot    PCC Bottom Y (pixels)              px      C       RCC Box (canvas)
+yPccTop    PCC Top Y (pixels)                 px      C       RCC Box (canvas)
+yWearTop   Wearing Course Top Y (pixels)      px      C       RCC Box Railway
+z_base     Bed Level (Composite Girder)       m       I       Composite Girder
+z_bear     Top of Bearing Level               m       C       Composite Girder
+z_bearing_b  Bottom of Bearing Level          m       C       PSC Slab
+z_bearing_t  Top of Bearing Level             m       C       PSC Slab
+z_bot      Bottom of Box Level                m       C       RCC Box (both)
+z_cap_b    Bottom of Pier Cap                 m       C       PSC Slab / Composite Girder
+z_cap_t    Top of Pier Cap                    m       C       PSC Slab
+z_deck_b   Bottom of Deck Slab                m       C       Composite Girder
+z_footing_b  Foundation Bottom                m       C       PSC Slab
+z_footing_t  Foundation Top                   m       C       PSC Slab
+z_gird_b   Bottom of Girder                   m       C       Composite Girder
+z_soil     Soil Level (Natural Ground Level)  m       I       PSC Slab
+z_slab_b   Bottom of PSC Slab                 m       C       PSC Slab
+z_slab_t   Top of PSC Slab                    m       C       PSC Slab
+z_top      Top of Box / Top Deck Level        m       C       RCC Box (both) / Composite Girder
+zCamber    OWG Parabolic Camber Ordinate       m       C       OWG
+
+
+TYPE LEGEND
+-----------
+I    = Input (user-editable design variable)
+C    = Computed (derived by formula)
+S    = Static / Engineering constant
+A    = API-fetched (from RDSO standard lookup)
+RDSO = Looked up from RDSO standard design table by span length
+func = Helper coordinate transform function
+
+================================================================================
+END OF MASTER GLOSSARY
+================================================================================

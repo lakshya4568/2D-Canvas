@@ -212,6 +212,30 @@ export class DraftingWorkspace {
     return commit;
   }
 
+  /**
+   * Make free geometry parametric (or turn a component back into geometry):
+   * the reducer does it over free + component shapes together, then the free
+   * part goes back through the geometry commit so the sketch drops what left it.
+   */
+  convert(action: Extract<CadAction, { type: "CAD_MAKE_PARAMETRIC" | "CAD_EXPLODE_COMPONENT" }>): { ok: boolean; message: string } {
+    const before = this.cad.componentNotice;
+    const r = applyCadAction([...this.displayShapes(), ...this.cadShapes], this.cad, action);
+    if (!r) return { ok: false, message: "Nothing to change." };
+    const fresh = r.cad.componentNotice && r.cad.componentNotice !== before ? r.cad.componentNotice : null;
+    if (fresh && !fresh.ok) {
+      this.cad = r.cad;
+      return { ok: false, message: fresh.message };
+    }
+    // Repeat copies ("#" ids) are regenerated from their unit, never committed as drawn.
+    const free = r.shapes.filter((s) => !s.componentInstanceId && !s.id.includes("#"));
+    const commit = this.commitGeometry(free);
+    if (!commit.ok) return { ok: false, message: `The remaining drawing would not solve: ${commit.rejection}` };
+    this.cadShapes = r.shapes.filter((s) => s.componentInstanceId);
+    this.cad = r.cad;
+    this.revision++;
+    return { ok: true, message: fresh?.message ?? r.history ?? "Done." };
+  }
+
   /** Free geometry and component geometry together — what the sheet shows. */
   allShapes(): Shape[] {
     return [...this.displayShapes(), ...this.cadShapes];

@@ -1,0 +1,419 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge Type: RCC Box Culvert (Railway)
+Standard References: IRS (Indian Railway Standards), RDSO 10152
+Module: src/app/features/bridges/utils/rcc-box-railway/rcc-box-rule-engine.ts
+       src/app/features/bridges/utils/rcc-box-railway/rcc-box-half-section-view.ts
+================================================================================
+
+PURPOSE
+-------
+A Reinforced Cement Concrete (RCC) Box Culvert is a closed rectangular
+cross-section hydraulic structure placed below railway formation level.
+Water flows through the barrel opening(s). The culvert supports train
+load (live load) transmitted through the formation and earth cushion.
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter        Symbol    Unit    Description
+-----------      ------    ----    -----------
+cells            n         count   Number of parallel barrel openings (minimum 1)
+clear_w          cW        m       Clear width of each barrel opening (horizontal)
+clear_h          cH        m       Clear height of each barrel opening (vertical)
+t_wall_o         tOW       m       Outer wall thickness (the two end walls)
+t_wall_i         tIW       m       Inner wall (partition) thickness between barrels
+t_slab_t         tST       m       Top slab thickness
+t_slab_b         tSB       m       Bottom slab thickness
+haunch_size      haunch    m       Haunch chamfer size at interior corners (both directions equal)
+wearing_course   wearC     m       Wearing course / ballast protection thickness inside barrel
+bed_lvl          bedLvl    m       Hydraulic bed level (finished floor / invert level) in m above datum
+formation_lvl    formLvl   m       Proposed formation level (top of embankment) in m above datum
+rail_level       railLvl   m       Proposed rail level in m above datum
+pcc_sub_base     pccB      m       Plain Cement Concrete sub-base (under-box) thickness
+sand_fill_depth  sandFill  m       Granular fill / sand bedding depth below PCC (also: found_d or foundation layers)
+hfl              hfl       m       Highest Flood Level in m above datum
+soffit_level     soffitLvl m       Top of water face (underside of top slab) in m above datum
+wing_l           wingL     m       Wing wall length (from front face of box)
+apron_l          apronL    m       Apron / flexible apron length downstream
+
+
+SECTION 2: GEOMETRIC FORMULAS (RCC BOX RAILWAY)
+------------------------------------------------
+
+--- FORMULA RCR-GEO-001 ---
+Name:         Total Box Width
+Formula:      total_w = (cW * cells) + (tOW * 2) + (tIW * (cells - 1))
+Output:       total_w    [m]   Full external width of the culvert box
+Explanation:
+  The culvert consists of n=cells barrel openings each cW wide, separated by
+  n-1 inner partition walls of thickness tIW, and bounded by 2 outer walls
+  of thickness tOW. Adding all widths gives the external footprint width.
+Example:      2 cells * 5.0m + 2*0.35m + 1*0.35m = 11.05m
+Source:       rcc-box-rule-engine.ts line 33
+Constraint:   cells >= 1, cW > 0, tOW >= 0.3m (IRS minimum), tIW >= 0.3m
+
+--- FORMULA RCR-GEO-002 ---
+Name:         Total Box Height
+Formula:      total_h = cH + tST + tSB
+Output:       total_h    [m]   Full external height of the culvert box
+Explanation:
+  External height is the clear internal height cH plus the top slab thickness
+  tST plus the bottom slab thickness tSB.
+Source:       rcc-box-rule-engine.ts line 34
+
+--- FORMULA RCR-GEO-003 ---
+Name:         Hydraulic Flow Area
+Formula:      flow_area = cW * cH * cells
+Output:       flow_area  [m2]  Total waterway area available for flow
+Explanation:
+  Sum of all barrel cross-sectional areas available for water passage.
+  Used for hydraulic design and waterway adequacy checks.
+Source:       rcc-box-rule-engine.ts line 35
+Constraint:   flow_area must exceed the design discharge requirement (Q)
+
+--- FORMULA RCR-GEO-004 ---
+Name:         Structural Top-of-Bottom-Slab Level
+Formula:      structTopBotSlab = bedLvl - wearC
+Output:       structTopBotSlab [m] Elevation of the top face of the bottom slab
+Explanation:
+  The bed level (bedLvl) is the finished floor level (top of wearing course).
+  Subtracting the wearing course thickness gives the structural datum of the
+  bottom slab's top surface.
+Source:       rcc-box-rule-engine.ts line 39
+
+--- FORMULA RCR-GEO-005 ---
+Name:         Bottom of Box / Bottom of Bottom Slab Level
+Formula:      z_bot = structTopBotSlab - tSB
+Output:       z_bot  [m]  Elevation of the bottom face of the bottom slab
+Explanation:
+  The underside of the bottom slab (founding level of the box structure).
+  z_bot = bedLvl - wearC - tSB
+Source:       rcc-box-rule-engine.ts line 40
+
+--- FORMULA RCR-GEO-006 ---
+Name:         Top of Box Level
+Formula:      z_top = z_bot + total_h
+Output:       z_top  [m]  Elevation of the top face of the top slab
+Equivalent:   z_top = bedLvl - wearC - tSB + cH + tST + tSB
+            = bedLvl - wearC + cH + tST
+Explanation:
+  The top of the box structure. This is also called rccBoxTopLvl.
+Source:       rcc-box-rule-engine.ts line 41
+
+--- FORMULA RCR-GEO-007 ---
+Name:         Soffit Level (Underside of Top Slab)
+Formula:      soffit = z_top - tST
+Output:       soffit [m]  Elevation of the underside of the top slab
+Explanation:
+  The soffit is the bottom surface of the top slab, which is the hydraulic
+  crown of the culvert. Water must stay below this level for the culvert
+  to function as a free-surface channel.
+Source:       rcc-box-rule-engine.ts line 42
+Validation:   soffit must be >= hfl (Highest Flood Level)
+
+
+SECTION 3: LEVEL COMPUTATION FORMULAS
+--------------------------------------
+
+--- FORMULA RCR-LVL-001 ---
+Name:         RCC Box Top Level
+Formula:      rccBoxTopLvl = structTopBotSlab + cH + tST
+            = bedLvl - wearC + cH + tST
+Output:       rccBoxTopLvl [m]  Top of slab elevation
+Explanation:
+  The upper surface of the top slab. The earth cushion, formation, and rail
+  levels all sit above this datum.
+Source:       rcc-box-rule-engine.ts line 46
+
+--- FORMULA RCR-LVL-002 ---
+Name:         Earth Cushion Thickness
+Formula:      earthCushion = max(formLvl - rccBoxTopLvl, 0)
+Output:       earthCushion [m]  Thickness of fill between top of box and formation
+Explanation:
+  The formation level minus the top of the box gives the earth cushion depth.
+  Per IRS, a minimum of 75mm (0.075m) is required over RCC box culverts for
+  railway track. If the result is negative (formLvl below top of box),
+  the cushion is clamped to zero.
+Source:       rcc-box-rule-engine.ts line 48
+              rcc-box-half-section-view.ts line 111
+Constraint:   earthCushion >= 0.075m (IRS requirement)
+Note:         If earthCushion = 0, the 225mm parapet gap line and cushion
+              callouts are suppressed in the drawing.
+
+--- FORMULA RCR-LVL-003 ---
+Name:         PCC Top Level
+Formula:      pccTop = z_bot   (identical — top of PCC is the underside of the bottom slab)
+Output:       pccTop [m]
+
+--- FORMULA RCR-LVL-004 ---
+Name:         PCC Bottom Level
+Formula:      pccBot = z_bot - pccB
+Output:       pccBot [m]  Underside of Plain Cement Concrete sub-base
+
+--- FORMULA RCR-LVL-005 ---
+Name:         Granular Fill Bottom Level
+Formula:      granBot = pccBot - sandFill
+Output:       granBot [m]  Bottom of the granular fill / sand cushion layer
+Explanation:
+  The founding stratum / excavation bottom. All fill layers are stacked
+  upward from granBot to pccBot.
+
+--- FORMULA RCR-LVL-006 ---
+Name:         Rail Level (Derived Default)
+Formula:      railLvl = formLvl + RAIL_FORMATION_OFFSET
+Output:       railLvl [m]  Elevation of top of rail
+Note:         RAIL_FORMATION_OFFSET is a project constant (typically 0.762m for BG).
+              If rail_level is explicitly provided by the user, that value is used directly.
+
+--- FORMULA RCR-LVL-007 ---
+Name:         Span Length (Barrel Barrel Length / Drawing Extent)
+Formula:      spanLen = (formation.left + formation.right) + 4 * earthCushion
+Output:       spanLen [m]  Total span length of culvert including approach fill
+Explanation:
+  The formation extents (left bank + right bank widths) represent the roadbed
+  width. Adding 4 times the earth cushion accounts for the 1:1 embankment
+  slope on both sides that extends beyond the box.
+Source:       rcc-box-rule-engine.ts line 50
+
+
+SECTION 4: SCREEN / DRAWING COORDINATE FORMULAS
+-------------------------------------------------
+
+--- FORMULA RCR-DRAW-001 ---
+Name:         Scale Factor (sf)
+Formula:      sf = scale / 40.0
+Output:       sf  [px/m * normalized]  Drawing scale factor for line weights and text
+Note:         40.0 is the reference scale denominator. At 1:40 scale, sf = 1.0.
+
+--- FORMULA RCR-DRAW-002 ---
+Name:         World-to-Pixel X Mapping
+Formula:      wx(worldX) = centreX + worldX * scale
+Output:       x_pixel  [px]  Canvas pixel X coordinate
+Inputs:       centreX = W/2 + panX (canvas centre including pan offset)
+              scale   = viewport scale (pixels per meter)
+
+--- FORMULA RCR-DRAW-003 ---
+Name:         World-to-Pixel Y Mapping
+Formula:      wy(worldZ) = bedY - (worldZ - bedLvl) * scale
+Output:       y_pixel  [px]  Canvas pixel Y coordinate
+Inputs:       bedY = H * 0.70 + panY (reference Y for bed level)
+              scale = viewport scale (pixels per meter)
+Explanation:
+  Canvas Y increases downward; real-world Z increases upward. Subtracting
+  (worldZ - bedLvl) * scale from bedY converts elevation to screen pixels.
+
+--- FORMULA RCR-DRAW-004 ---
+Name:         World Metric to Pixel Size
+Formula:      wm(meters) = meters * sf * 1000  [when sf = scale/40]
+Alternative:  wm(px_ref) = px_ref * sf         [where px_ref is at 1:40 scale]
+Output:       screen_px  [px]  Pixel equivalent of a real-world size
+Usage:        Used for arrowhead lengths, text offsets, leader lengths, etc.
+
+--- FORMULA RCR-DRAW-005 ---
+Name:         Left Box Boundary X
+Formula:      bxL = wx(-boxW / 2)
+Output:       bxL [px]  Left boundary of the box culvert on canvas
+
+--- FORMULA RCR-DRAW-006 ---
+Name:         Right Box Boundary X
+Formula:      bxR = wx(boxW / 2)
+Output:       bxR [px]  Right boundary of the box culvert on canvas
+
+
+SECTION 5: EMBANKMENT SLOPE AND BOULDER CUTTING FORMULAS
+----------------------------------------------------------
+
+--- FORMULA RCR-CUT-001 ---
+Name:         Boulder Backing Width in Pixels
+Formula:      bldPx = boulderW * scale       (boulderW = 0.6m)
+Output:       bldPx [px]  Pixel width of the 600mm boulder backing column
+
+--- FORMULA RCR-CUT-002 ---
+Name:         Slope Vertical Extent in Pixels
+Formula:      slopeWPx = yPccBot - bTop
+Output:       slopeWPx [px]  Pixel height from top of box to PCC bottom
+Note:         In canvas coordinates, yPccBot > bTop (larger Y = lower on screen)
+
+--- FORMULA RCR-CUT-003 ---
+Name:         Slope Height in World Meters
+Formula:      slopeHM = slopeWPx / scale
+Output:       slopeHM [m]  Real-world height of the 1:1 slope triangle
+
+--- FORMULA RCR-CUT-004 ---
+Name:         Boulder-to-Left-Bottom Intersection Y
+Formula:      yHitBldLeft = bTop + slopeWPx - bldPx
+Output:       yHitBldLeft [px]  Y pixel where the 1:1 slope hits the inner face of boulder backing
+
+--- FORMULA RCR-CUT-005 ---
+Name:         Embankment Slope X at Bottom Boundary (Left side)
+Formula:      xHitBBot = bxL - slopeWPx + (bBot - bTop)
+Output:       xHitBBot [px]  X pixel where the 1:1 slope reaches the bottom of the box
+
+--- FORMULA RCR-CUT-006 ---
+Name:         Slope Intersection with Cutting Plane
+Formula:      xCut = (bxL - slopeWPx) + (bxL_ext - (bxL - slopeWPx)) * ((cutY - bTop) / (yPccTop - bTop))
+Output:       xCut [px]  X pixel where the 1:1 embankment slope intersects the cutting plane
+Inputs:
+  bxL       = Left box face X (pixels)
+  slopeWPx  = Slope horizontal extent in pixels (equals slope height for 1:1 slope)
+  bxL_ext   = bxL - 0.15 * scale  (PCC extension left)
+  cutY      = yWearTop = wy(bedLvl + wearC)  (cutting plane Y pixel)
+  bTop      = wy(bedLvl + cH + tST)          (top of box Y pixel)
+  yPccTop   = bBot = wy(bedLvl - tSB)        (bottom of box Y pixel, same as PCC top)
+Explanation:
+  Linear interpolation: The slope runs from (bxL - slopeWPx, bTop) to
+  (bxL_ext, yPccTop). The cutting plane at cutY divides this line.
+  The x coordinate of the intersection is computed by parameter t =
+  (cutY - bTop) / (yPccTop - bTop) applied along the horizontal extent.
+Mathematics:
+  t = (cutY - bTop) / (yPccTop - bTop)
+  xCut = startX + t * (endX - startX)
+  where startX = bxL - slopeWPx, endX = bxL_ext
+
+--- FORMULA RCR-CUT-007 ---
+Name:         Boulder Polygon Morphing Condition
+Formula:      IF xCut < (bxL - bldPx):
+                Boulder polygon = 4-point rectangle
+                Points: [(bxL-bldPx, bTop), (bxL, bTop), (bxL, cutY), (bxL-bldPx, cutY)]
+              ELSE:
+                Boulder polygon = 5-point clipped polygon
+                Points: [(bxL-bldPx, bTop), (bxL, bTop), (bxL, cutY),
+                         (xCut, cutY), (bxL-bldPx, yHitBldLeft)]
+Explanation:
+  When the embankment slope slices through the boulder backing column
+  (600mm wide), the backing polygon must be clipped to the intersection.
+  If the slope clears the column entirely, a simple rectangle suffices.
+Source:       rcc-box-half-section-view.ts lines 963-987
+
+
+SECTION 6: CELL BARREL LOOP FORMULAS
+---------------------------------------
+
+--- FORMULA RCR-CELL-001 ---
+Name:         Cell X-Start Position (in world coords)
+Formula:      cellX_start[0] = -boxW/2 + tOW
+              cellX_start[i] = cellX_start[i-1] + cW + tIW   (for i = 1..cells-1)
+Output:       cellX_start [m]  World x-coordinate of the left inner face of each barrel
+Explanation:
+  Starting from the left outer wall, offset by tOW to reach the first barrel
+  inner face. Each successive cell starts cW + tIW further right.
+
+--- FORMULA RCR-CELL-002 ---
+Name:         Haunch Pixel Size
+Formula:      hPx = haunch * scale
+Output:       hPx [px]  Pixel size of the haunch (chamfer corner)
+
+--- FORMULA RCR-CELL-003 ---
+Name:         Cell Interior Clear Height Dimension Label
+Formula:      dim_label = (cH - safe_wc) * 1000  [mm]
+Inputs:       safe_wc = max(wearing_course, 0.150) [m]
+Explanation:
+  The dimension shown on the drawing for interior height is the structural
+  clear height minus wearing course, expressed in millimetres.
+
+--- FORMULA RCR-CELL-004 ---
+Name:         Dynamic Haunch Leader Y Offset
+Formula:      leaderBendY = bTop - (1.5 * scale)   [initial value]
+              WHILE |leaderBendY - formY| < minClearance
+                 OR |leaderBendY - railY| < minClearance:
+                leaderBendY -= shiftStep
+              leaderBendY = getSafeY(ctx, 'left', leaderBendY, shiftStep, minClearance)
+Inputs:
+  bTop          = wy(bedLvl + cH + tST)  (top of box in pixels)
+  scale         = viewport scale
+  minClearance  = 0.3 * scale  (0.3m real-world gap)
+  shiftStep     = 0.1 * scale  (0.1m increment)
+  formY         = wy(formLvl + wearC)
+  railY         = wy(railLvl + wearC)
+Explanation:
+  The haunch leader is initially placed 1.5m above the top of slab. An
+  iterative loop shifts it upward until it maintains at least 0.3m clearance
+  from both the formation level and rail level callout lines.
+Source:       rcc-box-half-section-view.ts lines 465-477
+
+
+SECTION 7: PARAPET AND EARTH CUSHION DRAWING FORMULAS
+-------------------------------------------------------
+
+--- FORMULA RCR-EARTH-001 ---
+Name:         225mm Parapet Gap Line Y
+Formula:      line225Y = bTop - 0.225 * scale
+Condition:    Only drawn IF earthCushionThickness > 0
+Output:       line225Y [px]  Horizontal line above top slab indicating parapet gap
+Explanation:
+  Indian Railways requires a 225mm parapet gap between the top of the box
+  culvert and the bottom of the ballast retaining wall / parapet above.
+Source:       rcc-box-half-section-view.ts line 440
+
+--- FORMULA RCR-EARTH-002 ---
+Name:         Earth Cushion Hatch Region
+Condition:    earthCushionThickness > 0
+Top Y:        wy(formLvl)
+Bottom Y:     bTop = wy(bedLvl + cH + tST)
+Width:        Full box width bxL to bxR
+Explanation:
+  The fill between the top of the box and the formation level is hatched
+  to represent compacted earth cushion.
+
+
+SECTION 8: FOUNDATION LAYERS
+------------------------------
+
+--- FORMULA RCR-FND-001 ---
+Name:         Granular Fill Layer Auto Height
+Formula:      totalGranPx = yGranBot - yGranTop
+              specifiedPx = sum of (layer.height/1000 * scale) for layers with explicit height
+              autoCount = count of layers without explicit height
+              autoPx = (totalGranPx - specifiedPx) / autoCount
+Explanation:
+  Foundation layers with user-specified heights occupy their exact pixel heights.
+  Remaining auto-sized layers share the remaining pixel space equally.
+Source:       rcc-box-half-section-view.ts lines 374-377
+
+
+SECTION 9: DESIGN CODE VALIDATION CHECKS
+------------------------------------------
+
+Check ID      Condition                                             Standard
+--------      ---------                                             --------
+RCR-VAL-001   t_wall_o >= 0.3m                                     IRS minimum
+RCR-VAL-002   t_slab_t >= 0.3m                                     IRS minimum
+RCR-VAL-003   clear_h >= 1.0m                                      IRS minimum headroom
+RCR-VAL-004   hfl < (bed_lvl + clear_h)  [HFL below inner crown]  IRS hydraulic
+RCR-VAL-005   hfl <= soffit_level                                   IRS hydraulic
+RCR-VAL-006   computed_soffit ≈ input soffit_level (diff < 0.01m)  IRS consistency
+RCR-VAL-007   earth_cushion >= 0.075m                              IRS railway loading
+RCR-VAL-008   haunch_size >= 0.3m                                  RDSO recommendation
+RCR-VAL-009   slab.width >= total_w                                Structural adequacy
+
+
+SECTION 10: BILL OF QUANTITIES STANDARD DIMENSIONS
+----------------------------------------------------
+
+Component              Symbol             Value      Unit
+---------              ------             -----      ----
+Shear key width        boq.shearKeyW      0.7        m
+Shear key height       boq.shearKeyH      1.2        m
+Return wall width      boq.retWallW       3.2        m
+Return wall height     boq.retWallH       1.3        m
+Toe wall length        boq.toeWallL       wingL + 0.082  m
+Toe wall width         boq.toeWallW       0.8        m
+Toe wall height        boq.toeWallH       1.0        m
+Curtain wall DS length boq.curtainDsL     12.2       m
+Curtain wall DS width  boq.curtainDsW     1.85       m
+Curtain wall US length boq.curtainUsL     12.2       m
+Curtain wall US width  boq.curtainUsW     1.5        m
+Flexible apron length  boq.flexApronL     12.2       m
+Flexible apron width   boq.flexApronW     6.0        m
+Flexible apron height  boq.flexApronH     0.75       m
+Approach slab length   boq.appSlabL       3.5        m
+Approach slab height   boq.appSlabH       0.3        m
+Wearing course height  boq.wearH          0.075      m
+Ballast retainer W     boq.ballastRetW    0.4        m
+Ballast retainer H     boq.ballastRetH    0.6        m
+
+================================================================================
+END OF RCC BOX RAILWAY FORMULA DOCUMENTATION
+================================================================================

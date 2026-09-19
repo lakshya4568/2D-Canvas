@@ -1,0 +1,211 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge Type: Hume Pipe (RCC Circular Pipe) Culvert
+Standard References: IRS (Indian Railway Standards), IS:458
+Module: src/app/features/bridges/utils/hume-pipe/hume-pipe-rule-engine.ts
+================================================================================
+
+PURPOSE
+-------
+A Hume Pipe Culvert uses one or more pre-cast RCC circular pipes placed
+below formation level. Each pipe has a nominal span (diameter) and is
+surrounded by compacted fill. Used for smaller waterway openings where
+an RCC box is over-designed.
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter              Symbol            Unit    Description
+-----------            ------            ----    -----------
+spanSize / pipeDia     spanVal           m       Nominal internal diameter of each pipe
+numPipes               numPipes          count   Number of parallel pipes
+wallThickness          wallThk           mm      Pipe wall thickness (default 180mm)
+formationLevel         fl                m       Formation level above datum
+railLevel              rl                m       Rail level above datum
+bedLevel               bl                m       Hydraulic bed / invert level above datum
+hfl                    hfl               m       Highest Flood Level above datum
+floorLevel             floorLevel        m       Floor level of culvert (usually = bl)
+foundingDepthBelowScour fd               m       Founding depth below scour (default 1.750m)
+formationWidth         formWidth         m       Total formation / road width (default 7.85m)
+formationWidthLeft     formLeft          m       Formation width on left side of CL
+formationWidthRight    formRight         m       Formation width on right side of CL
+pipeSpacing            pipeSpacing       mm      Centre-to-centre spacing between pipes (default 180mm)
+beddingThickness       beddingThk        mm      Granular bedding thickness under pipes (default 300mm)
+levelingCourse         levelingCourse    mm      Leveling course below bedding (default 150mm)
+rubbleSoling           rubbleSoling      mm      Stone soling / rubble layer thickness (default 300mm)
+wearingCourseThk       wearCourseThk     mm      Wearing course on approach road (default 100mm)
+
+
+SECTION 2: GEOMETRIC FORMULAS (HUME PIPE)
+-------------------------------------------
+
+--- FORMULA HPC-GEO-001 ---
+Name:         Pipe Diameter (in mm)
+Formula:      span_mm = spanVal * 1000
+Output:       span_mm [mm]  Nominal internal pipe diameter in millimetres
+
+--- FORMULA HPC-GEO-002 ---
+Name:         Pipe Wall Thickness Bottom Width Constraint
+Formula:      toeWallStemBotW = max(toeWallStemTopW, rawToeWallBotW)
+Output:       toeWallStemBotW [mm]  Stem bottom width (never narrower than top)
+Explanation:  Structural constraint: a tapered wall cannot be narrower at the
+              base than at the top.
+
+--- FORMULA HPC-GEO-003 ---
+Name:         Total Culvert External Width
+Formula:      total_w = (numPipes * spanVal) + ((numPipes + 1) * (wallThickness / 1000)) + 2.0
+Output:       total_w [m]  Overall culvert external width including approach fills
+Explanation:
+  numPipes pipe barrels each of diameter spanVal, with (numPipes+1) gaps
+  at wallThickness spacing, plus 2.0m of additional structural/fill width.
+
+--- FORMULA HPC-GEO-004 ---
+Name:         Hydraulic Flow Area
+Formula:      flowArea = numPipes * pi * (spanVal / 2)^2
+Output:       flowArea [m2]  Total waterway cross-sectional area
+Explanation:
+  Sum of circular cross-sections of all pipes. Used for waterway adequacy
+  checks against design discharge.
+
+--- FORMULA HPC-GEO-005 ---
+Name:         Actual Pipe Top Level
+Formula:      actualPipeTopM = bl + spanVal + (wallThickness / 1000)
+Output:       actualPipeTopM [m]  Elevation of the top of the pipe (outer crown)
+Explanation:
+  Starting from the bed level (invert / bottom of pipe interior), add the
+  internal diameter (spanVal) and one pipe wall thickness to get the
+  outer crown elevation.
+
+--- FORMULA HPC-GEO-006 ---
+Name:         Earth Cushion Height
+Formula:      derivedCushionM = max(0, fl - actualPipeTopM)
+Output:       cushionHeight [m]  Compacted fill between pipe crown and formation
+Explanation:
+  Same concept as RCC box: formation level minus pipe crown gives fill height.
+  Clamped to zero if pipe crown is above formation.
+
+--- FORMULA HPC-GEO-007 ---
+Name:         Barrel Length
+Formula:      barrelLength = formationWidth + 4 * cushionHeight
+Output:       barrelLength [m]  Total pipe length including extensions beyond formation
+Explanation:
+  Each 1m of cushion height requires 2m of additional embankment slope length
+  (1:1 slope) on each side, hence the 4× multiplier (2 sides × 2m/m slope).
+
+
+SECTION 3: LEVEL COMPUTATION FORMULAS
+---------------------------------------
+
+--- FORMULA HPC-LVL-001 ---
+Name:         Scour Level
+Formula:      IF rawScour is provided AND (scour < bl) AND (scour is not legacy default):
+                scourLevel = rawScour
+              ELSE:
+                scourLevel = round((bl - foundingDepthBelowScour) * 1000) / 1000
+Output:       scourLevel [m]  Anticipated maximum scour level below bed
+Explanation:
+  The scour level is the hydraulically computed depth of bed erosion during
+  a design flood event. If not explicitly provided, a default of
+  1.75m below bed level is used (IRS standard founding depth).
+Source:       hume-pipe-rule-engine.ts getComputedScourLevel() lines 109-120
+
+--- FORMULA HPC-LVL-002 ---
+Name:         Founding Level
+Formula:      foundingLevel = scourLevel - foundingDepthBelowScour
+Output:       foundingLevel [m]  Bottom of foundation below scour level
+Explanation:
+  The actual founding level for the culvert abutment / headwall foundation
+  must be foundingDepthBelowScour below the anticipated scour level.
+Source:       hume-pipe-rule-engine.ts line 174
+
+--- FORMULA HPC-LVL-003 ---
+Name:         Foundation Base Level
+Formula:      flBase = bl - foundationThickness        (foundationThickness = 1.219m)
+Output:       flBase [m]  Bottom of the total foundation package
+
+--- FORMULA HPC-LVL-004 ---
+Name:         Bedding Bottom Level
+Formula:      beddingBotM = bl - (beddingThickness / 1000)
+Output:       beddingBotM [m]  Bottom of granular bedding under pipes
+
+--- FORMULA HPC-LVL-005 ---
+Name:         Leveling Course Bottom Level
+Formula:      levelingBotM = beddingBotM - (levelingCourse / 1000)
+Output:       levelingBotM [m]  Bottom of leveling course
+
+--- FORMULA HPC-LVL-006 ---
+Name:         Found (Rubble Soling) Bottom Level
+Formula:      foundBotM = levelingBotM - (rubbleSoling / 1000)
+Output:       foundBotM [m]  Bottom of rubble soling / stone foundation layer
+
+--- FORMULA HPC-LVL-007 ---
+Name:         Headwall Top Level
+Formula:      headwallTopM = bl + (faceWallStemAboveGL / 1000)
+Output:       headwallTopM [m]  Top of headwall / face wall above bed level
+
+--- FORMULA HPC-LVL-008 ---
+Name:         Rail Level Default
+Formula:      rl = fl + 0.762     (if not explicitly provided)
+Output:       rl [m]  Rail level
+Explanation:  BG standard rail-to-formation offset = 0.762m
+
+
+SECTION 4: STRUCTURAL HEIGHT FORMULAS
+---------------------------------------
+
+--- FORMULA HPC-STR-001 ---
+Name:         Total Structural Height
+Formula:      total_h = abs(rl - bl)
+Output:       total_h [m]  Height from bed level to rail level
+
+--- FORMULA HPC-STR-002 ---
+Name:         Abutment Height
+Formula:      abutmentHeight = total_h - foundationThickness
+Output:       abutmentHeight [m]  Net visible height of the headwall/abutment
+Note:         foundationThickness = 1.219m (RDSO standard)
+
+--- FORMULA HPC-STR-003 ---
+Name:         Derived Stem Above Ground Level
+Formula:      derivedStemAboveGL = round((actualPipeTopM - bl + 0.150) * 1000)
+Output:       derivedStemAboveGL [mm]  Face wall stem height above ground line
+Explanation:
+  The face wall (headwall) stem must rise to cover the top of pipe plus
+  a 150mm clearance above.
+
+--- FORMULA HPC-STR-004 ---
+Name:         Face Wall Tier 1 Width
+Formula:      faceWallTier1Width = faceWallStemBotW + faceWallHeelProj + faceWallToeProj
+            = 610 + 500 + 250 = 1360mm (default)
+Output:       faceWallTier1Width [mm]  Width of the first foundation tier
+
+--- FORMULA HPC-STR-005 ---
+Name:         Face Wall Base Width
+Formula:      faceWallBaseWidth = faceWallTier1Width + 2 * faceWallBeddingProj
+            = 1360 + 2*200 = 1760mm (default)
+Output:       faceWallBaseWidth [mm]  Width at the very base including bedding projections
+
+--- FORMULA HPC-STR-006 ---
+Name:         Formation Width (Symmetric Split)
+Formula:      IF formLeft not provided: formLeft = rawFormation / 2
+              IF formRight not provided: formRight = rawFormation - formLeft
+              formationWidth = formLeft + formRight
+Output:       formationWidth [m]  Total formation width (same as input or sum)
+Explanation:
+  If only the total formation width is given, it is split symmetrically.
+  If one side is specified, the other takes the remainder.
+
+
+SECTION 5: DESIGN VALIDATION CHECKS
+--------------------------------------
+
+Check ID      Condition                                           Standard
+--------      ---------                                           --------
+HPC-VAL-001   rl > fl                                             Geometric requirement
+HPC-VAL-002   fl > bl                                             Geometric requirement
+HPC-VAL-003   hfl <= fl                                           Hydraulic clearance
+HPC-VAL-004   flowArea > design discharge / allowable velocity    Waterway adequacy
+
+================================================================================
+END OF HUME PIPE CULVERT FORMULA DOCUMENTATION
+================================================================================

@@ -19,8 +19,8 @@
 import type { FunctionDeclaration } from "../../ai/geminiChat";
 import type { Annotation, HatchMaterial, LayerCategory } from "../../cad/types";
 import { canvasYOfLevel } from "../../cad/types";
-import { COMPONENT_LIBRARY, componentRegistry } from "../../components/library";
-import { evaluateInstance } from "../../cad/document";
+import { COMPONENT_LIBRARY } from "../../components/library";
+import { definitionFor, evaluateInstance } from "../../cad/document";
 import { DBR_FIELD_META, type DbrFields, type InputStatus, type Lifecycle, type StructureType } from "../../bridge/project";
 import { runAudit, auditToText } from "../../bridge/audit";
 import { defaultSheet } from "../../cad/export";
@@ -30,6 +30,11 @@ import { regionAt } from "../../cad/region";
 import { BRIDGE_TERMS, termFor } from "../../bridge/glossary";
 import { recognizeBridge } from "../../bridge/recognize";
 import { ToolError, type DraftingWorkspace } from "./workspace";
+import { formatEntry, searchKnowledge, knowledgeFiles } from "../../bridge/knowledge";
+import { DRAFTING_SKILLS, findSkill } from "./skills";
+import { describePlan } from "../../components/fromDrawing";
+import { parametricSelection, planFor } from "../../state/cadActions";
+import type { TableRow, ValueUnit } from "../../components/types";
 
 type Args = Record<string, unknown>;
 
@@ -63,8 +68,8 @@ export const CAD_TOOLS: FunctionDeclaration[] = [
   },
   {
     name: "set_component_values",
-    description: "Change values of a placed component. It regenerates exactly what depends on them, or refuses and changes nothing.",
-    parameters: obj({ instance: S("Instance id, e.g. BRIDGE-1"), values: VALUES }, ["instance", "values"]),
+    description: "Change values of a placed component. It regenerates exactly what depends on them, or refuses and changes nothing. reset hands typed values back to their default (an auto value then follows its formula again).",
+    parameters: obj({ instance: S("Instance id, e.g. BRIDGE-1"), values: VALUES, reset: { type: "array", items: { type: "string" }, description: "Value names to hand back to their default/auto" } }, ["instance"]),
   },
   {
     name: "describe_component",
@@ -116,7 +121,7 @@ export const CAD_TOOLS: FunctionDeclaration[] = [
   {
     name: "annotate",
     description:
-      "Add drawing annotation. kind: text (at, text), note (text — appended to the sheet's general notes), leader (at = arrow point, to = note position, text), level (at a point on the geometry, label e.g. 'HFL' — the RL is read from the point), dimension (from, to, offset mm; linear unless aligned:true), hatch (at = a point inside a closed free-drawn outline, material), north (at), flow / kilometrage (at → to, label), section (at → to).",
+      "Add drawing annotation (see skill gad-drafting-style for how IR drawings use them). kind: text (at, text, height, align, rotation), note (text — appended to the sheet's general notes), leader (points [tip, elbow, shelf end] or at → to, text, placement above = text on the shelf), level (at a point on the geometry, label e.g. 'BED LEVEL', style gad, symbol — the RL is read from the point), dimension (from, to, offset mm, prefix, hide_value; linear unless aligned:true), hatch (at = a point inside a closed free-drawn outline, material, angle), north (at), flow / kilometrage (at → to, label), section (at → to).",
     parameters: obj(
       {
         kind: { type: "string", enum: ["text", "note", "leader", "level", "dimension", "hatch", "north", "flow", "kilometrage", "section"], description: "What to add" },
@@ -128,6 +133,17 @@ export const CAD_TOOLS: FunctionDeclaration[] = [
         offset: N("Dimension line offset in mm (positive: above/right)"),
         aligned: { type: "boolean", description: "Aligned dimension" },
         material: { type: "string", enum: Object.keys(HATCH_MATERIALS), description: "Hatch material" },
+        style: { type: "string", enum: ["marker", "gad"], description: "Level: gad writes 'LABEL = 101.000M.' on the line (IR GAD); marker is a triangle" },
+        format: S("Level text template with {label} and {rl}, e.g. '{label} = {rl}M' for HFL"),
+        symbol: { type: "string", enum: ["none", "water", "ground"], description: "Level symbol: water for HFL/LWL, ground for bed" },
+        placement: { type: "string", enum: ["end", "above"], description: "Leader: above writes the text on the shelf (IR callout style)" },
+        points: { type: "array", items: { type: "array", items: { type: "number" } }, description: "Leader: arrow tip, elbow(s), shelf end — [[x,y],…]" },
+        prefix: S("Dimension text before the number, e.g. 'V.C. '"),
+        hide_value: { type: "boolean", description: "Dimension without its number (the value is written in a note)" },
+        height: N("Text height, paper mm (default 2.5)"),
+        align: { type: "string", enum: ["left", "center", "right"], description: "Text alignment" },
+        rotation: N("Text rotation, degrees counter-clockwise"),
+        angle: N("Hatch pattern angle, degrees"),
       },
       ["kind"]
     ),
@@ -166,6 +182,58 @@ export const CAD_TOOLS: FunctionDeclaration[] = [
     parameters: obj({}),
   },
   {
+    name: "bridge_reference",
+    description:
+      "Look up the project's bridge formula documentation (docs/bridge-formulas): formulas by id (RCR-LVL-002, HPC-GEO-007, PSC-SLAB-005…), validation checks, the master glossary of variables and worked Q&A — RCC box (railway, highway), hume pipe, PSC slab, composite girder, open web girder, template engine. Use it instead of guessing a formula; quote the id you used. A limit found here is a project reference, still 'requires review'.",
+    parameters: obj({ query: S("Words to search for, e.g. 'earth cushion railway box', or an id like RCR-LVL-002"), limit: N("How many entries (default 4)") }, ["query"]),
+  },
+  {
+    name: "use_skill",
+    description: "Load a drafting skill: a playbook for one kind of drawing (what it contains, IR drafting style, which values drive it, the formulas behind it). Call with no name to list them. Load the matching one before drawing.",
+    parameters: obj({ name: S("Skill name, e.g. rcc-box-half-section, gad-drafting-style, make-parametric, bridge-levels, hume-pipe-culvert, psc-slab-bridge") }),
+  },
+  {
+    name: "make_parametric",
+    description:
+      "Turn what you drew by hand — with its dimensions, level markers and callouts — into ONE parametric component: site levels become inputs (m), dimensions drive (a dimension closing a loop, like the earth cushion, becomes a result), callouts like '150TH. WEARING COURSE' pointing into a layer become values, notes follow their numbers. Call with preview:true first and read the plan; rename with rename, make a dimension a result with results. Refused if any vertex would move.",
+    parameters: obj({
+      preview: { type: "boolean", description: "Only show the plan" },
+      name: S("Component name"),
+      shapes: { type: "array", items: { type: "string" }, description: "Only these shapes (default: everything drawn freely)" },
+      rename: { type: "array", items: obj({ key: S("Key from the plan (dimension id, callout key, level id or position key)"), name: S("New name, PascalCase") }, ["key", "name"]), description: "Names to use" },
+      results: { type: "array", items: { type: "string" }, description: "Dimension keys to treat as results (worked out) rather than driving" },
+      replace: S("Definition id of a drawing component this replaces (keeps its relationships)"),
+    }),
+  },
+  {
+    name: "relationship",
+    description:
+      "Write your own formula on a placed component: name = expression. If name is one of its values, that value follows the expression instead of being typed (e.g. RailLevel = FormationLevel + 0.762); otherwise a new worked-out value is reported (e.g. CushionRatio = EarthCushion / ClearSpan). Levels are in m, lengths in mm. Omit expr to remove it. Refused (nothing changes) if it names something unknown, goes round in a circle or breaks the component.",
+    parameters: obj({ instance: S("Instance id"), name: S("Value name"), expr: S("Expression; omit to remove the relationship") }, ["instance", "name"]),
+  },
+  {
+    name: "add_input",
+    description: "Add an input of your own to a placed component, for relationships to use (e.g. SlopeRatio = 1.5).",
+    parameters: obj({ instance: S("Instance id"), name: S("PascalCase name"), value: N("Value"), unit: { type: "string", enum: ["mm", "m", "-", "deg", "m2"], description: "Unit" } }, ["instance", "name", "value"]),
+  },
+  {
+    name: "set_table",
+    description: "Set the rows of a component's table value (e.g. foundation layers of the RCC half section: [{name, thickness, hatch}]). Rows are listed top to bottom.",
+    parameters: obj(
+      {
+        instance: S("Instance id"),
+        table: S("Table name, e.g. Layers"),
+        rows: { type: "array", items: { type: "object" }, description: "Rows: objects with the table's columns (component_info lists them)" },
+      },
+      ["instance", "table", "rows"]
+    ),
+  },
+  {
+    name: "edit_geometry",
+    description: "Turn a placed component back into free lines and annotations so its SHAPE can be edited (names stay on its dimensions). Make it parametric again afterwards (make_parametric with replace=<definition id> keeps its relationships).",
+    parameters: obj({ instance: S("Instance id") }, ["instance"]),
+  },
+  {
     name: "make_sheet",
     description: "Lay out a drawing sheet with title block, notes and a locked standard scale that fits the drawing.",
     parameters: obj({ size: { type: "string", enum: ["A0", "A1", "A2", "A3"], description: "Paper; important/major bridge GADs are A0, others A1" } }),
@@ -196,6 +264,11 @@ function need(a: Args, k: string) {
   if (!p) throw new ToolError(`"${k}" [x, y] is required.`);
   return p;
 }
+function numOr(a: Args, k: string, fallback: number): number {
+  const v = Number(a[k]);
+  return a[k] === undefined || a[k] === null || !Number.isFinite(v) ? fallback : v;
+}
+
 /** Model (Y up) → canvas (Y down). */
 const toCanvas = (p: { x: number; y: number }) => ({ x: p.x, y: p.y === 0 ? 0 : -p.y });
 
@@ -216,18 +289,32 @@ function values(a: Args): Record<string, number> {
 
 const f = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3))));
 
+function instanceOf(ws: DraftingWorkspace, id: string) {
+  const inst = ws.cad.components.find((c) => c.id === id || c.name === id);
+  if (!inst) throw new ToolError(`No component "${id}". Placed: ${ws.cad.components.map((c) => c.id).join(", ") || "none"}.`);
+  return inst;
+}
+
 export function describeInstance(ws: DraftingWorkspace, id: string): string {
   const inst = ws.cad.components.find((c) => c.id === id || c.name === id);
   if (!inst) throw new ToolError(`No component "${id}". Placed: ${ws.cad.components.map((c) => c.id).join(", ") || "none"}.`);
-  const def = componentRegistry.get(inst.definitionId)!;
+  const def = definitionFor(ws.cad, inst.definitionId)!;
   const out = evaluateInstance(inst, ws.cad);
   if (!out) throw new ToolError(`Unknown definition ${inst.definitionId}.`);
-  const vals = def.parameters.map((p) => `${p.name}=${f(inst.values[p.name] ?? p.default)}${p.unit === "-" ? "" : p.unit}${inst.values[p.name] === undefined ? " (default)" : ""}`);
-  const derived = (def.formulas ?? []).filter((x) => x.report).map((x) => `${x.label ?? x.name}=${f(out.evaluation.scope[x.name])}${x.unit && x.unit !== "-" ? x.unit : ""}`);
+  const src = out.evaluation.sources;
+  const vals = def.parameters.map((p) => `${p.name}=${f(out.evaluation.scope[p.name] ?? p.default)}${p.unit === "-" ? "" : p.unit}${src[p.name] === "default" ? " (default)" : src[p.name] === "auto" ? " (auto)" : src[p.name] === "related" ? " (relationship)" : ""}`);
+  const derived = [
+    ...(def.formulas ?? []).filter((x) => x.report).map((x) => `${x.label ?? x.name}=${f(out.evaluation.scope[x.name])}${x.unit && x.unit !== "-" ? x.unit : ""}`),
+    ...(inst.relations ?? []).filter((r) => !def.parameters.some((p) => p.name === r.name)).map((r) => `${r.name}=${f(out.evaluation.scope[r.name])} (your relationship)`),
+  ];
+  const rels = (inst.relations ?? []).map((r) => `${r.name} = ${r.expr}`);
+  const tables = Object.entries(out.evaluation.tables).map(([t, rows]) => `${t}: ${JSON.stringify(rows)}`);
   const issues = out.evaluation.issues.map((i) => `${i.severity.toUpperCase()}: ${i.path ? i.path + ": " : ""}${i.message}`);
   return [
     `${inst.id} "${inst.name}" — ${def.name}${inst.absoluteElevation ? " (at true levels)" : ""}.`,
     `Values: ${vals.join(", ")}.`,
+    tables.length ? `Tables: ${tables.join(" ")}` : "",
+    rels.length ? `Relationships: ${rels.join("; ")}.` : "",
     derived.length ? `Worked out: ${derived.join(", ")}.` : "",
     issues.length ? `Problems:\n  ${issues.join("\n  ")}` : "No problems.",
   ]
@@ -237,32 +324,33 @@ export function describeInstance(ws: DraftingWorkspace, id: string): string {
 
 export function componentsSummary(ws: DraftingWorkspace): string {
   if (ws.cad.components.length === 0) return "";
-  return `Components: ${ws.cad.components.map((c) => `${c.id} (${componentRegistry.get(c.definitionId)?.name ?? c.definitionId})`).join("; ")}. Annotations: ${ws.cad.annotations.filter((a) => !a.componentInstanceId).length} free.`;
+  return `Components: ${ws.cad.components.map((c) => `${c.id} (${definitionFor(ws.cad, c.definitionId)?.name ?? c.definitionId})`).join("; ")}. Annotations: ${ws.cad.annotations.filter((a) => !a.componentInstanceId).length} free.`;
 }
 
 export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): { text: string } | null {
   switch (name) {
     case "list_components":
       return {
-        text: COMPONENT_LIBRARY.map((d) => `${d.id} — ${d.name} [${d.category}, ${d.view}, ${d.parameters.length} values]: ${d.description}`).join("\n"),
+        text: [...(ws.cad.definitions ?? []), ...COMPONENT_LIBRARY].map((d) => `${d.id} — ${d.name} [${d.origin?.kind === "drawn" ? "made from this drawing" : d.category}, ${d.view}, ${d.parameters.length} values]: ${d.description}`).join("\n"),
       };
 
     case "component_info": {
-      const def = componentRegistry.get(str(a, "definition"));
+      const def = definitionFor(ws.cad, str(a, "definition"));
       if (!def) throw new ToolError(`No component "${a.definition}". Call list_components.`);
       const params = def.parameters.map(
-        (p) => `  ${p.name} (${p.label ?? p.name}) ${p.unit} default ${f(p.default)}${p.min !== undefined || p.max !== undefined ? ` usual ${p.min ?? "…"}–${p.max ?? "…"}` : ""}${p.options ? ` options ${p.options.map((o) => `${o.value}=${o.label}`).join(", ")}` : ""} [${p.group ?? ""}]`
+        (p) => `  ${p.name} (${p.label ?? p.name}) ${p.unit} default ${f(p.default)}${p.defaultExpr !== undefined ? " (auto: follows its formula until typed)" : ""}${p.min !== undefined || p.max !== undefined ? ` usual ${p.min ?? "…"}–${p.max ?? "…"}` : ""}${p.options ? ` options ${p.options.map((o) => `${o.value}=${o.label}`).join(", ")}` : ""} [${p.group ?? ""}]`
       );
-      const derived = (def.formulas ?? []).filter((x) => x.report).map((x) => `  ${x.name}: ${x.label ?? ""} ${x.unit ?? ""}`);
+      const derived = (def.formulas ?? []).filter((x) => x.report).map((x) => `  ${x.name}: ${x.label ?? ""} ${x.unit ?? ""}${x.cites?.length ? ` [${x.cites.join(", ")}]` : ""}`);
       const anchors = (def.anchors ?? []).map((x) => x.id);
+      const tables = (def.tables ?? []).map((t) => `  ${t.name} (${t.label ?? ""}): columns ${t.columns.map((c) => `${c.name} ${c.kind}${c.unit ? " " + c.unit : ""}${c.options ? ` [${c.options.map((o) => `${o.value}=${o.label}`).join(", ")}]` : ""}`).join("; ")}; default rows ${JSON.stringify(t.rows)}`);
       return {
-        text: `${def.name} (${def.id}). ${def.description}\nValues:\n${params.join("\n")}${derived.length ? `\nWorked out (read-only):\n${derived.join("\n")}` : ""}${anchors.length ? `\nAnchors: ${anchors.join(", ")}` : ""}`,
+        text: `${def.name} (${def.id}). ${def.description}\nValues:\n${params.join("\n")}${tables.length ? `\nTables (set_table):\n${tables.join("\n")}` : ""}${derived.length ? `\nWorked out (read-only):\n${derived.join("\n")}` : ""}${anchors.length ? `\nAnchors: ${anchors.join(", ")}` : ""}`,
       };
     }
 
     case "insert_component": {
       const id = str(a, "definition");
-      if (!componentRegistry.get(id)) throw new ToolError(`No component "${id}". Call list_components.`);
+      if (!definitionFor(ws.cad, id)) throw new ToolError(`No component "${id}". Call list_components.`);
       const at = xy(a, "at") ?? { x: 0, y: 0 };
       const r = ws.applyCad({ type: "CAD_INSERT_COMPONENT", definitionId: id, values: values(a), at: toCanvas(at), name: optStr(a, "name") });
       if (!r.ok) throw new ToolError(r.message);
@@ -272,9 +360,22 @@ export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): {
 
     case "set_component_values": {
       const inst = str(a, "instance");
-      const r = ws.applyCad({ type: "CAD_SET_COMPONENT_VALUES", instanceId: ws.cad.components.find((c) => c.id === inst || c.name === inst)?.id ?? inst, values: values(a) });
-      if (!r.ok) throw new ToolError(r.message);
-      return { text: `${r.message}\n${describeInstance(ws, inst)}` };
+      const id = ws.cad.components.find((c) => c.id === inst || c.name === inst)?.id ?? inst;
+      const msgs: string[] = [];
+      const reset = Array.isArray(a.reset) ? (a.reset as string[]) : [];
+      if (reset.length) {
+        const r = ws.applyCad({ type: "CAD_EDIT_COMPONENT_INPUTS", instanceId: id, clear: reset });
+        if (!r.ok) throw new ToolError(r.message);
+        msgs.push(r.message);
+      }
+      const vals = values(a);
+      if (Object.keys(vals).length) {
+        const r = ws.applyCad({ type: "CAD_SET_COMPONENT_VALUES", instanceId: id, values: vals });
+        if (!r.ok) throw new ToolError(r.message);
+        msgs.push(r.message);
+      }
+      if (!msgs.length) throw new ToolError("Give values to set or names to reset.");
+      return { text: `${msgs.join("\n")}\n${describeInstance(ws, inst)}` };
     }
 
     case "describe_component":
@@ -293,6 +394,11 @@ export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): {
       const status = str(a, "status") as InputStatus;
       if (!["INFERRED", "ASSUMED_FOR_DRAFT", "PENDING_CONFIRMATION"].includes(status)) {
         throw new ToolError("The agent cannot confirm a design value — use INFERRED, ASSUMED_FOR_DRAFT or PENDING_CONFIRMATION. A person confirms it against the approved source.");
+      }
+      // Only a level can be needed to DRAW; discharge, bearing capacity, seismic zone, loading
+      // and the like are design data a person supplies — an agent's guess would only hide the gap.
+      if (status === "ASSUMED_FOR_DRAFT" && meta.kind !== "level") {
+        throw new ToolError(`${meta.label} is design data, not something the drawing needs. Leave it missing and list it as data needed in your summary; a person enters it.`);
       }
       const raw = str(a, "value");
       const value = meta.kind === "text" ? raw : Number(raw);
@@ -394,6 +500,95 @@ export function dispatchCadTool(ws: DraftingWorkspace, name: string, a: Args): {
       return { text: auditToText(r) };
     }
 
+    case "bridge_reference": {
+      const q = str(a, "query");
+      const hits = searchKnowledge(q, Math.max(1, Math.min(8, numOr(a, "limit", 4))));
+      if (!hits.length) return { text: `Nothing in the bridge reference matches "${q}". Documents: ${knowledgeFiles().map((d) => d.title).join("; ")}.` };
+      const cited = (id: string) =>
+        [...(ws.cad.definitions ?? []), ...COMPONENT_LIBRARY]
+          .filter((d) => (d.formulas ?? []).some((x) => x.cites?.includes(id)))
+          .map((d) => d.id);
+      return {
+        text:
+          hits.map((e) => formatEntry(e) + (cited(e.id).length ? `\n(Implemented in component ${cited(e.id).join(", ")}.)` : "")).join("\n\n") +
+          "\n\nProject reference, not a code: limits here still require review against the clause.",
+      };
+    }
+
+    case "use_skill": {
+      const nm = optStr(a, "name");
+      if (!nm) return { text: DRAFTING_SKILLS.map((k) => `${k.name}: ${k.title} — when ${k.when}.`).join("\n") };
+      const skill = findSkill(nm);
+      if (!skill) throw new ToolError(`No skill "${nm}". Skills: ${DRAFTING_SKILLS.map((k) => k.name).join(", ")}.`);
+      return { text: skill.body };
+    }
+
+    case "make_parametric": {
+      const rename: Record<string, string> = {};
+      for (const r of (Array.isArray(a.rename) ? a.rename : []) as { key?: string; name?: string }[]) if (r?.key && r?.name) rename[r.key] = r.name;
+      const drive: Record<string, boolean> = {};
+      for (const k of (Array.isArray(a.results) ? a.results : []) as string[]) drive[k] = false;
+      const shapeIds = Array.isArray(a.shapes) && a.shapes.length ? ws.expandIds(a.shapes as string[]) : undefined;
+      const options = { name: optStr(a, "name"), rename, drive, definitionId: optStr(a, "replace") };
+      const all = ws.allShapes();
+      const sel = parametricSelection(all, ws.cad, shapeIds);
+      if (!sel.shapes.length) throw new ToolError("Nothing drawn freely to make parametric.");
+      const plan = planFor(all, ws.cad, sel, options);
+      const keys = plan.edges.map((e) => `${e.key} → ${e.name} (${e.role}, ${Math.round(e.value)})`).join("; ");
+      const levels = plan.levels.map((l) => `${l.key} → ${l.name}`).join("; ");
+      if (a.preview === true || plan.mismatches.length) {
+        return { text: `${describePlan(plan)}\nKeys for rename/results — dimensions and callouts: ${keys || "none"}; levels: ${levels || "none"}.${plan.mismatches.length ? "\nFix these before converting." : ""}` };
+      }
+      const r = ws.convert({ type: "CAD_MAKE_PARAMETRIC", shapeIds, options });
+      if (!r.ok) throw new ToolError(r.message);
+      const inst = ws.cad.components[ws.cad.components.length - 1];
+      return { text: `${r.message}\n${describeInstance(ws, inst.id)}` };
+    }
+
+    case "relationship": {
+      const inst = instanceOf(ws, str(a, "instance"));
+      const name = str(a, "name");
+      const expr = optStr(a, "expr");
+      const relations = (inst.relations ?? []).filter((r) => r.name !== name);
+      if (expr) relations.push({ name, expr });
+      const r = ws.applyCad({ type: "CAD_EDIT_COMPONENT_INPUTS", instanceId: inst.id, relations });
+      if (!r.ok) throw new ToolError(r.message);
+      return { text: `${r.message}\n${describeInstance(ws, inst.id)}` };
+    }
+
+    case "add_input": {
+      const inst = instanceOf(ws, str(a, "instance"));
+      const name = str(a, "name");
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new ToolError("A name is letters, digits and _, starting with a letter.");
+      const value = Number(a.value);
+      if (!Number.isFinite(value)) throw new ToolError(`"value" must be a number.`);
+      const unit = (optStr(a, "unit") ?? "mm") as ValueUnit;
+      const customValues = [...(inst.customValues ?? []).filter((c) => c.name !== name), { name, value, unit }];
+      const r = ws.applyCad({ type: "CAD_EDIT_COMPONENT_INPUTS", instanceId: inst.id, customValues });
+      if (!r.ok) throw new ToolError(r.message);
+      return { text: `${name} = ${value} ${unit} added to ${inst.name}; use it in a relationship.` };
+    }
+
+    case "set_table": {
+      const inst = instanceOf(ws, str(a, "instance"));
+      const table = str(a, "table");
+      const def = definitionFor(ws.cad, inst.definitionId);
+      if (!def?.tables?.some((t) => t.name === table)) throw new ToolError(`${inst.name} has no table "${table}". Tables: ${(def?.tables ?? []).map((t) => t.name).join(", ") || "none"}.`);
+      if (!Array.isArray(a.rows)) throw new ToolError(`"rows" must be a list of objects.`);
+      const rows = (a.rows as TableRow[]).map((r) => ({ ...r }));
+      const r = ws.applyCad({ type: "CAD_EDIT_COMPONENT_INPUTS", instanceId: inst.id, tables: { [table]: rows } });
+      if (!r.ok) throw new ToolError(r.message);
+      return { text: `${r.message}\n${describeInstance(ws, inst.id)}` };
+    }
+
+    case "edit_geometry": {
+      const inst = instanceOf(ws, str(a, "instance"));
+      const def = definitionFor(ws.cad, inst.definitionId);
+      const r = ws.convert({ type: "CAD_EXPLODE_COMPONENT", instanceId: inst.id });
+      if (!r.ok) throw new ToolError(r.message);
+      return { text: `${inst.name} is free geometry again (${def?.id}). Edit it, then make_parametric${def?.origin?.kind === "drawn" ? ` with replace="${def.id}" to keep its relationships` : ""}.` };
+    }
+
     case "make_sheet": {
       const size = (optStr(a, "size") ?? "A1") as PaperSize;
       const sheet = defaultSheet(ws.allShapes(), ws.cad, size);
@@ -415,23 +610,42 @@ function annotate(ws: DraftingWorkspace, a: Args): string {
       return `Note ${ws.cad.project.notes.length} added to the sheet notes.`;
     }
     case "text":
-      ann = { type: "text", at: P(need(a, "at")), text: str(a, "text"), height: ws.cad.settings.textHeight } as Omit<Annotation, "id">;
+      ann = {
+        type: "text",
+        at: P(need(a, "at")),
+        text: str(a, "text"),
+        height: numOr(a, "height", ws.cad.settings.textHeight),
+        align: (optStr(a, "align") as "left" | "center" | "right" | undefined) ?? "left",
+        rotation: numOr(a, "rotation", 0) || undefined,
+      } as Omit<Annotation, "id">;
       break;
-    case "leader":
-      ann = { type: "leader", points: [P(need(a, "at")), P(need(a, "to"))], text: str(a, "text"), height: ws.cad.settings.textHeight } as Omit<Annotation, "id">;
+    case "leader": {
+      const pts = Array.isArray(a.points) && a.points.length >= 2 ? (a.points as unknown[]).map((p, i) => xy({ [`p${i}`]: p }, `p${i}`)!) : [need(a, "at"), need(a, "to")];
+      ann = {
+        type: "leader",
+        points: pts.map(P),
+        text: str(a, "text"),
+        height: numOr(a, "height", ws.cad.settings.textHeight),
+        placement: optStr(a, "placement") === "above" ? "above" : undefined,
+      } as Omit<Annotation, "id">;
       break;
-    case "level":
-      ann = { type: "level", at: P(need(a, "at")), label: (optStr(a, "label") ?? "").toUpperCase() } as Omit<Annotation, "id">;
+    }
+    case "level": {
+      const style = optStr(a, "style") === "gad" ? "gad" : undefined;
+      const symbol = optStr(a, "symbol") as "none" | "water" | "ground" | undefined;
+      ann = { type: "level", at: P(need(a, "at")), label: (optStr(a, "label") ?? "").toUpperCase(), style, format: optStr(a, "format"), symbol } as Omit<Annotation, "id">;
       break;
+    }
     case "dimension": {
       const p1 = need(a, "from");
       const p2 = need(a, "to");
       const off = Number(a.offset ?? 0);
+      const extra = { prefix: optStr(a, "prefix"), hideValue: a.hide_value === true ? true : undefined };
       if (a.aligned === true) {
-        ann = { type: "dimension", kind: "aligned", p1: P(p1), p2: P(p2), offset: -off, mode: "reference" } as Omit<Annotation, "id">;
+        ann = { type: "dimension", kind: "aligned", p1: P(p1), p2: P(p2), offset: -off, mode: "reference", ...extra } as Omit<Annotation, "id">;
       } else {
         const axis = Math.abs(p2.x - p1.x) >= Math.abs(p2.y - p1.y) ? "x" : "y";
-        ann = { type: "dimension", kind: "linear", axis, p1: P(p1), p2: P(p2), offset: axis === "x" ? -off : off, mode: "reference" } as Omit<Annotation, "id">;
+        ann = { type: "dimension", kind: "linear", axis, p1: P(p1), p2: P(p2), offset: axis === "x" ? -off : off, mode: "reference", ...extra } as Omit<Annotation, "id">;
       }
       break;
     }
@@ -440,7 +654,7 @@ function annotate(ws: DraftingWorkspace, a: Args): string {
       const r = regionAt(ws.displayShapes(), at);
       if (!r) throw new ToolError("No closed free-drawn outline around that point. Components hatch themselves; for your own geometry close the outline first.");
       const material = (optStr(a, "material") ?? "concrete") as HatchMaterial;
-      ann = { type: "hatch", material, boundary: { kind: "shapes", shapeIds: r.shapeIds, holeShapeIds: r.holeIds.flat() } } as Omit<Annotation, "id">;
+      ann = { type: "hatch", material, angle: numOr(a, "angle", 0) || undefined, boundary: { kind: "shapes", shapeIds: r.shapeIds, holeShapeIds: r.holeIds.flat() } } as Omit<Annotation, "id">;
       break;
     }
     case "north":
