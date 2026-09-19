@@ -22,6 +22,91 @@ export interface DraftingSkill {
   body: string;
 }
 
+const DRAFTSMAN_METHOD = `# The draftsman's method — any structure
+
+Do not make the drawing look correct first. Make the geometry correct first; then make the drawing look complete. The tools enforce this order.
+
+## 1. Before any tool: what am I building, and how would a draftsman build it?
+- What exactly am I asked to build? What type of structure is it? (plan.structure)
+- Which views does it need — plan, elevation, section, details, key plan? (plan.views) They are one model: every view reads the same values.
+- What are the controlling axes and levels? (datum features) Centre lines, the structure axis, and the level lines that everything hangs from.
+- Which sizes drive the geometry, and which follow from them? (typed values vs formulas)
+- Which of those sizes were actually GIVEN? Anything the design must supply and nobody gave is source "required": a placeholder, reported — never invented. You draft; you do not design.
+- Which parts depend on which? (feature stage and after) What sequence would a real draftsman use, and which tool builds each part (construct, offset, mirror, repeat, boolean) instead of approximating it?
+
+## 2. The sequence (stages, enforced)
+1. datum — set out: centre line(s), structure axis, controlling level lines (long lines at their true height). Construction lines that should not plot go on layer construction.
+2. primary — the main body from the datums. The defining space first (a clear opening, a deck profile), then the material around it by offsets (walls, slabs). Repeated parts from one pattern and a count value (construct repeat {count, index}, or transform copy).
+3. detail — what attaches to the body: haunches, bedding and lean concrete, footings, headwalls, wing/return walls, curtain/drop walls, aprons, protection.
+4. context — what the structure serves or sits in: ground/bed line, embankment, formation, ballast, track.
+5. check_geometry — must pass before any annotation: checks hold, nothing collapses or inverts, every written number EXISTS in the geometry, every level has a line at its height, every value regenerates cleanly.
+6. annotation — dimensions (controlling sizes first), level callouts on their lines, leaders, notes, hatching, section marks, titles.
+7. verify (and compare_reference with a reference), correct at the cause, finish.
+
+## 3. Geometry, mathematically
+- Derive, do not type: OuterWidth = n × Span + 2 × Wall + (n − 1) × MidWall; SoffitY = InvertY + ClearHeight; TopY = SoffitY + TopSlab. If one value changes, every dependent face moves with it and nothing else does.
+- Every face has a datum value (an X or a Y); outlines are built from datums, so they stay closed and square under any edit.
+- A thickness is the distance between two faces (offset), never a separately guessed rectangle. A clear opening is inside face to inside face.
+- A count is a value: CellCount drives a repeat; interior walls = CellCount − 1 (repeat with count "CellCount - 1").
+- Skew is a rotation of the plan about the structure's centre by SkewAngle (transform rotate, angle an expression): the square span and the skew span are both geometry — dimension both.
+- Relationships that must survive edits (a span longer than two haunches, a positive cushion) go in plan.constraints.
+
+## 4. Dimensions come from geometry
+Dimension only after check_geometry, between points of the geometry: a clear span inside-to-inside, a thickness across its member, an overall size outside-to-outside, a level difference between the two level lines. The number is measured, never typed; when the geometry changes the dimension changes. A dimension on exactly one value's two faces becomes that value's handle.
+
+## 5. Annotation is presentation over correct geometry
+Level callouts on their lines (RL read from the height), flow direction, structural labels, material notes, standard/RDSO references where the brief gives them, section markers, hatching, existing/proposed notation, title. Texts that state a value use its placeholder ({Span}, {Span:m}).
+
+## 6. Learn the grammar, not the example
+Axes establish position. Levels establish vertical relationships. Clear openings define internal space. Thicknesses are offsets. Repeats come from a pattern. Wings relate to the structure and the alignment. The track relates to the railway centre line and sits on the formation, above the structure. Dimensions describe the finished geometry; annotation explains it.`;
+
+const RCC_BOX_CULVERT = `# RCC box culvert (railway) — built from its geometry
+
+The simplest complete railway-bridge drawing: one closed concrete box with its clear opening, walls, slabs, invert, levels and wings. Slab, T-beam and larger bridges reuse the same grammar. Load draftsman-method first. Formula ids: bridge_reference id=RCR-GEO-001 etc.
+
+## Inputs — from the brief/DBR/RDSO drawing, never invented
+Cell count; clear span and clear height per cell; outer and interior wall thickness; top and bottom slab thickness; haunch (if shown); invert/bed level; rail, formation, HFL; skew angle; foundation/bedding thickness; wing/return wall type and length; cushion below sleeper. What the brief does not give is source "required" (placeholder, reported). IRBM: skew generally restricted to 30°; boxes are not normally used on a scour-prone bed; minimum clear span 1 m for new bridges — "requires review", never "compliant".
+
+## Datums (stage datum)
+Section: the structure centre line (x = 0) and the level lines — rail, formation, HFL, bed/invert, bottom of foundation — at y = RL × 1000. Plan: the railway centre line (track axis) and the structure axis (square, or rotated by SkewAngle), upstream/downstream faces, direction of increasing kilometrage.
+
+## Values and relations (typical — follow what the brief actually gives)
+- InvertY = BedLevel × 1000 (or bed − wearing course when a wearing course sits inside the cell: RCR-GEO-004…007).
+- SoffitY = InvertY + ClearHeight; TopY = SoffitY + TopSlab; BaseY = InvertY − BottomSlab; bedding below BaseY.
+- OuterWidth = CellCount × ClearSpan + 2 × Wall + (CellCount − 1) × MidWall (RCR-GEO-001); HalfWidth = OuterWidth / 2 with x = 0 at the centre.
+- Cell k's inside faces (k = 0 … CellCount − 1): XIn = −HalfWidth + Wall + k × (ClearSpan + MidWall); XOut = XIn + ClearSpan.
+- Checks: every written level against the chain (soffit, top of slab, bottom of box); overall width; cushion = formation − top of slab.
+
+## Primary (stage primary)
+1. The clear openings: one cell loop written with the index k (construct repeat {count: "CellCount", index: "k"}), haunches cut from its corners if shown.
+2. The concrete around them: the outer outline (rect −HalfWidth … HalfWidth, BaseY … TopY). Outer minus openings is the walls and slabs — do not draw walls as separate guessed rectangles.
+3. Top slab continuous over the cells unless the drawing says otherwise.
+
+## Details and context (stages detail, context)
+Bedding / lean concrete under the base slab; headwalls/face walls at inlet and outlet (plan and elevation); curtain/drop wall, apron, pitching, toe wall where the drawing requires; wing walls (splayed) or return walls (parallel), symmetric about the centre line unless the site is not; then formation, ballast/cushion and the track on top — the box and its levels come before the track.
+
+## Progression (learn in this order)
+Single-cell square box → multi-cell box (CellCount drives the repeat) → skew box (plan rotated by SkewAngle; square and skew spans both shown) → box with wings, curtain/drop walls and apron → slab culvert on abutments → multi-span slab → T-beam with bearings and diaphragms.
+
+## Dimensions (after check_geometry), in this order
+1 clear span of each cell (repeat the dimension with the cell's index); 2 clear height; 3 wall thicknesses; 4 slab thicknesses; 5 overall outer width and height; 6 foundation/bedding thickness; 7 wing wall lengths and splay; 8 chainage and length along the track; 9 skew angle; 10 distances from reference points.
+
+## Levels and notes (annotation)
+Rail, formation, HFL, bed/invert, soffit (if shown), bottom of foundation — callouts on their lines. Flow direction; bore-log/founding note; material grades, loading standard and RDSO drawing number only as the brief gives them; revision/approval block. Hatch concrete in section, earth/backfill behind walls.
+
+## Worked check (from a brief, not a default)
+3 cells, clear span 2000, walls 350: OuterWidth = 3 × 2000 + 4 × 350 = 7400. Change the span to 2500 and the walls stay 350: OuterWidth = 8900. That is the relation the construction must keep.`;
+
+const RCC_BRIDGE_SEQUENCE = `# RCC slab / T-beam / multi-span bridge — drawing sequence
+
+The same grammar as the box culvert, with more parts. Load draftsman-method first. Build in this order (datum → primary → detail → context → annotation):
+1. datum: alignment, chainage, track centre line, flow direction, levels (rail, formation, HFL, bed, foundation); abutment and pier centre lines — setting-out before outlines.
+2. primary: foundations (open footing, pile cap, well — as the design gives), abutments, piers, then the superstructure: RCC slab or T-beams/girders seated on them. Spans and pier positions from a span count and span length (repeat or copy along the alignment).
+3. detail: bed blocks and bearings (deck seating depends on them), diaphragms, wing/return walls, weep holes after the wall outline (only if the drawing shows them), parapets, drainage.
+4. context: deck, ballast, track; protection works and approaches.
+5. annotation: dimensions, RL/HFL callouts, schedules, notes, title block.
+IRBM classification (major / important), vertical clearance and free board are design matters: show the values the brief gives, cite them as "requires review", never invent them.`;
+
 const RECONSTRUCTION = `# Reconstructing a GAD from a reference image — any structure
 
 The goal: the same drawing, constructed from primitives, where every written number is measured back from your geometry and every line sits on the reference's line.
@@ -44,12 +129,13 @@ Go region by region (left annotation column, structure, right side, below ground
 - Checks: every written number you did not type (F.B., clearances, levels that follow from the chain, overall widths). A failing check = a misread number, a wrong relation, or a contradiction on the reference — decide which, now.
 - Unwritten sizes (a wall's length, where a slope stops, a coping's thickness): derive from written ratios where possible (a 2:1 slope spanning a known height has a known width); otherwise scale them from the image: construct the written structure first, call compare_reference with locate points to read image positions in model mm, then add them to the plan as values (note: "scaled from the reference").
 
-## 3. Construction order (plan.features)
-1. Structure outline(s) and openings from datums (loops; mirror about the centre line; copy for repeated cells/spans).
-2. Layers and bands (cushion, wearing course, PCC, fillings) as loops — rect or offset of an edge — each closed so it can be hatched.
-3. Surroundings: ground/bed line (layer ground), embankment slopes (ratio from the text), boulder or pitching zones, return/wing walls, footings (hidden below ground on the elevation half).
-4. Level lines (layer centre or level as the reference draws them) — long lines at their Y, starting where the reference starts them.
-5. Annotation: level callouts, dimensions (same rows and sides as the reference), leaders (tip inside the thing named, text on the shelf), hatches, texts, titles, direction arrows/station names if drawn.
+## 3. Construction order (plan.features, each with its stage)
+0. datum: the centre line (layer centre) and the level lines (layer centre or level, as the reference draws them) — long lines at their Y, starting and stopping where the reference does. Every level the reference writes needs its line before it can be called out.
+1. primary: structure outline(s) and openings from datums (loops; mirror about the centre line; repeat or copy for repeated cells/spans).
+2. detail: layers and bands (cushion, wearing course, PCC, fillings) as loops — rect or offset of an edge — each closed so it can be hatched.
+3. context: ground/bed line (layer ground), embankment slopes (ratio from the text), boulder or pitching zones, return/wing walls, footings (hidden below ground on the elevation half).
+4. check_geometry — it must pass before any annotation.
+5. annotation: level callouts, dimensions (same rows and sides as the reference), leaders (tip inside the thing named, text on the shelf), hatches, texts, titles, direction arrows/station names if drawn.
 
 ## 3b. Layout
 The annotation is part of the reproduction: level lines start and stop where the reference's do, level texts sit where its texts sit, callouts and titles in its places. Use compare_reference locate on their start points (one call, many points) and write those positions as values.
@@ -114,12 +200,14 @@ Centre line ℄ between the halves; for a multi-cell box it runs through the mid
 - Limits (RCR-VAL-001…008) "require review" — mention, never "compliant".
 
 ## Construction
+Stage by stage (draftsman-method): datums, then the box, then details and context, check_geometry, then annotation.
+0. datum: ℄ (x = 0, layer centre) and the level lines (formation, rail, HFL, bed, foundation) at their Y.
 1. BoxOuter: rect from −HalfWidth, BoxBottomY, width 2·HalfWidth, height TopY − BoxBottomY.
 2. One cell as a loop of 8 points (haunch corners cut from the datums), mirror about x = 0 for the other (copy for more cells).
 3. Layers: cushion (rect TopY…FormY), wearing course line at bed level inside the section-half cell with its zone (draw:false) hatched, PCC and filling rects under the box on the section half; on the elevation half the same edges dashed (hidden).
 4. Embankment: slope line from formation down to the box corner at the written ratio; boulder zone against the outer wall (loop, its bottom cut by the slope); ground line at bed level each side.
 5. Elevation side: gap, return wall outline (coping following the slope, flat end at its written RL), vertical lines at its kinks, footing below ground dashed, depth dimensions.
-6. Level lines and callouts, F.B./clearance dimensions, the dimension row across the cells, slab and height dimensions, callouts, hatches, ℄ with its title, the view title and scale.`;
+6. After check_geometry passes: level callouts on their lines, F.B./clearance dimensions, the dimension row across the cells, slab and height dimensions, callouts, hatches, ℄ with its title, the view title and scale.`;
 
 const MAKE_PARAMETRIC = `# Make a free sketch parametric (sketch route only)
 
@@ -174,6 +262,9 @@ Same geometry as railway (HWB-GEO-001…003) but levels differ: bottom of box = 
 Construct it as in rcc-box-half-section with these level relations and "road level" in place of formation.`;
 
 export const DRAFTING_SKILLS: DraftingSkill[] = [
+  { name: "draftsman-method", title: "The draftsman's method — geometry first, annotation last (any structure)", when: "always, before planning any drawing: what to build, how a draftsman builds it, which tools, what not to invent", body: DRAFTSMAN_METHOD },
+  { name: "rcc-box-culvert", title: "RCC box culvert (railway) — built from its geometry: single, multi-cell, skew, wings", when: "an RCC box culvert from a brief or design data (section, plan, elevation), or learning the box grammar", body: RCC_BOX_CULVERT },
+  { name: "rcc-bridge-sequence", title: "RCC slab / T-beam / multi-span bridge — drawing sequence", when: "slab culverts, slab bridges, T-beam and multi-span RCC bridges", body: RCC_BRIDGE_SEQUENCE },
   { name: "reference-reconstruction", title: "Reconstruct any GAD from a reference image, from scratch", when: "a reference drawing is attached, or the brief is to reproduce a GAD — any structure type", body: RECONSTRUCTION },
   { name: "rcc-box-half-section", title: "RCC box culvert — half section & half elevation (railway GAD view)", when: "the brief or reference is an RCC box culvert / box bridge section, half section & half elevation, earth cushion over a box", body: RCC_HALF_SECTION },
   { name: "gad-drafting-style", title: "Indian Railways GAD drafting style", when: "any bridge or culvert drawing that must look like an IR GAD (levels, hatches, callouts, title)", body: GAD_STYLE },

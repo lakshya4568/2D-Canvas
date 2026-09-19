@@ -3,7 +3,7 @@
  * request the Draw tab sends), with a reference image, on an empty drawing.
  * Logs every tool call, saves the final state and plots it.
  *
- *   bun run scripts/dev/run-agent.ts <image> <outDir> [model] [prompt…]
+ *   bun run scripts/dev/run-agent.ts <image|-> <outDir> [model] [prompt…]   (- = a text brief, no image)
  *
  * Needs the dev server on :3000 (its Google Cloud login is used — nothing here
  * touches credentials).
@@ -26,17 +26,18 @@ const say = (s: string) => {
 
 const ext = path.extname(image).toLowerCase();
 const mimeType = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "image/png";
+const images = image === "-" ? [] : [{ data: readFileSync(image).toString("base64"), mimeType }];
 const res = await fetch("http://localhost:3000/api/ai/drafter", {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ prompt, images: [{ data: readFileSync(image).toString("base64"), mimeType }], model }),
+  body: JSON.stringify({ prompt, images, model }),
 });
 if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
 
 const reader = res.body.getReader();
 const dec = new TextDecoder();
 let buf = "";
-let images = 0;
+let shown = 0;
 let lastTool = "";
 let final: { state: DrafterState; status: string; summary?: string; message: string; turns: number; toolCalls: number; elapsedMs: number } | null = null;
 for (;;) {
@@ -56,7 +57,7 @@ for (;;) {
     } else if (e.type === "result") {
       say(`  ${e.ok ? "✓" : "✗"} ${String(e.text).replace(/\n/g, " ⏎ ").slice(0, 1500)}`);
       // Every picture the agent was shown (views, reference overlays), in order.
-      if (e.image) writeFileSync(path.join(outDir, `img-${String(++images).padStart(2, "0")}-${lastTool}.png`), Buffer.from(e.image, "base64"));
+      if (e.image) writeFileSync(path.join(outDir, `img-${String(++shown).padStart(2, "0")}-${lastTool}.png`), Buffer.from(e.image, "base64"));
     }
     else if (e.type === "message") say(`» ${String(e.text).slice(0, 800)}`);
     else if (e.type === "retry") say(`… retry ${e.attempt} in ${e.waitSeconds}s: ${e.reason}`);

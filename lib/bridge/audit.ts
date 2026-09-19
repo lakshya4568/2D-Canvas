@@ -119,7 +119,23 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
     // A value that follows a relationship or its own formula is not a default;
     // one typed equal to the default still is.
     const src = out.evaluation.sources;
-    const defaults = (def?.parameters ?? []).filter((p) => p.sourceRequired && (src[p.name] === "default" || (src[p.name] === "typed" && inst.values[p.name] === p.default)));
+    const untouched = (p: { name: string; default: number }) => src[p.name] === "default" || (src[p.name] === "typed" && inst.values[p.name] === p.default);
+    // Design inputs nobody provided: the drawing carries placeholders, not data.
+    const placeholders = (def?.parameters ?? []).filter((p) => p.provenance === "required" && untouched(p));
+    if (placeholders.length) {
+      push({
+        ruleId: "PARAM-REQUIRED-INPUT",
+        gate: "parameter",
+        severity: "warning",
+        status: "requires_review",
+        message: `${inst.name}: ${placeholders.length} design input(s) were not provided and are drawn with placeholders — ${placeholders.map((p) => `${p.label ?? p.name} (${p.default}${p.unit === "m" ? " m" : p.unit === "mm" ? " mm" : ""})`).slice(0, 6).join(", ")}${placeholders.length > 6 ? "…" : ""}. They are not design values.`,
+        sourceIds: ["ircm-402"],
+        entityIds: [inst.id],
+        parameterNames: placeholders.map((p) => p.name),
+        hint: "Enter the approved values (DBR, design calculation or the applicable RDSO drawing) in Run Mode.",
+      });
+    }
+    const defaults = (def?.parameters ?? []).filter((p) => p.sourceRequired && p.provenance !== "required" && untouched(p));
     if (defaults.length && def?.origin?.kind === "drawn") {
       // A drawing made parametric: its levels are what the person drew, not a template's.
       push({

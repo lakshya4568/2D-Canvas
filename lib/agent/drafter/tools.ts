@@ -41,6 +41,11 @@ import {
   verifyConstruction,
   evalPointArg,
   currentDefinition,
+  checkGeometry,
+  annotationGate,
+  isTyped,
+  FEATURE_STAGES,
+  VALUE_SOURCES,
 } from "./construction";
 import { decodePng, deviations, distanceMap, inkMask, refineRegistration, registrationFromPairs, samplePolyline, toImage, type Registration } from "./reference";
 import { renderOverlay } from "./render";
@@ -78,6 +83,8 @@ export interface ToolContext {
   suggestions: { revision: number; byId: Map<string, IntentAction> };
   research?: (question: string) => Promise<{ text: string; sources: { title: string; uri: string }[] }>;
   macroDepth: number;
+  /** The task as the person wrote it: a value "given" by a text brief must be a number it writes. */
+  brief?: string;
   /** The reference images the author attached (compare_reference reads them). */
   references?: { data: string; mimeType: string }[];
   /** Decoded reference and its distance map, built once. */
@@ -110,10 +117,10 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
   {
     name: "plan",
     description:
-      "MANDATORY FIRST STEP — nothing can be drawn before a plan. Record your analysis of the reference/brief and the mathematics of the drawing: " +
-      "values = every number you read (typed, e.g. ClearSpan = 2180, FormationLevel = 59.913 m) and every relation between them (expressions the ENGINE evaluates, e.g. TopOfSlab = FormationLevel - Cushion / 1000, HalfWidth = (2 * ClearSpan + MidWall) / 2 + Wall); " +
+      "MANDATORY FIRST STEP — nothing can be drawn before a plan. Think as a draftsman before any tool: what exactly am I asked to build (structure), what type of structure is it, which views does the drawing need (views), what are the controlling axes and levels (datum features), which sizes drive the geometry and which follow from them (values), which parts depend on which (features: stage, after), and which tools build each part. " +
+      "values = every number you read (typed, each with its source: given / scaled / drafting / required — NEVER invent a span, thickness, level, foundation or other design value: a size nobody gave is 'required', drawn with a placeholder and reported) and every relation between them (expressions the ENGINE evaluates, e.g. OuterWidth = CellCount * ClearSpan + 2 * Wall + (CellCount - 1) * MidWall, SoffitY = InvertY + ClearHeight); " +
       "checks = numbers the reference ALSO writes, recomputed from your values (e.g. label 'F.B.', expr '(FormationLevel - HFL) * 1000', expect 2245) — they expose misread numbers before you draw; " +
-      "features = the parts you will construct and how (primitives, order, which values); expect = every dimension number, level and text the reference writes, which verify later measures back from your geometry. " +
+      "features = the construction sequence: datum (axes, centre lines, controlling level lines) → primary (the main structure, from the datums) → detail (haunches, footings, wings, protection) and context (ground, embankment, track) → annotation (dimensions, levels, notes, hatching — only after check_geometry passes); expect = every dimension number, level and text the reference writes, which check_geometry finds in the geometry and verify measures back from it. " +
       "Revise with update:true, sending ONLY what changes (values/checks/features replace those of the same name; remove drops names; an expect list given replaces that list) — entities already constructed must still evaluate. route construction (default) builds with construct; route sketch only for one small profile to constrain with rules.",
     parameters: obj(
       {
@@ -121,6 +128,12 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
         remove: LIST("With update: value names, check labels or feature names to drop"),
         route: { type: "string", enum: ["construction", "sketch"], description: "construction for a GAD / any reference drawing; sketch for one small constrained profile" },
         title: S("Drawing title, e.g. HALF SECTION / HALF ELEVATION AT (A-A)"),
+        structure: S("What you are building, as a draftsman names it: the kind of structure/object and what this drawing must show, e.g. 'three-cell RCC box culvert under a BG railway — cross section at the track centre line'"),
+        views: {
+          type: "array",
+          description: "The views the drawing needs — plan, elevation, section, detail. They are built from the SAME values, so a change reaches every view; place each in its own region with a drafting offset value.",
+          items: obj({ name: S("View name, e.g. Section A-A, Plan, Elevation"), shows: S("What it shows and why it is needed") }, ["name", "shows"]),
+        },
         analysis: S("What the reference shows: every part and what it is, topology (what sits on/inside what), section vs elevation halves, symmetry and centre line, line types (hidden, centre), materials/hatches, and inconsistencies you noticed between written numbers"),
         frame: S("Origin and axes, e.g. 'x = 0 on the bridge centre line, y = RL × 1000 (mm)'"),
         scale: N("Drawing scale 1:n as written on the reference (100 for SCALE 1:100)"),
@@ -133,6 +146,12 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
               expr: S("A number (read from the reference) or an expression of other values"),
               unit: { type: "string", enum: ["mm", "m", "deg", "-"], description: "mm for sizes and coordinates, m for levels (RL)" },
               note: S("Where it comes from, e.g. 'written: PROP. SOFFIT LEVEL 59.258'"),
+              source: {
+                type: "string",
+                enum: VALUE_SOURCES,
+                description:
+                  "Typed values only. given = written on the reference or in the brief; scaled = measured off the reference image (approximate); drafting = a layout choice (view position, how far a level line runs), never a structural size; required = needed but NOT provided — drawn with a placeholder and reported as a design input still to come. Never mark an invented number given.",
+              },
             },
             ["name", "expr", "unit"]
           ),
@@ -149,8 +168,19 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
         },
         features: {
           type: "array",
-          description: "The construction plan: logical parts in build order",
-          items: obj({ name: S("Feature name, e.g. BoxSection, Levels, ReturnWall, Foundation, Annotation"), description: S("What it is on the reference"), construction: S("How: which primitives/tools from which values") }, ["name", "description"]),
+          description:
+            "The construction sequence. stage orders it and is enforced: datum features first (the controlling axes, centre lines, level/datum lines), then primary (the main structure, built from the datums), then detail and context; annotation features are added with annotate only after check_geometry passes.",
+          items: obj(
+            {
+              name: S("Feature name, e.g. Axes, Levels, Box, Haunches, WingWalls, Foundation, Track, Dimensions, LevelCallouts, Hatching"),
+              description: S("What it is"),
+              construction: S("How: which tools (construct kinds, mirror, offset, copy/repeat, boolean) from which values"),
+              stage: { type: "string", enum: FEATURE_STAGES, description: "datum | primary | detail | context | annotation" },
+              after: LIST("Features it is built from (they must exist first)"),
+              view: S("The view it belongs to (one of views)"),
+            },
+            ["name", "description", "stage"]
+          ),
         },
         expect: obj({
           dimensions: { type: "array", items: { type: "number" }, description: "Every dimension number written on the reference, in mm, repeats included (e.g. 2180 twice for two cells)" },
@@ -195,6 +225,10 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
               layer: { type: "string", enum: PRIMITIVE_LAYERS, description: "Line type / layer" },
               draw: B("false: a hatch boundary only, not drawn"),
               role: S("Optional bridge role (bed_level, HFL, formation_level, clear_opening, earth_cushion, …)"),
+              repeat: obj(
+                { count: S("How many copies: a value or expression (e.g. CellCount) — changing it adds or removes copies"), index: S("Index name used in the expressions, 0 … count − 1 (default i)") },
+                ["count"]
+              ),
             },
             ["id", "kind"]
           ),
@@ -257,6 +291,12 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
     description:
       "Measure the constructed geometry exactly. a (and b): a point (Box.p3, Box.e2.mid, \"(x, y)\"), an edge (Box.e2: length, direction, slope H:V), an entity (Box: bbox, perimeter, area), a dimension id (its measured value) or an expression. With b: distance point–point (dx, dy), point–edge (perpendicular), edge–edge (angle, gap if parallel).",
     parameters: obj({ a: S("First reference or expression"), b: S("Second reference (optional)") }, ["a"]),
+  },
+  {
+    name: "check_geometry",
+    description:
+      "The geometry stage's gate — run it when the datums, the structure, its details and context are built, BEFORE any dimension, level callout, note or hatch (annotate is refused until it passes on the geometry as it is now). Checks: the plan's checks hold; no outline collapses, crosses or turns inside out; every geometry feature is built; every number and level the drawing writes EXISTS in the geometry (two faces that far apart, a line at that level); every typed value regenerates the drawing cleanly (±5%, counts ±1); no number is a copy of a relation. Lists required inputs drawn with placeholders.",
+    parameters: obj({}),
   },
   {
     name: "verify",
@@ -571,7 +611,7 @@ export const BASE_TOOLS: FunctionDeclaration[] = [
 ];
 
 const STAGE: Record<string, ToolStage> = {
-  plan: "meta", construct: "draw", transform: "draw", boolean: "draw", remove: "draw", measure: "observe", verify: "observe", compare_reference: "observe", zoom_reference: "observe",
+  plan: "meta", construct: "draw", transform: "draw", boolean: "draw", remove: "draw", measure: "observe", check_geometry: "observe", verify: "observe", compare_reference: "observe", zoom_reference: "observe",
   look: "observe", view: "observe", check: "observe", flex_test: "observe", suggestions: "observe", calculate: "observe", research: "observe",
   draw_line: "draw", draw_polyline: "draw", draw_rectangle: "draw", draw_circle: "draw", chamfer: "draw", offset: "draw", trim: "draw",
   split: "draw", move: "draw", copy: "draw", mirror: "draw", rotate: "draw", delete: "draw", explode: "draw", rename: "draw",
@@ -875,6 +915,8 @@ function annotateOne(ctx: ToolContext, a: Args): { text: string } {
   if (ctx.ws.construction.plan?.route === "construction" && ["dimension", "level", "leader", "text", "hatch"].includes(kind)) {
     return { text: annotateConstruction(ctx.ws, a) };
   }
+  // Sheet annotation (notes, north point, flow arrows) also describes finished geometry.
+  if (ctx.ws.construction.plan?.route === "construction") annotationGate(ctx.ws);
   const cad = dispatchCadTool(ctx.ws, "annotate", a);
   if (!cad) throw new ToolError(`Unknown annotation kind "${kind}".`);
   return cad;
@@ -1240,6 +1282,8 @@ function gate(ctx: ToolContext, name: string): void {
       throw new ToolError(
         name === "dimension"
           ? "In the construction route a dimension is annotation: annotate kind=dimension from/to (the value is measured from your geometry)."
+          : name === "classify"
+          ? "In the construction route an entity's role goes on the entity itself: construct it again with the same id and role (e.g. role: 'rail_level'). Levels are read from their callouts."
           : `${name} belongs to the sketch route, and you planned the construction route. Use construct (coordinates as expressions of your plan values), transform (mirror, copy, offset, rotate, move), boolean, remove and annotate.`
       );
     }
@@ -1251,7 +1295,10 @@ async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<T
   gate(ctx, name);
   switch (name) {
     case "plan":
-      return { text: recordPlan(ws, a) };
+      return { text: recordPlan(ws, a, { hasReference: ctx.hasReference, brief: ctx.brief }) };
+
+    case "check_geometry":
+      return { text: checkGeometry(ws).text };
 
     case "construct":
       return { text: construct(ws, a) };
@@ -1701,11 +1748,17 @@ function finishConstruction(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" |
     ws.applyCad({ type: "CAD_SET_PROJECT", project: { ...ws.cad.project, identity: { ...ws.cad.project.identity, drawingTitle: str(a, "title") } } });
   }
   const plan = ws.construction.plan!;
-  const typed = plan.values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim())).map((v) => v.name);
+  const typed = plan.values.filter(isTyped).map((v) => v.name);
+  const from = (s: string) => plan.values.filter((v) => isTyped(v) && v.source === s).map((v) => `${v.name} = ${v.expr}${v.unit === "m" ? " m" : v.unit === "deg" ? "°" : v.unit === "mm" ? " mm" : ""}`);
+  const provenance = [
+    from("required").length ? ` DESIGN INPUTS STILL REQUIRED (drawn with placeholders, not design values): ${from("required").join(", ")}.` : "",
+    from("scaled").length ? ` Scaled from the image (approximate): ${from("scaled").join(", ")}.` : "",
+    from("drafting").length ? ` Drawing-layout choices: ${from("drafting").join(", ")}.` : "",
+  ].join("");
   const derived = plan.values.filter((v) => !typed.includes(v.name)).map((v) => v.name);
   const driving = (currentDefinition(ws)?.dimensions ?? []).filter((d) => d.drives).map((d) => `${d.id}→${d.drives}`);
   return {
-    text: `Finished "${ws.title}" — constructed from scratch and verified.${cmp && ctx.hasReference ? ` Against the reference: ${Math.round(cmp.onShare * 100)}% of the linework lies on its lines${cmp.off.length ? `; kept off it, with reasons: ${cmp.off.map((o) => `${o.id} (${explained.get(o.id)})`).join("; ")}` : ""}.` : ""}${plan.expect.disputed.length ? ` Reported as contradictions on the reference: ${plan.expect.disputed.map((d) => `${d.what} (${d.reason})`).join("; ")}.` : ""} Run Mode shows the values you read (${typed.slice(0, 20).join(", ")}${typed.length > 20 ? "…" : ""}); ${derived.length} worked-out values follow them${plan.constraints.length ? `; ${plan.constraints.length} constraint(s) guard every edit` : ""}. Dimensions that drive a value when edited: ${driving.join(", ") || "none"}. Each value regenerates the drawing cleanly ±5% (verify).\nAudit at finish: ${runAuditFor(ws)}`,
+    text: `Finished "${ws.title}" — constructed from scratch and verified.${cmp && ctx.hasReference ? ` Against the reference: ${Math.round(cmp.onShare * 100)}% of the linework lies on its lines${cmp.off.length ? `; kept off it, with reasons: ${cmp.off.map((o) => `${o.id} (${explained.get(o.id)})`).join("; ")}` : ""}.` : ""}${plan.expect.disputed.length ? ` Reported as contradictions on the reference: ${plan.expect.disputed.map((d) => `${d.what} (${d.reason})`).join("; ")}.` : ""} Run Mode shows the values you read (${typed.slice(0, 20).join(", ")}${typed.length > 20 ? "…" : ""}); ${derived.length} worked-out values follow them${plan.constraints.length ? `; ${plan.constraints.length} constraint(s) guard every edit` : ""}. Dimensions that drive a value when edited: ${driving.join(", ") || "none"}. Each value regenerates the drawing cleanly ±5% (verify).${provenance}\nAudit at finish: ${runAuditFor(ws)}`,
     finished: true,
   };
 }

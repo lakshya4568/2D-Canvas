@@ -138,6 +138,14 @@ function ValueField({
           {unit}
         </div>
       </div>
+      {p.provenance === "required" && value === p.default && (
+        <p className="text-[9.5px] text-right text-(--warn)" title={p.description}>
+          not provided — {shown(p.default)} is a placeholder; enter the approved value
+        </p>
+      )}
+      {p.provenance === "scaled" && value === p.default && (
+        <p className="text-[9.5px] text-right text-(--fg-muted)">scaled from the reference image — confirm</p>
+      )}
       {(p.min !== undefined || p.max !== undefined) && (
         <p className={`text-[9.5px] text-right ${out ? "text-(--warn)" : "text-(--fg-muted)"}`}>
           {out ? "outside the usual range " : ""}

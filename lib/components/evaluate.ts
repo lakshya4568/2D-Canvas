@@ -297,6 +297,28 @@ export function resolveTables(def: ComponentDefinition, given: Record<string, Ta
   return out;
 }
 
+/**
+ * Required inputs nobody has entered yet (`provenance: "required"`, still at the
+ * placeholder). Wherever the drawing states one — a text placeholder, a
+ * dimension that measures it — it is marked "(TBC)", so a placeholder is never
+ * read as design data.
+ */
+function unresolvedInputs(def: ComponentDefinition, sources: Record<string, string>, scope: Scope): Set<string> {
+  const out = new Set<string>();
+  for (const p of def.parameters) {
+    if (p.provenance !== "required") continue;
+    if (sources[p.name] === "default" || (sources[p.name] === "typed" && scope[p.name] === p.default)) out.add(p.name);
+  }
+  return out;
+}
+
+export const TBC_MARK = " (TBC)";
+
+function markUnresolved(template: string, tbc: Set<string>): string {
+  if (!tbc.size || !template.includes("{")) return template;
+  return template.replace(/\{([A-Za-z_][A-Za-z0-9_]*)(:[^}]*)?\}/g, (m, name: string) => (tbc.has(name) ? `${m}${TBC_MARK}` : m));
+}
+
 function labelsOf(def: ComponentDefinition): Labels {
   const labels: Labels = {};
   for (const p of def.parameters) if (p.options) labels[p.name] = p.options;
@@ -650,6 +672,7 @@ function evaluateInto(
   const tables = built.tables;
   const labels = labelsOf(def);
   const root: Ctx = { scope, strings: {} };
+  const tbc = unresolvedInputs(def, built.sources as Record<string, string>, scope);
   if (!path) {
     out.sources = built.sources;
     out.tables = Object.fromEntries([...tables].map(([k, t]) => [k, t.rows]));
@@ -838,8 +861,8 @@ function evaluateInto(
           drives: d.drives,
           scopePath: path,
           axis,
-          prefix: d.prefix !== undefined ? interpolate(d.prefix, s, strings, labels) : undefined,
-          suffix: d.suffix !== undefined ? interpolate(d.suffix, s, strings, labels) : undefined,
+          prefix: d.prefix !== undefined ? interpolate(markUnresolved(d.prefix, tbc), s, strings, labels) : undefined,
+          suffix: d.drives && tbc.has(d.drives) ? `${d.suffix !== undefined ? interpolate(d.suffix, s, strings, labels) : ""}${TBC_MARK}` : d.suffix !== undefined ? interpolate(markUnresolved(d.suffix, tbc), s, strings, labels) : undefined,
           hideValue: d.hideValue,
           layer: d.layer ?? "dimension",
         });
@@ -857,7 +880,7 @@ function evaluateInto(
         out.levels.push({
           path: joinPath(path, l.id + suffix),
           at: pt(l.at, s, frame),
-          label: interpolate(l.label, s, strings, labels),
+          label: interpolate(markUnresolved(l.label, tbc), s, strings, labels),
           side: frame.mirror ? (side === "left" ? "right" : "left") : side,
           style: l.style,
           format: l.format,
@@ -887,7 +910,7 @@ function evaluateInto(
         out.texts.push({
           path: joinPath(path, t.id + suffix),
           at: pt(t.at, s, frame),
-          text: interpolate(t.text, s, strings, labels),
+          text: interpolate(markUnresolved(t.text, tbc), s, strings, labels),
           height: t.height,
           align: t.align ?? "center",
           valign: t.valign,
@@ -910,7 +933,7 @@ function evaluateInto(
         out.leaders.push({
           path: joinPath(path, l.id + suffix),
           points: pts,
-          text: interpolate(l.text, s, strings, labels),
+          text: interpolate(markUnresolved(l.text, tbc), s, strings, labels),
           height: l.height,
           placement: l.placement ?? "end",
           arrow: l.arrow ?? "arrow",

@@ -1,0 +1,239 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — DRAFTING PRACTICE
+System: Railway bridge drafting sequence (RCC box culvert to multi-span bridge)
+Standard References: IRBM-2024, Indian Railways Construction Manual (GAD), RDSO standard drawings, IRS codes
+Module: lib/agent/drafter (skills draftsman-method, rcc-box-culvert, rcc-bridge-sequence)
+================================================================================
+
+PURPOSE
+-------
+How a draftsman builds a railway bridge General Arrangement Drawing (GAD) in
+CAD: geometry first, annotation last, every size from approved data. A
+draftsman does not design the bridge. The drawing is built from approved site,
+hydrology, geotechnical and design data and arranged in a fixed sequence so
+geometry, levels and notes stay consistent. Indian Railways prefers standard
+RDSO drawings wherever they apply.
+
+
+SECTION 1: WHAT THE DRAFTSMAN DRAWS vs WHAT THE DESIGNER DECIDES
+------------------------------------------------------------------
+
+DRF-ROLE-001  The draftsman draws: alignment, axes, outlines, dimensions,
+              hatches, notes, sheets; plan, elevation, section and details from
+              given values; RDSO standard box/slab details adapted to the site.
+DRF-ROLE-002  The designer / competent authority decides: span, waterway,
+              loading, member sizes (wall and slab thicknesses), foundation
+              type and depth, HFL, scour, bearing capacity, reinforcement,
+              material grades, and whether a standard drawing applies.
+DRF-ROLE-003  A value the drawing needs but nobody has provided is a REQUIRED
+              INPUT: drawn with a placeholder and reported, never invented.
+DRF-ROLE-004  For design and construction, IRS Codes override IRBM where they
+              conflict.
+
+
+SECTION 2: LEARNING ORDER (SIMPLE TO COMPLEX)
+----------------------------------------------
+
+DRF-SEQ-001   1 single-cell RCC box, square; 2 multi-cell box; 3 skew box;
+              4 box with splayed wings, curtain/drop wall, apron; 5 RCC slab
+              culvert on abutments; 6 short multi-span RCC slab; 7 RCC T-beam
+              with bearings and diaphragms; later PSC girders, steel girders,
+              ROB/RUB.
+DRF-SEQ-002   The box culvert is the first template because it contains the
+              later logic: centre line, clear opening, wall and slab thickness,
+              invert, rail level, HFL, wing walls, protection. The missing
+              middle skill is keeping axes, levels, thicknesses and dimensions
+              associated.
+
+
+SECTION 3: CAD SETUP BEFORE ANY GEOMETRY
+-----------------------------------------
+
+DRF-SET-001   Units millimetres, full size in model space.
+DRF-SET-002   Layer standard, linetypes, dimension and text styles, title block
+              (project, bridge number, chainage, scale, revision, codes,
+              approval boxes).
+DRF-SET-003   One vertical datum for every level: rail, formation, HFL, bed,
+              invert, soffit, foundation.
+DRF-SET-004   Non-plotting construction lines: railway/track centre line,
+              direction of increasing kilometrage, transverse axis of the
+              structure, upstream/downstream.
+DRF-SET-005   Known levels as horizontal construction lines before any
+              concrete is drawn.
+DRF-SET-006   A GAD shows key plan, chainages, overall dimensions,
+              ground/rail/HFL/bed levels, scale, signature boxes,
+              codes/manuals/specifications, and bore-log / founding-level data
+              (IRCM para 402(1), Table 4.03).
+
+
+SECTION 4: RCC BOX CULVERT — CONSTRUCTION SEQUENCE
+---------------------------------------------------
+
+DRF-BOX-001   Driving values (never guessed): number of cells, clear span and
+              clear height per cell, side and interior wall thickness, top and
+              bottom slab thickness, haunch size if given, invert/bed level,
+              rail, formation, HFL, skew angle, foundation/bedding thickness,
+              wing/return wall type and length, ballast cushion below sleeper.
+DRF-BOX-002   Controlling axes. Plan: railway centre line, structure centre
+              line (square or skewed), upstream and downstream faces, track
+              edges / formation width as context. Section/elevation: invert /
+              bed, HFL, rail level, formation level, bottom of foundation /
+              lean concrete.
+DRF-BOX-003   One cell first: the clear opening as a rectangle
+              (width = clearSpan, height = clearHeight), then offset outward
+              for the concrete:
+                outerWidth  = clearSpan + 2 x sideWallThickness
+                outerHeight = clearHeight + topSlabThickness + baseSlabThickness
+DRF-BOX-004   Multiple cells:
+                interiorWalls = cellCount - 1
+                outerWidth = cellCount x clearSpan + 2 x sideWallThickness
+                             + (cellCount - 1) x interiorWallThickness
+              Outer outline minus inner openings equals the walls and slabs;
+              never draw a wall as an unrelated rectangle.
+DRF-BOX-005   Then, in order: haunches at wall-slab junctions (if designed);
+              lean concrete / bedding under the base slab; headwalls / face
+              walls at inlet and outlet; curtain wall, drop wall, flooring if
+              required; apron, pitching and toe wall upstream and downstream
+              (IRBM protection details).
+DRF-BOX-006   Wing walls (splayed) or return walls (parallel) after the box is
+              stable, symmetric about the bridge centre line unless the
+              approved GAD says otherwise; numbered facing increasing
+              kilometrage, left/right and upstream/downstream consistently.
+DRF-BOX-007   Railway on top only after the box exists: formation, ballast /
+              cushion, track centre, rails and sleepers if the sheet needs
+              them, parapet / ballast wall, OHE / clearance notes if
+              electrified. The structure supports the track, so the box and
+              levels come first.
+DRF-BOX-008   Dimension order: 1 clear span of each cell, 2 clear height,
+              3 wall thicknesses, 4 slab thicknesses, 5 overall outer width and
+              height, 6 foundation/bedding thickness, 7 wing-wall lengths and
+              splay, 8 chainage and overall length along track, 9 skew angle,
+              10 distances from reference points / existing track. A dimension
+              never disagrees with the geometry: if the span changes, the
+              dimension changes.
+DRF-BOX-009   Mandatory level set on a river/nallah GAD: rail, formation, HFL,
+              bed/invert, soffit (if shown), bottom of foundation. Also flow
+              direction arrows, bore-log / founding note, material grades from
+              approved design, RDSO drawing number if a standard box is used,
+              loading standard if given in the DBR, revision and approval
+              block.
+DRF-BOX-010   Hatching and finish: concrete hatch in section, earth/backfill
+              behind walls, water/bed in elevation if needed, existing work
+              light, proposed work darker. Layouts: key plan, plan, elevation,
+              cross section, details at locked scales — several coordinated
+              views of the same parameters.
+DRF-BOX-011   Worked example (approved data: 3 cells, clearSpan 2000,
+              clearHeight 2000, walls 350, top slab 300, base slab 350,
+              invert 100.000, rail 104.500, HFL 101.800):
+                outerWidth = 3 x 2000 + 4 x 350 = 7400 mm
+                soffit     = 100.000 + 2.000 = 102.000
+                top of slab = 102.000 + 0.300 = 102.300
+              If the clear span becomes 2500 and walls stay 350:
+                outerWidth = 3 x 2500 + 4 x 350 = 8900 mm.
+
+
+SECTION 5: DRAFTING RULES
+--------------------------
+
+DRF-STD-001   Separate layers: outline, hidden, centre, dimensions, text,
+              hatch, existing, proposed, construction.
+DRF-STD-002   Centre lines in centre linetype, never a thick outline.
+              Construction lines do not plot.
+DRF-STD-003   Existing and proposed work visually distinct.
+DRF-STD-004   Title, scale, chainage, bridge number and revision exist before
+              issue.
+DRF-GEO-001   Clear opening is inside faces, not outer faces.
+DRF-GEO-002   Wall thickness is outer face minus inner face, not a separate
+              guessed rectangle.
+DRF-GEO-003   Interior walls exist only between cells.
+DRF-GEO-004   Top slab continuous over cells unless the approved drawing says
+              otherwise.
+DRF-GEO-005   Invert, soffit and rail level share one datum.
+DRF-GEO-006   A box culvert is not placed on a scour-prone bed unless the
+              approved design allows it (IRBM).
+DRF-GEO-007   A skew structure is marked skew, with both square and skew spans
+              given; IRBM advises restricting skew to 30 degrees.
+
+
+SECTION 6: HYDRAULIC AND CLASSIFICATION RULES THE DRAWING SHOWS
+----------------------------------------------------------------
+(Show these when they are project data; never invent them. "Requires review".)
+
+DRF-HYD-001   Minor: not major/important. Major: total waterway 18 m or more,
+              or one span with clear opening 12 m or more. Important: linear
+              waterway 300 m or total waterway 1000 m2 or more, or classified
+              important by CBE/CE (IRBM).
+DRF-HYD-002   New bridges / rebuilding: minimum clear span 1 m; aim for 1.2 m
+              inspection headroom (PCE/CBE may relax).
+DRF-HYD-003   Pipe, box and syphon culverts are pressure conduits: the girder
+              bridge vertical-clearance table does not apply to them.
+DRF-HYD-004   Ordinary bridges (excluding arch, syphon, pipe and box culverts):
+              minimum vertical clearance above design flood including afflux
+              600 mm for 0-30 cumecs, increasing with discharge (IRBM 312).
+DRF-HYD-005   Free board from design flood including afflux to formation / top
+              of guide bund generally not less than 1 m; relaxations only by
+              PCE/CBE (IRBM 313).
+
+
+SECTION 7: FOUNDATION RULES THAT AFFECT THE DRAWING
+----------------------------------------------------
+
+DRF-FDN-001   Railway bridges normally use open, pile or well foundations.
+DRF-FDN-002   Open foundations in ordinary soil: founding depth not less than
+              1.75 m below the lowest anticipated scoured bed level. In rock:
+              key at least 0.3 m in hard rock, 1.5 m in soft rock. Soft-soil
+              rafts need aprons and cut-off / launching aprons.
+DRF-FDN-003   RCC box sequence: prepared bed, lean concrete, box, then
+              protection works. No deep well foundation under a small box
+              unless the approved design says so.
+
+
+SECTION 8: APPROVAL
+--------------------
+
+DRF-APR-001   Open-line railway-bridge GADs need CBE approval.
+DRF-APR-002   Construction-organisation GADs of ordinary bridges may be
+              approved by CE/Construction, except where waterway is reduced,
+              vertical clearance is inadequate, or existing bridges are
+              affected (then CBE after DRM/branch clearance).
+DRF-APR-003   ROB/RUB/FOB/RFO launching schemes affecting existing lines need
+              CBE approval. The draftsman's job is a complete, consistent GAD
+              that can be sent for that approval.
+
+
+SECTION 9: AFTER THE BOX — SLAB, T-BEAM AND MULTI-SPAN BRIDGES
+---------------------------------------------------------------
+
+DRF-BRG-001   Order: 1 alignment, chainage, track, flow, levels; 2 abutment and
+              pier centre lines (setting-out before outlines); 3 foundations /
+              pile caps / wells; 4 abutments, piers, wing walls, returns;
+              5 bed blocks and bearings (deck seating depends on them); 6 RCC
+              slab or T-beams / girders on the bearings; 7 deck, ballast,
+              parapet, drainage (track last); 8 protection works and
+              approaches; 9 dimensions, RL/HFL notes, schedules (annotation
+              after geometry is stable); 10 title block, GAD checklist, plot.
+DRF-BRG-002   RCC/PSC beam-and-slab: in-situ on supports, or launched/precast
+              girders with the deck cast later; show seating, diaphragms,
+              bearings and the approved erection method if a launching sheet is
+              required.
+DRF-BRG-003   Weep holes in abutments typically 1 m vertical and 1 m horizontal
+              staggered, boulder filling not less than 600 mm, granular backfill
+              behind abutments/wing walls; drawn after the wall outline.
+
+
+SECTION 10: CHECKLIST BEFORE CALLING IT A GAD
+----------------------------------------------
+
+DRF-CHK-001   Bridge number, chainage, type, scale, revision exist.
+DRF-CHK-002   Direction of increasing kilometrage shown.
+DRF-CHK-003   Plan, elevation and section use the same parameters.
+DRF-CHK-004   Clear span is inside-to-inside; wall/slab thicknesses match
+              offsets, not typed guesses.
+DRF-CHK-005   Rail, HFL, bed/invert and foundation levels share one datum.
+DRF-CHK-006   Flow direction shown; bore-log / founding reference present if
+              required; RDSO/IRS/DBR references written.
+DRF-CHK-007   Existing and proposed work separate; no construction line
+              plotting; approval block ready.
+DRF-CHK-008   Controlling idea: railway context and levels, then the
+              box/opening, then thickness, then wings and protection, then
+              track, then dimensions and GAD notes.

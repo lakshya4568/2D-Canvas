@@ -25,12 +25,15 @@ async function ok(ctx: ToolContext, name: string, args: Record<string, unknown> 
   return r;
 }
 
-const V = (name: string, expr: string | number, unit = "mm", note?: string) => ({ name, expr: String(expr), unit, note });
+// Typed values in these fixtures are written on the (imagined) reference: source given.
+const V = (name: string, expr: string | number, unit = "mm", note?: string, source?: string) => ({ name, expr: String(expr), unit, note, source: source ?? (/^-?\d+(\.\d+)?$/.test(String(expr)) ? "given" : undefined) });
 
 /** A two-cell box at true levels, symmetric about x = 0. */
 const BOX_PLAN = {
   route: "construction",
   title: "BOX SECTION",
+  structure: "Two-cell RCC box culvert — cross section at the centre line, true levels",
+  views: [{ name: "Section", shows: "the box cut across the cells, with its levels" }],
   analysis: "A two-cell RCC box at true levels, symmetric about the centre line; cells with haunches; bed level line both sides.",
   frame: "x = 0 on the centre line, y = RL x 1000",
   scale: 100,
@@ -58,8 +61,9 @@ const BOX_PLAN = {
     { label: "top of slab", expr: "TopY / 1000", expect: 59.658, unit: "m" },
   ],
   features: [
-    { name: "Box", description: "outer box and cells" },
-    { name: "Annotation", description: "levels and dimensions" },
+    { name: "Datums", description: "centre line and the level lines", stage: "datum" },
+    { name: "Box", description: "outer box and cells", stage: "primary", after: ["Datums"] },
+    { name: "Annotation", description: "levels and dimensions", stage: "annotation" },
   ],
   expect: {
     dimensions: [2180, 2180, 350, 2870],
@@ -79,18 +83,32 @@ const CELL = [
   ["CellIn", "FloorY + Haunch"],
 ];
 
+/** Sets out the datums: the centre line and the level lines. */
+async function setOut(ctx: ToolContext) {
+  await ok(ctx, "construct", {
+    feature: "Datums",
+    entities: [
+      { id: "CL", kind: "line", from: ["0", "BottomY - 500"], to: ["0", "TopY + 800"], layer: "centre" },
+      { id: "FormLine", kind: "line", from: ["-HalfWidth - 3000", "FormationLevel * 1000"], to: ["HalfWidth", "FormationLevel * 1000"], layer: "level" },
+      { id: "BedLine", kind: "line", from: ["-HalfWidth - 1500", "BedLevel * 1000"], to: ["-HalfWidth", "BedLevel * 1000"], layer: "ground" },
+    ],
+  });
+}
+
+/** The draftsman's order: plan, datums, the box from them, then check the geometry. */
 async function buildBox(ctx: ToolContext) {
   await ok(ctx, "plan", BOX_PLAN);
+  await setOut(ctx);
   await ok(ctx, "construct", {
     feature: "Box",
     entities: [
       { id: "BoxOuter", kind: "rect", x: "-HalfWidth", y: "BottomY", w: "2 * HalfWidth", h: "TopY - BottomY" },
       { id: "RightCell", kind: "loop", points: CELL },
-      { id: "CL", kind: "line", from: ["0", "BottomY - 500"], to: ["0", "TopY + 800"], layer: "centre" },
-      { id: "FormLine", kind: "line", from: ["-HalfWidth - 3000", "FormationLevel * 1000"], to: ["HalfWidth", "FormationLevel * 1000"], layer: "level" },
     ],
   });
   await ok(ctx, "transform", { op: "mirror", targets: ["RightCell"], axis_x: "0", ids: ["LeftCell"] });
+  const g = await ok(ctx, "check_geometry");
+  expect(g.text, g.text).toMatch(/CHECK GEOMETRY: PASS/);
 }
 
 async function annotateBox(ctx: ToolContext) {
@@ -243,6 +261,7 @@ describe("symbolic transforms and booleans", () => {
   it("offsets a sloped line along its own normal", async () => {
     const ctx = context();
     await ok(ctx, "plan", { ...BOX_PLAN, values: [...BOX_PLAN.values, V("Slope", 2, "-")] });
+    await setOut(ctx);
     await ok(ctx, "construct", { feature: "Box", entities: [{ id: "S", kind: "line", from: ["0", "0"], to: ["Slope * 1000", "1000"] }] });
     await ok(ctx, "transform", { op: "offset", targets: ["S"], distance: "100", side: "left", ids: ["S2"] });
     const ev = constructionEvaluation(ctx.ws)!;
@@ -266,6 +285,7 @@ describe("symbolic transforms and booleans", () => {
   it("unions and subtracts outlines; the result follows the values", async () => {
     const ctx = context();
     await ok(ctx, "plan", { ...BOX_PLAN, values: [...BOX_PLAN.values, V("W", 1000), V("Notch", 300)] });
+    await setOut(ctx);
     await ok(ctx, "construct", {
       feature: "Box",
       entities: [
@@ -477,7 +497,7 @@ describe("comparison with the reference image", () => {
     expect(good.text).toMatch(/1 px of the reference = 12\.5 mm/);
     expect(good.text).toMatch(/Every constructed outline lies on the reference's lines/);
     // A cell built 300 mm too high is caught and named.
-    await ok(ctx, "construct", { feature: "Box", entities: [{ id: "LeftCell", kind: "loop", points: CELL.map(([x, y]) => [`-(${x})`, `${y} + 300`]) }] });
+    await ok(ctx, "construct", { feature: "Box", entities: [{ id: "LeftCell", kind: "loop", points: CELL.map(([x, y]) => [`-(${x})`, `${y} + 1.5 * Haunch`]) }] });
     const bad = await ok(ctx, "compare_reference", { pairs, locate: [{ img_x: pairs[0].img_x, img_y: pairs[0].img_y, label: "corner" }] });
     expect(bad.text).toMatch(/LeftCell: \d+% on the lines/);
     expect(bad.text).not.toMatch(/RightCell:/);
@@ -499,7 +519,7 @@ describe("comparison with the reference image", () => {
     await buildBox(ctx);
     await ok(ctx, "compare_reference", { pairs });
     expect((await ok(ctx, "zoom_reference", { region: [300, 400, 700, 800], overlay: true })).text).toMatch(/1 px of the reference = 12\.5 mm/);
-    await ok(ctx, "construct", { feature: "Box", entities: [{ id: "LeftCell", kind: "loop", points: CELL.map(([x, y]) => [`-(${x})`, `${y} + 300`]) }] });
+    await ok(ctx, "construct", { feature: "Box", entities: [{ id: "LeftCell", kind: "loop", points: CELL.map(([x, y]) => [`-(${x})`, `${y} + 1.5 * Haunch`]) }] });
     // The fit is reused without pairs; focus magnifies around the entity's worst point.
     const many = await ok(ctx, "zoom_reference", { regions: [[0, 0, 500, 500], [500, 500, 1000, 1000]] });
     expect(many.images).toHaveLength(1);
@@ -514,7 +534,8 @@ describe("comparison with the reference image", () => {
     await buildBox(built);
     const ctx = context([{ data: referenceOf(built, s, ox, oy, W, H), mimeType: "image/png" }]);
     await buildBox(ctx);
-    await ok(ctx, "construct", { feature: "Annotation", entities: [{ id: "Far", kind: "rect", x: "HalfWidth + 9000", y: "BottomY", w: "1000", h: "1000" }] });
+    await ok(ctx, "plan", { update: true, features: [{ name: "Far part", description: "a part beyond a break line", stage: "context" }] });
+    await ok(ctx, "construct", { feature: "Far part", entities: [{ id: "Far", kind: "rect", x: "HalfWidth + 9000", y: "BottomY", w: "1000", h: "1000" }] });
     const whole = await ok(ctx, "compare_reference", { pairs });
     expect(whole.text).toMatch(/Far: 0% on the lines/);
     const box = await ok(ctx, "compare_reference", { pairs, entities: ["Box"] });
@@ -526,6 +547,7 @@ describe("comparison with the reference image", () => {
   it("sizes text for the whole drawing when the reference writes no scale", async () => {
     const ctx = context();
     await ok(ctx, "plan", { ...BOX_PLAN, scale: undefined });
+    await ok(ctx, "construct", { feature: "Datums", entities: [{ id: "Axis", kind: "line", from: ["0", "0"], to: ["0", "500"], layer: "centre" }] });
     await ok(ctx, "construct", { feature: "Box", entities: [{ id: "Small", kind: "rect", x: "0", y: "0", w: "500", h: "500" }] });
     const small = ctx.ws.cad.settings.annotationScale;
     await ok(ctx, "construct", { feature: "Box", entities: [{ id: "Big", kind: "rect", x: "0", y: "0", w: "40000", h: "8000" }] });
@@ -566,7 +588,7 @@ describe("comparison with the reference image", () => {
     const ctx = context([{ data: referenceOf(built, s, ox, oy, W, H), mimeType: "image/png" }]);
     await buildBox(ctx);
     await annotateBox(ctx);
-    await ok(ctx, "construct", { feature: "Box", entities: [{ id: "LeftCell", kind: "loop", points: CELL.map(([x, y]) => [`-(${x})`, `${y} + 300`]) }] });
+    await ok(ctx, "construct", { feature: "Box", entities: [{ id: "LeftCell", kind: "loop", points: CELL.map(([x, y]) => [`-(${x})`, `${y} + 1.5 * Haunch`]) }] });
     await ok(ctx, "compare_reference", { pairs });
     const refused = await call(ctx, "finish", { title: "BOX", summary: "x" });
     expect(refused.ok).toBe(false);
@@ -594,7 +616,7 @@ describe("the construction afterwards", () => {
     const again = new DraftingWorkspace(JSON.parse(JSON.stringify(ctx.ws.toState())));
     expect(again.construction.plan?.values.length).toBe(BOX_PLAN.values.length);
     const def = currentDefinition(again)!;
-    expect(evalExpr(String((def.primitives![0] as { points: unknown[][] }).points[1][0]), { HalfWidth: 2755 })).toBe(2755);
+    expect(evalExpr(String((def.primitives!.find((p) => p.id === "BoxOuter") as { points: unknown[][] }).points[1][0]), { HalfWidth: 2755 })).toBe(2755);
   });
 });
 
@@ -651,7 +673,7 @@ describe("a parametric model, not a static drawing", () => {
     const { cad, cadShapes } = ctx.ws.toState();
     // What the editor sends back: the drawing, without the agent's session.
     const again: ToolContext = { ...context(), ws: new DraftingWorkspace({ cad: JSON.parse(JSON.stringify(cad)), cadShapes }) };
-    expect(again.ws.construction.plan?.features.map((f) => f.name)).toEqual(["Box", "Annotation"]);
+    expect(again.ws.construction.plan?.features.map((f) => f.name)).toEqual(["Datums", "Box", "Annotation"]);
     expect(again.ws.construction.tags.BoxOuter).toBe("Box");
     await ok(again, "plan", { update: true, values: [V("Wall", 500)] });
     const box = constructionEvaluation(again.ws)!.loops.find((l) => l.primitiveId === "BoxOuter")!;

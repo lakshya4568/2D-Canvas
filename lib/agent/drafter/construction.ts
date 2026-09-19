@@ -62,11 +62,25 @@ type Args = Record<string, unknown>;
 export type Route = "construction" | "sketch";
 export type PlanUnit = "mm" | "m" | "deg" | "-";
 
+/**
+ * Where a typed value comes from. The agent drafts; it does not design:
+ *   given     written on the reference or in the brief (the approved data)
+ *   scaled    not written; measured off the reference image
+ *   drafting  a drawing-layout choice (a view's position, how far a level line
+ *             runs) — never a size of the structure
+ *   required  needed but not provided: drawn with a placeholder and reported as
+ *             a design input still to come — never silently invented
+ */
+export type ValueSource = "given" | "scaled" | "drafting" | "required";
+export const VALUE_SOURCES: ValueSource[] = ["given", "scaled", "drafting", "required"];
+
 export interface PlanValue {
   name: string;
   expr: string;
   unit: PlanUnit;
   note?: string;
+  /** Typed values only (a derived value comes from its expression). */
+  source?: ValueSource;
 }
 export interface PlanCheck {
   label: string;
@@ -81,10 +95,32 @@ export interface PlanConstraint {
   op: ">" | ">=" | "<" | "<=";
   than: string;
 }
+/**
+ * The order a draftsman builds in. Datums (axes, centre lines, controlling
+ * level lines) set out the drawing; the primary structure is built from them;
+ * details (haunches, footings, wings, protection) and context (ground,
+ * embankment, track) attach to the structure; annotation (dimensions, level
+ * callouts, notes, hatching) describes the finished geometry and comes last.
+ */
+export type FeatureStage = "datum" | "primary" | "detail" | "context" | "annotation";
+export const FEATURE_STAGES: FeatureStage[] = ["datum", "primary", "detail", "context", "annotation"];
+const STAGE_RANK: Record<FeatureStage, number> = { datum: 0, primary: 1, detail: 2, context: 2, annotation: 3 };
+export const stageOfFeature = (f: PlanFeature): FeatureStage => f.stage ?? "primary";
+
 export interface PlanFeature {
   name: string;
   description: string;
   construction?: string;
+  stage?: FeatureStage;
+  /** Features this one is built from (they must exist first). */
+  after?: string[];
+  /** The view it belongs to. */
+  view?: string;
+}
+/** One view of the drawing (plan, elevation, section, detail). All views share the plan's values. */
+export interface PlanView {
+  name: string;
+  shows: string;
 }
 export interface ExpectedContent {
   dimensions: number[];
@@ -99,9 +135,12 @@ export interface ExpectedContent {
 }
 export interface ConstructionPlan {
   route: Route;
+  /** What is being built: the kind of structure or object, in the draftsman's words. */
+  structure?: string;
   analysis: string;
   frame: string;
   scale?: number;
+  views?: PlanView[];
   values: PlanValue[];
   checks: PlanCheck[];
   constraints: PlanConstraint[];
@@ -116,16 +155,63 @@ export interface ConstructionState {
   tags: Record<string, string>;
   /** Result of the last verify, at the workspace revision it ran on. */
   verified: { revision: number; ok: boolean } | null;
+  /**
+   * Result of the last check_geometry, with a fingerprint of the geometry it
+   * checked: dimensions and annotation wait until it passes on the geometry
+   * as it is now.
+   */
+  geometryChecked?: { fingerprint: string; ok: boolean } | null;
+  /**
+   * Numbers typed straight into the coordinates of structural entities (entity
+   * id → the numbers): sizes with no name and no source. check_geometry
+   * refuses them — a size is a plan value that says where it came from.
+   */
+  typedSizes?: Record<string, number[]>;
+  /** What the plan was made from: the brief as written, and whether an image was attached. */
+  inputs?: { brief?: string; hasReference: boolean };
 }
 
 export function emptyConstruction(): ConstructionState {
-  return { plan: null, definitionId: null, instanceId: null, tags: {}, verified: null };
+  return { plan: null, definitionId: null, instanceId: null, tags: {}, verified: null, typedSizes: {} };
 }
 
 const RESERVED = new Set(["DIM", "TXT", "SCALE", "PI", "pi", "e", "E"]);
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ID = /^[A-Za-z][A-Za-z0-9_]*$/;
 export const PRIMITIVE_LAYERS: LayerCategory[] = ["outline", "secondary", "hidden", "centre", "water", "ground", "level", "existing", "proposed", "construction", "leader", "text", "general"];
+
+/** Layers that draw the structure itself — not its datums, levels, water, ground or construction lines. */
+const STRUCTURAL_LAYERS = new Set<LayerCategory>(["outline", "hidden", "secondary", "existing", "proposed"]);
+
+/**
+ * Numbers written into expressions that are sizes: anything but small factors
+ * (up to 10: "/ 2", "* 1.5") and the unit conversions 100 and 1000.
+ */
+export function typedNumbers(...values: unknown[]): number[] {
+  const out = new Set<number>();
+  const consider = (n: number) => {
+    const a = Math.abs(n);
+    if (Number.isFinite(a) && a > 10 && a !== 100 && a !== 1000) out.add(a);
+  };
+  const visit = (v: unknown) => {
+    if (typeof v === "number") consider(v);
+    else if (typeof v === "string") for (const m of v.matchAll(/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g)) consider(Number(m[0]));
+    else if (Array.isArray(v)) v.forEach(visit);
+  };
+  values.forEach(visit);
+  return [...out];
+}
+
+/** Remembers which structural entities were given unnamed sizes (and forgets fixed ones). */
+function recordTypedSizes(ws: DraftingWorkspace, made: [ComponentPrimitive, number[]][]): void {
+  const sizes = { ...(ws.construction.typedSizes ?? {}) };
+  for (const [p, nums] of made) {
+    const keep = STRUCTURAL_LAYERS.has(p.layer) ? [...new Set(nums)] : [];
+    if (keep.length) sizes[p.id] = keep;
+    else delete sizes[p.id];
+  }
+  ws.construction = { ...ws.construction, typedSizes: sizes };
+}
 
 // ---------------------------------------------------------------------------
 // Argument readers
@@ -213,7 +299,71 @@ function parseValues(raw: unknown): PlanValue[] {
     if (!name) throw new ToolError(`Value ${i + 1} has no name.`);
     const expr = exprText(o.expr ?? o.value, `${name}'s expr`);
     const unit = (["mm", "m", "deg", "-"].includes(String(o.unit)) ? String(o.unit) : "mm") as PlanUnit;
-    return { name, expr, unit, note: optStr(o, "note") };
+    const source = optStr(o, "source")?.toLowerCase();
+    if (source && !(VALUE_SOURCES as string[]).includes(source)) throw new ToolError(`${name}: source is one of ${VALUE_SOURCES.join(", ")}.`);
+    return { name, expr, unit, note: optStr(o, "note"), source: source as ValueSource | undefined };
+  });
+}
+
+export const isTyped = (v: PlanValue) => /^-?\d+(\.\d+)?$/.test(v.expr.trim());
+
+/**
+ * Numbers a brief writes, in the units a value may carry them in: "2000 mm",
+ * "RL 100.000", "3 cells", "2.5 m" (also 2500 mm), "30°".
+ */
+function briefNumbers(brief: string): number[] {
+  const out: number[] = [];
+  for (const m of brief.matchAll(/(?<![\w.])-?\d+(?:\.\d+)?/g)) {
+    const n = Number(m[0]);
+    if (Number.isFinite(n)) out.push(n, n * 1000, n / 1000);
+  }
+  return out;
+}
+
+/**
+ * The agent drafts; it does not design. Every typed value says where it comes
+ * from, and the claim is checked where it can be: a value "given" by a text
+ * brief must be a number the brief writes; "scaled" needs an image to scale
+ * from. A size nobody gave is "required" — drawn with a placeholder and
+ * reported, never presented as design data.
+ */
+function checkSources(ws: DraftingWorkspace, values: PlanValue[], opts: PlanOptions): void {
+  const typed = values.filter(isTyped);
+  const missing = typed.filter((v) => !v.source).map((v) => v.name);
+  if (missing.length) {
+    throw new ToolError(
+      `Say where each value you typed comes from (source): ${missing.join(", ")}. given = written on the reference or in the brief; scaled = measured off the reference image; drafting = a layout choice (where a view or a title sits), never a size of the structure; required = needed but not provided — you draw it with a placeholder and it is reported as a design input still to come. Never invent a span, thickness, level, foundation or other design value.`
+    );
+  }
+  if (!opts.hasReference) {
+    const scaled = typed.filter((v) => v.source === "scaled").map((v) => v.name);
+    if (scaled.length) throw new ToolError(`${scaled.join(", ")}: "scaled" means measured off a reference image, and none is attached. A value the brief does not give is "required".`);
+    if (opts.brief) {
+      const written = briefNumbers(opts.brief);
+      const invented = typed.filter((v) => v.source === "given" && !written.some((n) => Math.abs(n - Number(v.expr)) <= checkTolerance(ws, v.unit)));
+      if (invented.length) {
+        throw new ToolError(
+          `The brief does not write ${invented.map((v) => `${v.name} = ${v.expr}`).join(", ")}, so ${invented.length === 1 ? "it is" : "they are"} not "given". If the brief states it another way, write the relation (e.g. a width from spans and walls); if nobody gave it, mark it "required" (a placeholder, reported as a design input still to come).`
+        );
+      }
+    }
+  }
+}
+
+export interface PlanOptions {
+  hasReference?: boolean;
+  /** The task as the person wrote it: numbers a "given" value may be. */
+  brief?: string;
+}
+
+function parseViews(raw: unknown): PlanView[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw new ToolError(`"views" must be a list of {name, shows}.`);
+  return raw.map((r, i) => {
+    const o = (typeof r === "string" ? { name: r } : (r ?? {})) as Args;
+    const name = optStr(o, "name");
+    if (!name) throw new ToolError(`View ${i + 1} has no name.`);
+    return { name, shows: optStr(o, "shows") ?? optStr(o, "description") ?? "" };
   });
 }
 
@@ -247,8 +397,33 @@ function parseFeatures(raw: unknown): PlanFeature[] {
     const o = (r ?? {}) as Args;
     const name = optStr(o, "name");
     if (!name) throw new ToolError(`Feature ${i + 1} has no name.`);
-    return { name, description: optStr(o, "description") ?? "", construction: optStr(o, "construction") };
+    const stage = optStr(o, "stage")?.toLowerCase();
+    if (stage && !(FEATURE_STAGES as string[]).includes(stage)) throw new ToolError(`Feature ${name}: stage is one of ${FEATURE_STAGES.join(", ")}.`);
+    const after = Array.isArray(o.after) ? (o.after as unknown[]).map(String).filter(Boolean) : typeof o.after === "string" ? o.after.split(/[,\s]+/).filter(Boolean) : [];
+    return { name, description: optStr(o, "description") ?? "", construction: optStr(o, "construction"), stage: stage as FeatureStage | undefined, after: after.length ? after : undefined, view: optStr(o, "view") };
   });
+}
+
+/** The construction sequence must make sense before anything is built from it. */
+function checkSequence(features: PlanFeature[], views: PlanView[]): void {
+  const unstaged = features.filter((f) => !f.stage).map((f) => f.name);
+  if (unstaged.length) {
+    throw new ToolError(
+      `Give every feature its stage (${unstaged.join(", ")}): datum (axes, centre lines, the controlling level lines — the setting-out), primary (the main structure built from the datums), detail (haunches, footings, wings, protection — attached to the structure), context (ground, embankment, track, formation), annotation (dimensions, level callouts, notes, hatching — added last, from the finished geometry).`
+    );
+  }
+  if (!features.some((f) => f.stage === "datum")) throw new ToolError("Set out first: plan at least one datum feature — the controlling axes and levels (centre line, structure axis, datum/level lines) every other part is built from.");
+  if (!features.some((f) => f.stage === "primary")) throw new ToolError("Plan the primary structure (stage primary): the main body the details and annotation hang on.");
+  const names = new Set(features.map((f) => f.name));
+  for (const f of features) {
+    const unknown = (f.after ?? []).filter((n) => !names.has(n));
+    if (unknown.length) throw new ToolError(`Feature ${f.name} is built after ${unknown.join(", ")}, which the plan does not list.`);
+    const later = (f.after ?? []).map((n) => features.find((g) => g.name === n)!).filter((g) => STAGE_RANK[stageOfFeature(g)] > STAGE_RANK[stageOfFeature(f)]);
+    if (later.length) throw new ToolError(`Feature ${f.name} (${f.stage}) cannot be built after ${later.map((g) => `${g.name} (${g.stage})`).join(", ")}: a later stage cannot come first.`);
+  }
+  const viewNames = new Set(views.map((v) => v.name));
+  for (const f of features) if (f.view && viewNames.size && !viewNames.has(f.view)) throw new ToolError(`Feature ${f.name} is in view "${f.view}", which the plan's views do not list (${[...viewNames].join(", ")}).`);
+  for (const v of views) if (views.length > 1 && !features.some((f) => f.view === v.name)) throw new ToolError(`View "${v.name}" has no features — say which features belong to it (feature.view).`);
 }
 
 function parseExpect(raw: unknown): ExpectedContent {
@@ -285,14 +460,18 @@ export function currentDefinition(ws: DraftingWorkspace): ComponentDefinition | 
 function withPlan(def: ComponentDefinition | null, plan: ConstructionPlan, id: string, title: string): ComponentDefinition {
   const typed = (v: PlanValue) => /^-?\d+(\.\d+)?$/.test(v.expr.trim());
   const kind = (u: PlanUnit): ComponentParameter["kind"] => (u === "m" ? "level" : u === "deg" ? "angle" : u === "-" ? "ratio" : "length");
+  const group = (v: PlanValue) =>
+    v.source === "required" ? "Required inputs (placeholders)" : v.source === "drafting" ? "Drawing layout" : v.unit === "m" ? "Levels" : v.source === "scaled" ? "Scaled from the reference" : "Values given";
   const parameters: ComponentParameter[] = plan.values.filter(typed).map((v) => ({
     name: v.name,
     label: v.note,
     kind: kind(v.unit),
     unit: v.unit,
     default: Number(v.expr),
-    group: v.unit === "m" ? "Levels" : "Values read",
-    description: v.note,
+    group: group(v),
+    description: v.source === "required" ? `Not provided — ${fmt3(Number(v.expr))} is a placeholder. Enter the approved value.${v.note ? ` (${v.note})` : ""}` : v.note,
+    provenance: v.source,
+    sourceRequired: v.source === "required" || v.source === "scaled" ? true : undefined,
   }));
   const formulas: ComponentFormula[] = plan.values
     .filter((v) => !typed(v))
@@ -455,7 +634,9 @@ function mergePlan(prev: ConstructionPlan, a: Args): Args {
   return {
     route: prev.route,
     title: a.title,
+    structure: optStr(a, "structure") ?? prev.structure,
     analysis: optStr(a, "analysis") ?? prev.analysis,
+    views: a.views ?? prev.views,
     frame: optStr(a, "frame") ?? prev.frame,
     scale: a.scale ?? prev.scale,
     values: byKey(prev.values, parseValues(a.values), (v) => v.name, drop),
@@ -471,7 +652,7 @@ function mergePlan(prev: ConstructionPlan, a: Args): Args {
   };
 }
 
-export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
+export function recordPlan(ws: DraftingWorkspace, raw: Args, opts: PlanOptions = {}): string {
   const prior = ws.construction.plan;
   const a = raw.update === true && prior ? mergePlan(prior, raw) : raw;
   const route: Route = optStr(a, "route") === "sketch" ? "sketch" : "construction";
@@ -485,19 +666,32 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
   const checks = parseChecks(a.checks);
   const constraints = parseConstraints(a.constraints);
   const features = parseFeatures(a.features);
-  if (route === "construction" && !features.length) throw new ToolError("List the features you will construct (name, description, construction: which tools, from which values).");
+  const views = parseViews(a.views);
+  const structure = optStr(a, "structure");
+  if (route === "construction") {
+    if (!structure) throw new ToolError("Say what you are building (structure): the kind of structure or object and what the drawing must show, as a draftsman would name it — e.g. 'single-cell RCC box culvert under a railway: cross section at the track centre line'.");
+    if (!views.length) throw new ToolError("List the views the drawing needs (views: [{name, shows}]) — plan, elevation, section, detail. They share one set of values, so a change reaches every view.");
+    if (!features.length) throw new ToolError("List the features you will construct (name, description, construction: which tools, from which values).");
+    checkSequence(features, views);
+    checkSources(ws, values, opts);
+  }
   const scale = Number(a.scale);
   const plan: ConstructionPlan = {
     route,
+    structure,
     analysis,
     frame: optStr(a, "frame") ?? "",
     scale: Number.isFinite(scale) && scale > 0 ? scale : undefined,
+    views: views.length ? views : undefined,
     values,
     checks,
     constraints,
     features,
     expect: parseExpect(a.expect),
   };
+  if (route === "construction" && (plan.expect.dimensions.length || plan.expect.levels.length || plan.expect.texts.length) && !features.some((f) => f.stage === "annotation")) {
+    throw new ToolError("Plan the annotation too: at least one feature with stage annotation (dimensions, level callouts, notes, hatching) — it is added last, after check_geometry, and verify checks it is there.");
+  }
   const { scope, errors } = evaluatePlanValues(values, annotationGlobals({ ...ws.cad.settings, annotationScale: plan.scale ?? ws.cad.settings.annotationScale }));
   if (errors.length) throw new ToolError(`Plan not recorded — ${errors.join(" ")}`);
   const broken = constraints.filter((c) => {
@@ -525,7 +719,7 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
 
   if (plan.scale && plan.scale !== ws.cad.settings.annotationScale) ws.applyCad({ type: "CAD_SET_SETTINGS", patch: { annotationScale: plan.scale } });
   const previous = ws.construction.plan;
-  ws.construction = { ...ws.construction, plan };
+  ws.construction = { ...ws.construction, plan, inputs: opts.brief !== undefined || opts.hasReference !== undefined ? { brief: opts.brief, hasReference: !!opts.hasReference } : ws.construction.inputs };
   if (optStr(a, "title")) ws.title = optStr(a, "title")!;
   if (route === "construction") {
     const def = withPlan(currentDefinition(ws), plan, definitionId(ws), optStr(a, "title") ?? currentDefinition(ws)?.name ?? "Agent construction");
@@ -538,10 +732,18 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
   }
 
   out.push(`Plan recorded (${route} route): ${values.length} values, ${checks.length} checks, ${constraints.length} constraints, ${features.length} features.`);
-  const typed = values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim()));
+  const typed = values.filter(isTyped);
   const derived = values.filter((v) => !typed.includes(v));
-  if (typed.length) out.push(`Read: ${typed.map((v) => `${v.name}=${fmt3(scope[v.name])}${unitText(v.unit)}`).join(", ")}`);
+  const show = (v: PlanValue) => `${v.name}=${fmt3(scope[v.name])}${unitText(v.unit)}`;
+  const bySource = (s: ValueSource | undefined) => typed.filter((v) => (v.source ?? "given") === s);
+  if (typed.length) out.push(`Given: ${bySource("given").map(show).join(", ") || "none"}`);
+  if (bySource("scaled").length) out.push(`Scaled from the image (approximate — say so in finish): ${bySource("scaled").map(show).join(", ")}`);
+  if (bySource("drafting").length) out.push(`Drafting layout choices: ${bySource("drafting").map(show).join(", ")}`);
+  if (bySource("required").length) out.push(`REQUIRED INPUTS not provided — drawn with placeholders, reported as design data still to come: ${bySource("required").map(show).join(", ")}`);
   if (derived.length) out.push(`Worked out: ${derived.map((v) => `${v.name} = ${v.expr} = ${fmt3(scope[v.name])}${unitText(v.unit)}`).join("; ")}`);
+  if (route === "construction") {
+    out.push(`Construction sequence: ${[...features].sort((f, g) => STAGE_RANK[stageOfFeature(f)] - STAGE_RANK[stageOfFeature(g)]).map((f) => `${f.name} (${stageOfFeature(f)}${f.view ? `, ${f.view}` : ""})`).join(" → ")}.`);
+  }
   if (checkLines.length) out.push(`Checks against numbers the reference also writes:\n${checkLines.join("\n")}`);
   if (failed.length) out.push(`${failed.length} check(s) FAIL: a value you read, or a relation you wrote, is wrong — or the reference contradicts itself. Find which before drawing; if the reference really is inconsistent, keep the check, and report it.`);
   const e = plan.expect;
@@ -549,7 +751,7 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
   if (!e.dimensions.length && !e.levels.length) out.push("You listed no expected dimensions or levels — list every number the reference writes in expect, or verify cannot compare your drawing with it.");
   out.push(
     route === "construction"
-      ? `Next: construct each feature, writing coordinates as expressions of these values (the engine does the arithmetic). Annotation spacing: DIM=${fmt3(scope.DIM)} mm (one dimension row), TXT=${fmt3(scope.TXT)} mm (text height) at 1:${ws.cad.settings.annotationScale}.`
+      ? `Next: set out the datum features, then build the primary structure from them, then details and context — coordinates as expressions of these values (the engine does the arithmetic). Then check_geometry; dimensions, level callouts, notes and hatching come only after it passes. Annotation spacing: DIM=${fmt3(scope.DIM)} mm (one dimension row), TXT=${fmt3(scope.TXT)} mm (text height) at 1:${ws.cad.settings.annotationScale}.`
       : "Next: draw with the sketch tools (draw_*), then constrain and dimension."
   );
   return out.join("\n");
@@ -575,6 +777,7 @@ function primitive(def: ComponentDefinition, id: string): ComponentPrimitive {
 
 function vertexOf(def: ComponentDefinition, id: string, part: string): XY {
   const p = primitive(def, id);
+  if (p.repeat) throw new ToolError(`${id} repeats (index ${p.repeat.index}); its points differ copy by copy. Write the position from your values instead (e.g. the first copy's expression with ${p.repeat.index} = 0).`);
   const lower = part.toLowerCase();
   if (p.kind === "circle") {
     if (lower === "center" || lower === "centre") return p.center;
@@ -722,9 +925,35 @@ function arcPoints(center: XY, r: Expr, start: Expr, end: Expr, scope: Scope): X
   return out;
 }
 
-function entityFrom(o: Args, def: ComponentDefinition, scope: Scope): ComponentPrimitive {
+/**
+ * A repeated entity: `repeat: {count, index}` makes count copies, the index
+ * (0 … count − 1) usable in its expressions — a row of cells, a line of piers.
+ * The count is a value like any other, so changing it adds or removes copies
+ * (topology, UPCE §23.4) while each copy keeps its relations.
+ */
+function repeatOf(o: Args, id: string, def: ComponentDefinition, scope: Scope): { spec: { count: Expr; index: string }; scope: Scope } | null {
+  if (o.repeat === undefined || o.repeat === null) return null;
+  const r = (typeof o.repeat === "object" ? o.repeat : { count: o.repeat }) as Args;
+  const index = optStr(r, "index") ?? "i";
+  if (!NAME.test(index) || index in scope) throw new ToolError(`${id}: repeat index "${index}" must be a new name (not a plan value).`);
+  const count = scalar(r.count, `${id} repeat count`, def, scope);
+  const n = num(count, scope);
+  if (!(n >= 1)) throw new ToolError(`${id}: repeat count evaluates to ${fmt(n)}; it must be at least 1.`);
+  return { spec: { count, index }, scope: { ...scope, [index]: 0 } };
+}
+
+/** A repeated entity's own scope: the first copy (index 0). */
+const scopeFor = (p: ComponentPrimitive, scope: Scope): Scope => (p.repeat && p.repeat.index && !(p.repeat.index in scope) ? { ...scope, [p.repeat.index]: 0 } : scope);
+
+function entityFrom(o: Args, def: ComponentDefinition, scope0: Scope): ComponentPrimitive {
   const id = optStr(o, "id");
   if (!id || !ID.test(id)) throw new ToolError(`Every entity needs an id (letters, digits, _): got ${JSON.stringify(o.id)}.`);
+  const rep = repeatOf(o, id, def, scope0);
+  const p = entityShape(o, id, def, rep?.scope ?? scope0);
+  return rep ? { ...p, repeat: rep.spec } : p;
+}
+
+function entityShape(o: Args, id: string, def: ComponentDefinition, scope: Scope): ComponentPrimitive {
   const kind = optStr(o, "kind") ?? "polyline";
   const base = { id, role: optStr(o, "role") ?? "general", label: id, draw: o.draw === false ? false : undefined };
   const layer = layerOf(o, "outline");
@@ -766,11 +995,13 @@ function entityFrom(o: Args, def: ComponentDefinition, scope: Scope): ComponentP
   }
 }
 
-function describeEntity(p: ComponentPrimitive, scope: Scope, full = true): string {
-  if (p.kind === "circle") return `${p.id} circle centre ${showPt(p.center, scope)} r ${fmt(num(p.r, scope))}${p.layer !== "outline" ? ` [${p.layer}]` : ""}`;
+function describeEntity(p: ComponentPrimitive, planScope: Scope, full = true): string {
+  const scope = scopeFor(p, planScope);
+  const times = p.repeat?.count !== undefined ? ` × ${fmt(num(p.repeat.count, planScope))} (${p.repeat.index} = 0 … count − 1; the first shown)` : "";
+  if (p.kind === "circle") return `${p.id} circle centre ${showPt(p.center, scope)} r ${fmt(num(p.r, scope))}${times}${p.layer !== "outline" ? ` [${p.layer}]` : ""}`;
   const pts = p.points.map((q) => showPt(q, scope));
   const shown = full || pts.length <= 12 ? pts.map((s, i) => `p${i + 1} ${s}`).join(" ") : `${pts.slice(0, 3).map((s, i) => `p${i + 1} ${s}`).join(" ")} … p${pts.length} ${pts[pts.length - 1]}`;
-  return `${p.id} ${p.kind === "loop" ? "loop" : "path"}${p.layer !== "outline" ? ` [${p.layer}]` : ""}${p.draw === false ? " (not drawn)" : ""}: ${shown}`;
+  return `${p.id} ${p.kind === "loop" ? "loop" : "path"}${times}${p.layer !== "outline" ? ` [${p.layer}]` : ""}${p.draw === false ? " (not drawn)" : ""}: ${shown}`;
 }
 
 function featureArg(ws: DraftingWorkspace, a: Args): string | undefined {
@@ -779,6 +1010,37 @@ function featureArg(ws: DraftingWorkspace, a: Args): string | undefined {
   const names = ws.construction.plan?.features.map((x) => x.name) ?? [];
   if (!names.includes(f)) throw new ToolError(`"${f}" is not a planned feature. Planned: ${names.join(", ")}. Add it with plan (plan again with the extra feature) if the reference needs it.`);
   return f;
+}
+
+/** Features with something constructed or annotated in them. */
+function builtFeatures(ws: DraftingWorkspace): Set<string> {
+  return new Set(Object.values(ws.construction.tags));
+}
+
+/**
+ * The draftsman's order, enforced: datums before the structure, the structure
+ * before its details and context, a feature after the ones it is built from,
+ * and annotation only through annotate. Rebuilding a feature that already has
+ * entities (a correction) is always allowed.
+ */
+function stageGate(ws: DraftingWorkspace, feature: string | undefined, tool: string): void {
+  const plan = ws.construction.plan;
+  if (!plan) return;
+  if (!feature) throw new ToolError(`Name the planned feature these belong to (feature). Planned: ${plan.features.map((f) => f.name).join(", ")}.`);
+  const f = plan.features.find((x) => x.name === feature)!;
+  const stage = stageOfFeature(f);
+  if (stage === "annotation") throw new ToolError(`${f.name} is an annotation feature: dimensions, levels, notes and hatching are added with annotate, after check_geometry passes. ${tool} builds geometry.`);
+  const built = builtFeatures(ws);
+  if (built.has(f.name)) return;
+  const rank = STAGE_RANK[stage];
+  const earlier = plan.features.filter((g) => STAGE_RANK[stageOfFeature(g)] < rank && !built.has(g.name));
+  if (earlier.length) {
+    throw new ToolError(
+      `Build in order: ${f.name} (${stage}) comes after ${earlier.map((g) => `${g.name} (${stageOfFeature(g)})`).join(", ")}. A draftsman sets out the axes and controlling levels first, builds the primary structure from them, then its details and context.`
+    );
+  }
+  const waiting = (f.after ?? []).filter((n) => !built.has(n));
+  if (waiting.length) throw new ToolError(`${f.name} is built from ${waiting.join(", ")} — construct ${waiting.length === 1 ? "it" : "them"} first.`);
 }
 
 function upsert(def: ComponentDefinition, prims: ComponentPrimitive[]): { def: ComponentDefinition; replaced: string[] } {
@@ -805,6 +1067,7 @@ function upsert(def: ComponentDefinition, prims: ComponentPrimitive[]): { def: C
 export function construct(ws: DraftingWorkspace, a: Args): string {
   const { def, scope } = requireConstruction(ws);
   const feature = featureArg(ws, a);
+  stageGate(ws, feature, "construct");
   const raw = Array.isArray(a.entities) ? (a.entities as Args[]) : null;
   if (!raw || !raw.length) throw new ToolError(`"entities" must list what to construct, e.g. [{id: "BoxOuter", kind: "loop", points: [["-HalfWidth", "BottomY"], …]}].`);
   // Entities may refer to ones earlier in the same call.
@@ -817,6 +1080,7 @@ export function construct(ws: DraftingWorkspace, a: Args): string {
   }
   const { replaced } = upsert(def, made);
   const ev = commit(ws, work, { ids: made.map((p) => p.id), feature });
+  recordTypedSizes(ws, made.map((p, i) => [p, typedNumbers(...["x", "y", "w", "h", "width", "height", "r", "radius", "center", "from", "to", "points"].map((k) => (raw[i] ?? {})[k]))]));
   return [
     `${made.length} entit${made.length === 1 ? "y" : "ies"} ${replaced.length ? `(${replaced.join(", ")} replaced) ` : ""}${feature ? `for ${feature}` : "(no feature given — tag it with feature)"}:`,
     ...made.map((p) => "  " + describeEntity(p, scope)),
@@ -833,7 +1097,8 @@ function warnings(ev: ComponentEvaluation): string[] {
 // Transform: mirror, copy (array), move, rotate, offset — all symbolic
 // ---------------------------------------------------------------------------
 
-function mapPrimitive(p: ComponentPrimitive, f: (q: Sy.SP) => Sy.SP, scope: Scope, id: string): ComponentPrimitive {
+function mapPrimitive(p: ComponentPrimitive, f: (q: Sy.SP) => Sy.SP, planScope: Scope, id: string): ComponentPrimitive {
+  const scope = scopeFor(p, planScope);
   const m = (q: XY) => Sy.toXY(f(Sy.symPoint(q, scope)));
   if (p.kind === "circle") return { ...p, id, label: id, center: m(p.center) };
   return { ...p, id, label: id, points: p.points.map(m) };
@@ -846,6 +1111,7 @@ export function transform(ws: DraftingWorkspace, a: Args): string {
   const targets = Array.isArray(a.targets) ? (a.targets as unknown[]).map(String) : typeof a.targets === "string" ? a.targets.split(/[,\s]+/).filter(Boolean) : [];
   if (!targets.length) throw new ToolError(`"targets" lists the entity ids to ${op}.`);
   const sources = targets.map((id) => primitive(def, id));
+  stageGate(ws, feature ?? ws.construction.tags[targets[0]], "transform");
   const newIds = Array.isArray(a.ids) ? (a.ids as unknown[]).map(String) : [];
   const tol = ws.policy.geometry_mm;
   const S = (v: unknown, what: string) => Sy.sym(scalar(v, what, def, scope), scope);
@@ -904,7 +1170,7 @@ export function transform(ws: DraftingWorkspace, a: Args): string {
           made.push({ ...p, id, label: id, r: Sy.add(r, side === "inside" ? Sy.neg(d) : d).e });
           return;
         }
-        const pts = p.points.map((q) => Sy.symPoint(q, scope));
+        const pts = p.points.map((q) => Sy.symPoint(q, scopeFor(p, scope)));
         const closed = p.kind === "loop";
         let s: 1 | -1;
         if (closed) {
@@ -926,6 +1192,11 @@ export function transform(ws: DraftingWorkspace, a: Args): string {
   if (optStr(a, "layer")) for (const m of made) m.layer = layerOf(a, m.layer);
   const { def: next, replaced } = upsert(def, made);
   const ev = commit(ws, next, { ids: made.filter((m) => !replaced.includes(m.id)).map((m) => m.id), feature: feature ?? ws.construction.tags[targets[0]] });
+  {
+    const inherited = targets.flatMap((t) => ws.construction.typedSizes?.[t] ?? []);
+    const typed = typedNumbers(a.dx, a.dy, a.distance, a.angle, a.axis_x, a.axis_y, a.axis_from, a.axis_to, a.center);
+    recordTypedSizes(ws, made.map((m) => [m, [...inherited, ...typed]]));
+  }
   return [`${op}: ${made.length} entit${made.length === 1 ? "y" : "ies"}${replaced.length ? ` (${replaced.join(", ")} changed in place)` : ""}:`, ...made.map((p) => "  " + describeEntity(p, scope, false)), ...warnings(ev)].join("\n");
 }
 
@@ -942,10 +1213,12 @@ export function booleanOp(ws: DraftingWorkspace, a: Args): string {
   const A = ids("a");
   const B = ids("b");
   if (!A.length || !B.length) throw new ToolError(`Give the loops: a (the base) and b (added, cut away or intersected).`);
+  stageGate(ws, feature ?? ws.construction.tags[A[0]], "boolean");
   const loopsOf = (list: string[]) =>
     list.map((id) => {
       const p = primitive(def, id);
       if (p.kind !== "loop") throw new ToolError(`${id} is not a closed loop.`);
+      if (p.repeat) throw new ToolError(`${id} repeats; a boolean needs single loops. Build the result from the values instead (or boolean one copy and repeat the result).`);
       return p.points.map((q) => Sy.symPoint(q, scope));
     });
   const result = Sy.booleanLoops(op, loopsOf(A), loopsOf(B), ws.policy.weld_mm);
@@ -962,6 +1235,7 @@ export function booleanOp(ws: DraftingWorkspace, a: Args): string {
   if (hatchUsers.length) throw new ToolError(`${hatchUsers.map((h) => h.id).join(", ")} hatch${hatchUsers.length === 1 ? "es" : ""} a source loop; remove the hatch first or pass keep_sources true.`);
   const { def: next } = upsert(work, made);
   const ev = commit(ws, next, { ids: made.map((m) => m.id), feature: feature ?? ws.construction.tags[A[0]] });
+  recordTypedSizes(ws, made.map((m) => [m, [...A, ...B].flatMap((id) => ws.construction.typedSizes?.[id] ?? [])]));
   const holes = made.filter((m) => m.kind === "loop" && Sy.areaOf(m.points.map((q) => ({ x: num(q[0], scope), y: num(q[1], scope) }))) < 0).map((m) => m.id);
   return [`${op}: ${made.length} loop(s)${holes.length ? ` — ${holes.join(", ")} ${holes.length === 1 ? "is a hole" : "are holes"} (use as hatch holes)` : ""}${a.keep_sources === true ? "" : "; the source loops were replaced"}:`, ...made.map((p) => "  " + describeEntity(p, scope, false)), ...warnings(ev)].join("\n");
 }
@@ -992,6 +1266,9 @@ export function removeEntities(ws: DraftingWorkspace, a: Args): string {
   };
   const tags = { ...ws.construction.tags };
   for (const id of ids) delete tags[id];
+  const sizes = { ...(ws.construction.typedSizes ?? {}) };
+  for (const id of ids) delete sizes[id];
+  ws.construction = { ...ws.construction, typedSizes: sizes };
   ws.construction = { ...ws.construction, tags };
   commit(ws, next);
   return `Removed ${ids.join(", ")}.`;
@@ -1027,7 +1304,7 @@ function smallestLoopAround(def: ComponentDefinition, scope: Scope, x: number, y
   let best: { id: string; area: number } | null = null;
   for (const p of def.primitives ?? []) {
     if (p.kind !== "loop") continue;
-    const pts = p.points.map((q) => ({ x: num(q[0], scope), y: num(q[1], scope) }));
+    const pts = p.points.map((q) => ({ x: num(q[0], scopeFor(p, scope)), y: num(q[1], scopeFor(p, scope)) }));
     let odd = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
       if (pts[i].y > y !== pts[j].y > y && x < ((pts[j].x - pts[i].x) * (y - pts[i].y)) / (pts[j].y - pts[i].y) + pts[i].x) odd = !odd;
@@ -1041,6 +1318,7 @@ function smallestLoopAround(def: ComponentDefinition, scope: Scope, x: number, y
 
 export function annotateConstruction(ws: DraftingWorkspace, a: Args): string {
   const { def, scope } = requireConstruction(ws);
+  annotationGate(ws);
   const feature = featureArg(ws, a);
   const kind = str(a, "kind");
   const layer = optStr(a, "layer") as LayerCategory | undefined;
@@ -1051,10 +1329,13 @@ export function annotateConstruction(ws: DraftingWorkspace, a: Args): string {
   switch (kind) {
     case "dimension": {
       id = annotationId(def, a, "D");
-      const from = point(a.from, "from", def, scope);
-      const to = point(a.to, "to", def, scope);
-      const dx = Math.abs(num(to[0], scope) - num(from[0], scope));
-      const dy = Math.abs(num(to[1], scope) - num(from[1], scope));
+      // One dimension per copy of a repeated part (each cell's clear span): repeat, as construct does.
+      const rep = repeatOf(a, id, def, scope);
+      const s = rep?.scope ?? scope;
+      const from = point(a.from, "from", def, s);
+      const to = point(a.to, "to", def, s);
+      const dx = Math.abs(num(to[0], s) - num(from[0], s));
+      const dy = Math.abs(num(to[1], s) - num(from[1], s));
       const k = (optStr(a, "orientation") as DimensionDef["kind"] | undefined) ?? (a.aligned === true ? "aligned" : dx >= dy ? "horizontal" : "vertical");
       if (!["horizontal", "vertical", "aligned"].includes(k)) throw new ToolError(`orientation is horizontal, vertical or aligned.`);
       const drives = optStr(a, "drives");
@@ -1064,15 +1345,17 @@ export function annotateConstruction(ws: DraftingWorkspace, a: Args): string {
         kind: k,
         from,
         to,
-        offset: a.offset !== undefined ? scalar(a.offset, "offset", def, scope) : "DIM",
+        offset: a.offset !== undefined ? scalar(a.offset, "offset", def, s) : "DIM",
         // Spacing matters here ("V.C. " + 3400), so the text is taken as written.
         prefix: typeof a.prefix === "string" && a.prefix ? a.prefix : undefined,
         suffix: typeof a.suffix === "string" && a.suffix ? a.suffix : undefined,
         hideValue: a.hide_value === true ? true : undefined,
         drives,
         layer,
+        repeat: rep?.spec,
       };
       next = { ...def, dimensions: replaceIn(def.dimensions, d) };
+      anchoredOnGeometry(ws, next, id, "dimension");
       const value = k === "horizontal" ? dx : k === "vertical" ? dy : Math.hypot(dx, dy);
       said = `dimension ${id} ${k} measuring ${fmt(value)}${d.prefix ? ` (reads "${d.prefix}${fmt(value)}${d.suffix ?? ""}")` : ""}${d.hideValue ? ", number hidden" : ""}`;
       break;
@@ -1092,6 +1375,7 @@ export function annotateConstruction(ws: DraftingWorkspace, a: Args): string {
         layer,
       };
       next = { ...def, levels: replaceIn(def.levels, l) };
+      anchoredOnGeometry(ws, next, id, "level");
       said = `level ${id} "${l.label}" at RL ${(num(at[1], scope) / 1000).toFixed(3)} (read from its height)`;
       break;
     }
@@ -1208,7 +1492,7 @@ export function measure(ws: DraftingWorkspace, a: Args): string {
   const A = measureRef(a.a, def, scope);
   const B = a.b !== undefined ? measureRef(a.b, def, scope) : null;
   const P = (m: Measured) => (m.kind === "point" ? m : null);
-  const ptsOf = (p: ComponentPrimitive) => (p.kind === "circle" ? [] : p.points.map((q) => ({ x: num(q[0], scope), y: num(q[1], scope) })));
+  const ptsOf = (p: ComponentPrimitive) => (p.kind === "circle" ? [] : p.points.map((q) => ({ x: num(q[0], scopeFor(p, scope)), y: num(q[1], scopeFor(p, scope)) })));
   if (A.kind === "value" && !B) return `= ${fmt3(A.v)}`;
   if (A.kind === "point" && !B) return `(${fmt(A.x)}, ${fmt(A.y)}) — as a level, RL ${(A.y / 1000).toFixed(3)}`;
   if (A.kind === "edge" && !B) {
@@ -1221,7 +1505,7 @@ export function measure(ws: DraftingWorkspace, a: Args): string {
   if (A.kind === "entity" && !B) {
     const p = A.p;
     if (p.kind === "circle") {
-      const r = num(p.r, scope);
+      const r = num(p.r, scopeFor(p, scope));
       return `circle r ${fmt(r)}, diameter ${fmt(2 * r)}, area ${fmt3((Math.PI * r * r) / 1e6)} m²`;
     }
     const pts = ptsOf(p);
@@ -1267,6 +1551,394 @@ const norm = (s: string) =>
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, " ")
     .trim();
+
+// ---------------------------------------------------------------------------
+// Geometry first: what the geometry itself contains, before any annotation
+// ---------------------------------------------------------------------------
+
+/** A fingerprint of the geometry (outlines, paths, circles — not annotation). */
+export function geometryFingerprint(ev: ComponentEvaluation, tol: number): string {
+  let h = 2166136261;
+  const mix = (s: string) => {
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+  };
+  const q = (v: number) => Math.round(v / tol);
+  for (const l of ev.loops) {
+    mix(`${l.path}|${l.draw ? 1 : 0}|`);
+    for (const p of l.points) mix(`${q(p.x)},${q(p.y)};`);
+  }
+  for (const c of ev.circles) mix(`${c.path}|${q(c.center.x)},${q(c.center.y)},${q(c.r)};`);
+  return `${ev.loops.length}.${ev.circles.length}.${(h >>> 0).toString(36)}`;
+}
+
+interface GeometryIndex {
+  /** Distinct x and y coordinates of the geometry, sorted, with an entity at each. */
+  xs: { v: number; id: string }[];
+  ys: { v: number; id: string }[];
+  edges: { a: { x: number; y: number }; b: { x: number; y: number }; id: string }[];
+  loops: { id: string; points: { x: number; y: number }[] }[];
+  circles: { id: string; center: { x: number; y: number }; r: number }[];
+}
+
+function geometryIndex(ev: ComponentEvaluation, tol: number): GeometryIndex {
+  const xs = new Map<number, { v: number; id: string }>();
+  const ys = new Map<number, { v: number; id: string }>();
+  const add = (x: number, y: number, id: string) => {
+    const kx = Math.round(x / tol);
+    const ky = Math.round(y / tol);
+    if (!xs.has(kx)) xs.set(kx, { v: x, id });
+    if (!ys.has(ky)) ys.set(ky, { v: y, id });
+  };
+  const edges: GeometryIndex["edges"] = [];
+  for (const l of ev.loops) {
+    for (const p of l.points) add(p.x, p.y, l.primitiveId);
+    const n = l.closed ? l.points.length : l.points.length - 1;
+    for (let i = 0; i < n; i++) edges.push({ a: l.points[i], b: l.points[(i + 1) % l.points.length], id: l.primitiveId });
+  }
+  for (const c of ev.circles) {
+    add(c.center.x, c.center.y, c.primitiveId);
+    add(c.center.x - c.r, c.center.y - c.r, c.primitiveId);
+    add(c.center.x + c.r, c.center.y + c.r, c.primitiveId);
+  }
+  const sorted = (m: Map<number, { v: number; id: string }>) => [...m.values()].sort((a, b) => a.v - b.v);
+  return {
+    xs: sorted(xs),
+    ys: sorted(ys),
+    edges,
+    loops: ev.loops.map((l) => ({ id: l.primitiveId, points: l.points })),
+    circles: ev.circles.map((c) => ({ id: c.primitiveId, center: c.center, r: c.r })),
+  };
+}
+
+/** The coordinate in a sorted list nearest v. */
+function nearestCoord(list: { v: number; id: string }[], v: number): { v: number; id: string } | null {
+  let lo = 0;
+  let hi = list.length - 1;
+  if (hi < 0) return null;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].v < v) lo = mid;
+    else hi = mid;
+  }
+  return Math.abs(list[lo].v - v) <= Math.abs(list[hi].v - v) ? list[lo] : list[hi];
+}
+
+const onCoord = (list: { v: number; id: string }[], v: number, tol: number) => {
+  const n = nearestCoord(list, v);
+  return !!n && Math.abs(n.v - v) <= tol;
+};
+
+function distanceToGeometry(g: GeometryIndex, p: { x: number; y: number }): number {
+  let best = Infinity;
+  for (const { a, b } of g.edges) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const L2 = dx * dx + dy * dy;
+    const t = L2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
+    best = Math.min(best, Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y));
+  }
+  for (const c of g.circles) best = Math.min(best, Math.abs(Math.hypot(p.x - c.center.x, p.y - c.center.y) - c.r), Math.hypot(p.x - c.center.x, p.y - c.center.y));
+  return best;
+}
+
+/**
+ * Edges grouped by direction; within a group, each edge's line as its offset
+ * along the group's normal (sorted) — the distances between parallel faces.
+ */
+function parallelOffsets(g: GeometryIndex, tol: number): { v: number }[][] {
+  const groups = new Map<number, { nx: number; ny: number; offs: number[] }>();
+  // Direction resolution: an edge's end moves less than tol across a 100 m span.
+  const step = tol / 100000;
+  for (const { a, b } of g.edges) {
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L <= tol) continue;
+    let ang = Math.atan2(b.y - a.y, b.x - a.x);
+    if (ang < 0) ang += Math.PI;
+    if (ang >= Math.PI - step / 2) ang -= Math.PI;
+    const key = Math.round(ang / step);
+    let grp = groups.get(key);
+    if (!grp) groups.set(key, (grp = { nx: -Math.sin(ang), ny: Math.cos(ang), offs: [] }));
+    grp.offs.push(grp.nx * a.x + grp.ny * a.y);
+  }
+  return [...groups.values()].filter((grp) => grp.offs.length > 1).map((grp) => grp.offs.sort((p, q) => p - q).map((v) => ({ v })));
+}
+
+/**
+ * Whether the geometry contains a length: two of its x (or y) coordinates that
+ * far apart, an edge that long, two points of one outline that far apart, or a
+ * circle of that radius or diameter. A number the drawing writes must exist in
+ * the geometry before any dimension can show it.
+ */
+function geometryHasLength(g: GeometryIndex, d: number, tol: number): boolean {
+  const span = (list: { v: number }[]) => {
+    let j = 0;
+    for (let i = 0; i < list.length; i++) {
+      while (j < list.length && list[j].v - list[i].v < d - tol) j++;
+      if (j < list.length && Math.abs(list[j].v - list[i].v - d) <= tol) return true;
+    }
+    return false;
+  };
+  if (span(g.xs) || span(g.ys)) return true;
+  // A thickness across a sloped or skewed member: two parallel faces that far apart.
+  for (const offsets of parallelOffsets(g, tol)) if (span(offsets)) return true;
+  for (const e of g.edges) if (Math.abs(Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) - d) <= tol) return true;
+  for (const c of g.circles) if (Math.abs(c.r - d) <= tol || Math.abs(2 * c.r - d) <= tol) return true;
+  for (const l of g.loops) {
+    if (l.points.length > 80) continue;
+    for (let i = 0; i < l.points.length; i++)
+      for (let k = i + 1; k < l.points.length; k++) if (Math.abs(Math.hypot(l.points[k].x - l.points[i].x, l.points[k].y - l.points[i].y) - d) <= tol) return true;
+  }
+  return false;
+}
+
+/**
+ * Dimensions and level callouts describe geometry: a dimension's ends sit on
+ * the geometry's own points or faces, a level stands on a constructed line or
+ * face. Anything else is a number typed next to the drawing, which is what a
+ * draftsman never does.
+ */
+function anchoredOnGeometry(ws: DraftingWorkspace, next: ComponentDefinition, id: string, kind: "dimension" | "level"): void {
+  const tol = ws.policy.geometry_mm;
+  const ev = evaluateCandidate(ws, next);
+  const g = geometryIndex(ev, tol);
+  const mine = (path: string) => path === id || path.startsWith(`${id}[`);
+  const near = (list: { v: number; id: string }[], v: number, axis: string) => {
+    const n = nearestCoord(list, v);
+    return n ? ` (nearest: ${axis} = ${fmt(n.v)} on ${n.id})` : " (nothing is constructed there)";
+  };
+  if (kind === "dimension") {
+    for (const d of ev.dimensions.filter((x) => mine(x.path))) {
+      const bad: string[] = [];
+      for (const [end, p] of [["from", d.from], ["to", d.to]] as const) {
+        if (d.kind === "horizontal" && !onCoord(g.xs, p.x, tol)) bad.push(`${end} x = ${fmt(p.x)} is not at any face or point of your geometry${near(g.xs, p.x, "x")}`);
+        else if (d.kind === "vertical" && !onCoord(g.ys, p.y, tol)) bad.push(`${end} y = ${fmt(p.y)} is not at any face or point of your geometry${near(g.ys, p.y, "y")}`);
+        else if (d.kind === "aligned" && distanceToGeometry(g, p) > tol) bad.push(`${end} (${fmt(p.x)}, ${fmt(p.y)}) is not on your geometry`);
+      }
+      if (bad.length) {
+        throw new ToolError(
+          `A dimension measures the geometry, so its ends are the geometry's own points: ${bad.join("; ")}. Dimension between points of what you constructed (Box.p3, Cell.p1, or the datum expressions those points use). If the size is not in the geometry yet, the geometry is missing it — construct it first.`
+        );
+      }
+    }
+  } else {
+    for (const l of ev.levels.filter((x) => mine(x.path))) {
+      if (!onCoord(g.ys, l.at.y, tol)) {
+        throw new ToolError(
+          `A level callout reads its RL from the height it stands on, so it stands on geometry: y = ${fmt(l.at.y)} (RL ${(l.at.y / 1000 + ws.cad.settings.datumRL).toFixed(3)}) is not on any constructed line or face${near(g.ys, l.at.y, "y")}. Construct the level line first (a datum feature), then call it out on it.`
+        );
+      }
+    }
+  }
+}
+
+/** Annotation waits for geometry that has passed check_geometry, as it is now. */
+export function annotationGate(ws: DraftingWorkspace): void {
+  const g = ws.construction.geometryChecked;
+  if (!g) {
+    throw new ToolError(
+      "Geometry first. Dimensions, level callouts, notes and hatching describe finished geometry: set out the datums, build the structure, its details and context, then call check_geometry. Annotate once it passes."
+    );
+  }
+  if (!g.ok) throw new ToolError("check_geometry found problems in the geometry. Fix them at their cause and run check_geometry again before annotating.");
+  const ev = constructionEvaluation(ws);
+  if (ev && geometryFingerprint(ev, ws.policy.geometry_mm) !== g.fingerprint) {
+    throw new ToolError("The geometry changed since check_geometry passed. Run check_geometry again — annotation describes verified geometry.");
+  }
+}
+
+/** The plan's cross-checks against the numbers the reference also writes. */
+function runPlanChecks(ws: DraftingWorkspace, plan: ConstructionPlan, scope: Scope, problems: string[]): number {
+  let passed = 0;
+  for (const c of plan.checks) {
+    try {
+      const got = evalExpr(c.expr, scope);
+      if (Math.abs(got - c.expect) <= checkTolerance(ws, c.unit)) passed++;
+      else problems.push(`Check "${c.label}": ${c.expr} = ${fmt3(got)}, the reference says ${fmt3(c.expect)}.`);
+    } catch (e) {
+      problems.push(`Check "${c.label}": ${(e as Error).message}.`);
+    }
+  }
+  return passed;
+}
+
+/** The written numbers and levels, looked for in the geometry itself. */
+function numbersInGeometry(ws: DraftingWorkspace, plan: ConstructionPlan, ev: ComponentEvaluation): { dims: number[]; levels: string[] } {
+  const tol = ws.policy.geometry_mm;
+  const g = geometryIndex(ev, tol);
+  const dims = [...new Set(plan.expect.dimensions)].filter((d) => d > tol && !geometryHasLength(g, d, tol));
+  const levels = plan.expect.levels.filter((l) => !onCoord(g.ys, (l.rl - ws.cad.settings.datumRL) * 1000, tol)).map((l) => `${l.label} ${l.rl.toFixed(3)}`);
+  return { dims, levels };
+}
+
+/**
+ * Sizes nobody named: numbers typed straight into structural coordinates, and
+ * numbers inside the plan's formulas (a level = another + 0.762). Each is a
+ * value with no source — the way an invented size gets into a drawing.
+ */
+function unnamedSizes(ws: DraftingWorkspace, plan: ConstructionPlan, def: ComponentDefinition): string[] {
+  const present = new Set((def.primitives ?? []).filter((p) => STRUCTURAL_LAYERS.has(p.layer)).map((p) => p.id));
+  const out: string[] = [];
+  const inEntities = Object.entries(ws.construction.typedSizes ?? {}).filter(([id, n]) => present.has(id) && n.length);
+  if (inEntities.length) out.push(`typed into ${inEntities.map(([id, n]) => `${id} (${n.join(", ")})`).join("; ")}`);
+  const inFormulas = plan.values
+    .filter((v) => !isTyped(v))
+    .map((v) => ({ v, n: [...typedNumbers(v.expr), ...(v.unit === "m" ? [...v.expr.matchAll(/(?<![\w.])\d*\.\d+(?![\w.])/g)].map((m) => Number(m[0])) : [])] }))
+    .filter((x) => x.n.length);
+  if (inFormulas.length) out.push(`inside formulas: ${inFormulas.map(({ v, n }) => `${v.name} = ${v.expr} (${[...new Set(n)].join(", ")})`).join("; ")}`);
+  return out;
+}
+
+/**
+ * A drafting value places things (a view, a level line's end); it never sizes
+ * the structure or changes a number the drawing states. Found by changing
+ * each one and looking: an outline changing shape, a level line or level
+ * callout moving up or down, a dimension measuring differently.
+ */
+function draftingThatSizes(ws: DraftingWorkspace, def: ComponentDefinition, plan: ConstructionPlan): string[] {
+  const drafting = plan.values.filter((v) => isTyped(v) && v.source === "drafting");
+  if (!drafting.length) return [];
+  const tol = ws.policy.geometry_mm;
+  const edges = (pts: { x: number; y: number }[]) => pts.map((p, i) => Math.hypot(pts[(i + 1) % pts.length].x - p.x, pts[(i + 1) % pts.length].y - p.y));
+  const LEVEL_LAYERS = new Set<LayerCategory>(["level", "water", "ground"]);
+  const snapshot = (ev: ComponentEvaluation) => ({
+    shapes: new Map(ev.loops.filter((l) => STRUCTURAL_LAYERS.has(l.layer)).map((l) => [l.path, edges(l.points)])),
+    radii: new Map(ev.circles.filter((c) => STRUCTURAL_LAYERS.has(c.layer)).map((c) => [c.path, c.r])),
+    heights: new Map([...ev.loops.filter((l) => LEVEL_LAYERS.has(l.layer)).map((l) => [l.path, l.points[0].y] as const), ...ev.levels.map((l) => [l.path, l.at.y] as const)]),
+    dims: new Map(measuredDims(ev).map((d) => [d.path, d.value])),
+  });
+  const base = snapshot(evaluateCandidate(ws, def));
+  const out: string[] = [];
+  for (const v of drafting) {
+    const value = Number(v.expr);
+    const now = snapshot(evaluateCandidate(ws, def, { [v.name]: value + Math.max(1, Math.round(Math.abs(value) * 0.05)) }));
+    const hit: string[] = [];
+    for (const [path, lens] of now.shapes) {
+      const was = base.shapes.get(path);
+      if (was && lens.some((L, i) => Math.abs(L - (was[i] ?? L)) > tol)) hit.push(`the shape of ${path}`);
+    }
+    for (const [path, r] of now.radii) if (Math.abs(r - (base.radii.get(path) ?? r)) > tol) hit.push(`the size of ${path}`);
+    for (const [path, y] of now.heights) if (Math.abs(y - (base.heights.get(path) ?? y)) > tol) hit.push(`the level of ${path}`);
+    for (const [path, d] of now.dims) if (Math.abs(d - (base.dims.get(path) ?? d)) > tol) hit.push(`dimension ${path}`);
+    if (hit.length) out.push(`${v.name} (${hit.slice(0, 4).join(", ")}${hit.length > 4 ? "…" : ""})`);
+  }
+  return out;
+}
+
+/** Every size named and sourced; drafting values only placing things. */
+function sourceProblems(ws: DraftingWorkspace, plan: ConstructionPlan, def: ComponentDefinition): string[] {
+  const out: string[] = [];
+  const unnamed = unnamedSizes(ws, plan, def);
+  if (unnamed.length) {
+    out.push(
+      `Sizes with no name and no source — ${unnamed.join("; ")}. A size is a plan value that says where it comes from (given, scaled or required; drafting only places things): name it, and build from the name.`
+    );
+  }
+  const sizing = draftingThatSizes(ws, def, plan);
+  if (sizing.length) out.push(`Values marked drafting that size the structure or move a level: ${sizing.join("; ")}. A layout choice may place things, never size them — such a value is given, scaled or required.`);
+  return out;
+}
+
+/** Numbers the drawing's notes state that nobody gave (brief only: no reference to have written them). */
+function inventedInTexts(ws: DraftingWorkspace, plan: ConstructionPlan, ev: ComponentEvaluation, scope: Scope): string[] {
+  const inputs = ws.construction.inputs;
+  if (!inputs || inputs.hasReference || !inputs.brief) return [];
+  const tol = ws.policy.geometry_mm;
+  const known = [...briefNumbers(inputs.brief), ...plan.values.flatMap((v) => (Number.isFinite(scope[v.name]) ? [scope[v.name], scope[v.name] / 1000, scope[v.name] * 1000] : [])), ws.cad.settings.annotationScale];
+  const out: string[] = [];
+  for (const t of [...ev.texts.map((x) => ({ path: x.path, text: x.text })), ...ev.leaders.map((x) => ({ path: x.path, text: x.text })), ...ev.levels.map((x) => ({ path: x.path, text: x.label }))]) {
+    const nums = [...t.text.matchAll(/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g)].map((m) => Number(m[0])).filter((n) => n > 2 && !known.some((k) => Math.abs(k - n) <= tol));
+    if (nums.length) out.push(`${t.path} "${t.text.slice(0, 50)}" (${[...new Set(nums)].join(", ")})`);
+  }
+  return out;
+}
+
+/** Texts that write a required input's placeholder number as digits — read as design data. */
+function placeholdersAsFact(def: ComponentDefinition, plan: ConstructionPlan): string[] {
+  const required = plan.values.filter((v) => isTyped(v) && v.source === "required");
+  if (!required.length) return [];
+  const out: string[] = [];
+  for (const t of [...(def.texts ?? []).map((x) => ({ id: x.id, text: x.text })), ...(def.leaders ?? []).map((x) => ({ id: x.id, text: x.text }))]) {
+    const bare = t.text.replace(/\{[^}]*\}/g, " ");
+    for (const m of bare.matchAll(/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g)) {
+      const hit = required.find((v) => Number(v.expr) === Number(m[0]) || (v.unit === "mm" && Number(v.expr) / 1000 === Number(m[0])));
+      if (hit) out.push(`${t.id} writes ${m[0]}, the placeholder for ${hit.name} → {${hit.name}}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * The geometry stage's gate: before any dimension or callout, the geometry
+ * alone must be right — the plan's checks hold, no outline collapses, crosses
+ * or turns inside out, every geometry feature is built, every number and level
+ * the reference writes exists in the geometry, each value regenerates it
+ * cleanly, and no number is a copy of a relation.
+ */
+export function checkGeometry(ws: DraftingWorkspace): VerifyReport {
+  const plan = ws.construction.plan;
+  if (!plan) return { ok: false, text: "No plan — nothing to check against.", problems: ["no plan"] };
+  if (plan.route !== "construction") return { ok: true, text: "Sketch route: use check and flex_test.", problems: [] };
+  const def = currentDefinition(ws);
+  if (!def || !(def.primitives ?? []).length) return { ok: false, text: "Nothing constructed yet.", problems: ["nothing constructed"] };
+  let scope: Scope;
+  try {
+    scope = planScope(ws);
+  } catch (e) {
+    return { ok: false, text: (e as Error).message, problems: [(e as Error).message] };
+  }
+  const problems: string[] = [];
+  const notes: string[] = [];
+  const out: string[] = [];
+  const tol = ws.policy.geometry_mm;
+
+  const passed = runPlanChecks(ws, plan, scope, problems);
+  out.push(`Plan checks: ${passed}/${plan.checks.length} agree.`);
+
+  const ev = evaluateCandidate(ws, def);
+  const errs = ev.issues.filter((i) => i.severity === "error");
+  for (const e of errs) problems.push(`Geometry: ${e.path ? e.path + ": " : ""}${e.message}`);
+  out.push(`Geometry: ${ev.loops.length} outlines/lines, ${ev.circles.length} circles; ${errs.length ? `${errs.length} error(s)` : "no collapsed, crossed or inverted outline"}.`);
+
+  const built = builtFeatures(ws);
+  const geometryFeatures = plan.features.filter((f) => stageOfFeature(f) !== "annotation");
+  const missing = geometryFeatures.filter((f) => !built.has(f.name));
+  for (const f of missing) problems.push(`Feature "${f.name}" (${stageOfFeature(f)}: ${f.description}) has nothing constructed.`);
+  out.push(`Features: ${geometryFeatures.length - missing.length}/${geometryFeatures.length} geometry features built${plan.views && plan.views.length > 1 ? ` across ${plan.views.length} views` : ""}.`);
+
+  const inGeo = numbersInGeometry(ws, plan, ev);
+  if (inGeo.dims.length) problems.push(`Numbers the drawing writes that your geometry does not contain anywhere: ${inGeo.dims.join(", ")}. No two faces are that far apart — a part is missing, or a value or relation is wrong. A dimension can only show what the geometry has.`);
+  if (inGeo.levels.length) problems.push(`Levels with no constructed line or face at their height: ${inGeo.levels.join("; ")}. Construct the level line (datum) or the face at that level.`);
+  const expDims = new Set(plan.expect.dimensions).size;
+  out.push(`Written numbers in the geometry: ${expDims - inGeo.dims.length}/${expDims} lengths, ${plan.expect.levels.length - inGeo.levels.length}/${plan.expect.levels.length} levels.`);
+
+  const dup = duplicatedNumbers(plan, tol);
+  if (dup.levels.length) problems.push(`Typed numbers that follow exactly from other typed values: ${dup.levels.join("; ")}. Write each as a formula of the values it follows from (keep the written number as a check).`);
+  const regen = regenerationTest(ws, def, plan);
+  for (const r of regen.broken) problems.push(r);
+  if (regen.moved.length) out.push(`Regeneration: ${regen.broken.length ? "broken as listed" : "every typed value regenerates cleanly"}; ${regen.moved.join(", ")}.`);
+  for (const p of sourceProblems(ws, plan, def)) problems.push(p);
+  const dead = deadValues(plan, def);
+  if (dead.length) notes.push(`Values no entity uses yet: ${dead.join(", ")} (fine if the annotation will use them; verify refuses them at the end).`);
+
+  const required = plan.values.filter((v) => isTyped(v) && v.source === "required");
+  if (required.length) notes.push(`Drawn with placeholders — design inputs still required: ${required.map((v) => `${v.name} = ${v.expr}${unitText(v.unit)}`).join(", ")}.`);
+
+  const ok = problems.length === 0;
+  ws.construction = { ...ws.construction, geometryChecked: { fingerprint: geometryFingerprint(ev, tol), ok } };
+  const text = [
+    `CHECK GEOMETRY: ${ok ? "PASS" : `FAIL — ${problems.length} problem(s)`}`,
+    ...out.map((l) => "  " + l),
+    ...(problems.length ? ["Problems (fix each at its cause — the value, the relation or the entity):", ...problems.map((p) => "  * " + p)] : []),
+    ...(notes.length ? ["Notes:", ...notes.map((n) => "  - " + n)] : []),
+    ok
+      ? "The geometry is right. Now annotate from it, in order: dimensions of the controlling sizes (clear openings, thicknesses, overall sizes, then the rest), level callouts on their lines, callouts and notes, hatching, titles. Then verify."
+      : "Annotation waits until this passes.",
+  ].join("\n");
+  return { ok, text, problems };
+}
 
 function measuredDims(ev: ComponentEvaluation): { path: string; value: number; text: string }[] {
   return ev.dimensions
@@ -1451,6 +2123,11 @@ export function verifyConstruction(ws: DraftingWorkspace): VerifyReport {
   const frozen = frozenNumbers(def, plan);
   if (frozen.length) notes.push(`Texts that repeat a value as a fixed number (they will not follow an edit): ${frozen.slice(0, 8).join("; ")}. Write the value's placeholder instead — {Name} in mm, {Name:m} in metres.`);
 
+  for (const p of sourceProblems(ws, plan, def)) problems.push(p);
+  const stated = placeholdersAsFact(def, plan);
+  if (stated.length) problems.push(`Texts that state a placeholder as if it were design data: ${stated.join("; ")}. Write the value's placeholder — the drawing then marks it (TBC) until the approved value is entered.`);
+  const invented = inventedInTexts(ws, plan, ev, scope);
+  if (invented.length) problems.push(`Notes stating numbers the brief does not give and no value holds: ${invented.join("; ")}. Grades, mixes, sizes and standards come from the design — remove them, or add the value as required.`);
   for (const d of plan.expect.disputed) notes.push(`Disputed on the reference, not drawn: ${d.what} — ${d.reason}. Report it in finish.`);
 
   const ok = problems.length === 0;
@@ -1479,8 +2156,9 @@ export function deadValues(plan: ConstructionPlan, def: ComponentDefinition): st
       readXY(p.center);
       read(p.r);
     } else p.points.forEach(readXY);
+    read(p.repeat?.count);
   }
-  for (const d of def.dimensions ?? []) (readXY(d.from), readXY(d.to), read(d.offset));
+  for (const d of def.dimensions ?? []) (readXY(d.from), readXY(d.to), read(d.offset), read(d.repeat?.count));
   for (const l of def.levels ?? []) readXY(l.at);
   for (const l of def.leaders ?? []) l.points.forEach(readXY);
   for (const t of def.texts ?? []) (readXY(t.at), read(t.rotate), t.along?.forEach(readXY));
@@ -1557,9 +2235,10 @@ export function regenerationTest(ws: DraftingWorkspace, def: ComponentDefinition
   const moved: string[] = [];
   for (const v of typed) {
     const value = Number(v.expr);
-    const step = v.unit === "m" ? 0.1 : v.unit === "deg" ? 1 : v.unit === "-" ? Math.max(Math.abs(value) * 0.05, 0.05) : Math.max(1, Math.round(Math.abs(value) * 0.05));
+    const step = v.unit === "m" ? 0.1 : v.unit === "deg" ? 1 : v.unit === "-" ? (Number.isInteger(value) && value >= 1 ? 1 : Math.max(Math.abs(value) * 0.05, 0.05)) : Math.max(1, Math.round(Math.abs(value) * 0.05));
     let count = 0;
     for (const sign of [1, -1]) {
+      if (sign < 0 && v.unit === "-" && Number.isInteger(value) && value - step < 1) continue;
       // As Run Mode does it: a typed value against the definition's defaults.
       const ev = evaluateCandidate(ws, def, { [v.name]: value + sign * step });
       const errs = ev.issues.filter((i) => i.severity === "error" && !baseErrors.has(i.message));
@@ -1567,7 +2246,7 @@ export function regenerationTest(ws: DraftingWorkspace, def: ComponentDefinition
       if (sign === 1) {
         count = ev.loops.filter((l) => {
           const before = pos.get(l.path);
-          return before && l.points.some((p, i) => !before[i] || Math.hypot(p.x - before[i].x, p.y - before[i].y) > ws.policy.geometry_mm);
+          return !before || l.points.some((p, i) => !before[i] || Math.hypot(p.x - before[i].x, p.y - before[i].y) > ws.policy.geometry_mm);
         }).length;
       }
     }
@@ -1699,8 +2378,17 @@ export function constructionFromDrawing(cad: { definitions?: ComponentDefinition
     // rewritten formulas, or shifted entities since the plan was made.
     const notes = new Map(plan.values.map((v) => [v.name, v.note]));
     const order = new Map(plan.values.map((v, k) => [v.name, k]));
+    const recorded = new Map(plan.values.map((v) => [v.name, v.source]));
+    // A placeholder a person has since filled in is data they gave; a value a
+    // person added (a shift, an unlinked formula) is theirs too.
+    const sourceOf = (p: ComponentParameter): ValueSource => {
+      const was = p.provenance ?? recorded.get(p.name);
+      const typed = inst.values?.[p.name];
+      if (was === "required" && typed !== undefined && typed !== p.default) return "given";
+      return was ?? "given";
+    };
     const values: PlanValue[] = [
-      ...def.parameters.map((p) => ({ name: p.name, expr: String(inst.values?.[p.name] ?? p.default), unit: p.unit as PlanUnit, note: notes.get(p.name) ?? p.label })),
+      ...def.parameters.map((p) => ({ name: p.name, expr: String(inst.values?.[p.name] ?? p.default), unit: p.unit as PlanUnit, note: notes.get(p.name) ?? p.label, source: sourceOf(p) })),
       ...(def.formulas ?? []).map((f) => ({ name: f.name, expr: String(f.expr), unit: (f.unit === "m2" || !f.unit ? "mm" : f.unit) as PlanUnit, note: notes.get(f.name) ?? f.label })),
     ].sort((a, b) => (order.get(a.name) ?? 1e9) - (order.get(b.name) ?? 1e9));
     const present = new Set([...(def.primitives ?? []), ...(def.dimensions ?? []), ...(def.levels ?? []), ...(def.leaders ?? []), ...(def.texts ?? []), ...(def.hatches ?? [])].map((x) => x.id));

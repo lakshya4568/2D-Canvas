@@ -25,6 +25,7 @@ docs/bridge-formulas/
   07-parametric-template-engine.txt  <- DAG Solver / Template Engine — 8 formula sections
   08-glossary.txt                 <- Master Glossary of all variables
   09-cross-reference.txt          <- Cross-reference of shared formulas
+  11-railway-drafting-sequence.txt <- How a draftsman builds a railway GAD: sequence, rules, checklist (DRF-*)
 
 
 FORMULA INVENTORY BY BRIDGE TYPE

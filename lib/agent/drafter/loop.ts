@@ -164,6 +164,7 @@ export async function runDrafter(options: DrafterOptions): Promise<Extract<Draft
   const ctx: ToolContext = {
     ws,
     hasReference: (options.images?.length ?? 0) > 0,
+    brief: options.prompt,
     viewedRevision: -1,
     suggestions: { revision: -1, byId: new Map() },
     research,

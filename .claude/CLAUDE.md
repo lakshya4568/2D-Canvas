@@ -93,6 +93,23 @@ Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch
 ### 2.13 The Agent Constructs; the Library Is the Draftsman's (decision, 2026-09-19)
 - The drafting agent never uses the component library: `list_components`, `component_info`, `insert_component` and `set_table` are not offered to it and are refused if called. It may not read, change or reuse a library instance a person placed. Component tools act only on drawing-owned definitions (`origin.kind = "drawn"`).
 - **Plan first.** `plan` (analysis, values, relations, cross-checks, features, expected content) gates every geometry and annotation tool. The plan picks the route.
+- **The draftsman's sequence, enforced** (decision 2026-09-19). Geometry first, annotation last:
+  - The plan states what is built (`structure`) and the views it needs (`views`, one shared set of values). Every feature has a `stage` — datum → primary → detail / context → annotation — and may name the features it is built `after`.
+  - `construct`, `transform` and `boolean` refuse a feature whose earlier stages or `after` features are not built yet. Rebuilding a feature that already has entities (a correction) is always allowed.
+  - `check_geometry` is the gate between geometry and annotation. It runs the plan checks and the engine checks, confirms every geometry feature is built, and finds every written number and level **in the geometry** (faces that far apart, a line at that height). It also runs the regeneration test (counts ±1). `annotate` of any kind is refused until it passes on the geometry as it is now (a fingerprint).
+  - Dimensions run between the geometry's own coordinates, and level callouts stand on a constructed line or face. A dimension to a typed position is refused.
+  - Repeats with a count value (`repeat: {count, index}`) on `construct` and on dimensions keep a count (cells, spans) parametric.
+- **The agent drafts; it does not design.** Every typed plan value has a `source`:
+  - `given`: with a text brief and no image, the number must be one the brief writes;
+  - `scaled`: needs a reference image;
+  - `drafting`: a layout choice;
+  - `required`: needed but not provided.
+
+  A required value is drawn as a placeholder and becomes a parameter with `provenance: "required"`. The audit reports it as `PARAM-REQUIRED-INPUT` (requires review), Run mode marks it "not provided", and finish lists it. It is never presented as design data.
+  - Wherever the drawing states an unresolved placeholder, the engine marks it " (TBC)": a text placeholder, or a dimension driving it (`evaluate.ts` `markUnresolved`). The mark goes when a person enters the value.
+  - `check_geometry` and `verify` refuse sizes with no name: numbers above 10 (other than 100 and 1000) typed into structural coordinates (`typedSizes`) or inside plan formulas.
+  - They also refuse `drafting` values that size the structure or move a level: found by sensitivity (outline shapes, level heights, measured dimensions).
+  - With a text brief only, `verify` refuses notes stating numbers that neither the brief nor any value gives (grades, mixes), and texts that write a placeholder's digits as fact.
 - **Construction route** (`lib/agent/drafter/construction.ts`): the agent writes its own drawing-owned `ComponentDefinition` (`drawing.agent-N`), primitive by primitive:
   - every coordinate is an expression of plan values, evaluated by the engine (typed values become parameters, relations become formulas);
   - mirror, copy, rotate, offset and polygon booleans derive new expressions from existing ones (`lib/components/symbolic.ts`); topology is fixed when the construction is made, coordinates stay parametric;
@@ -181,7 +198,7 @@ UPCE maintains two complementary representations:
 │   │   └── dragSolver.ts       # SVD minimum-norm solver & column damping
 │   ├── geometry/               # Primitives, predicates (P1–P10), tolerance.ts, DCEL
 │   ├── topology/               # booleanFusion.ts (Clipper2 union & web collapse)
-│   ├── agent/drafter/          # The drafting agent: workspace, tools, CAD tools (cadTools.ts), construction.ts (plan/construct/verify), reference.ts (compare with the reference image), skills.ts, loop, prompt
+│   ├── agent/drafter/          # The drafting agent: workspace, tools, CAD tools (cadTools.ts), construction.ts (plan/construct/check_geometry/verify), reference.ts (compare with the reference image), skills.ts, loop, prompt
 │   ├── cad/                    # CAD document: layers, annotations, draw list, hatch, modify ops, sheets, DXF/SVG/PDF
 │   ├── components/             # Constructive component engine + library (library/*.ts are DATA); fromDrawing.ts = Make parametric
 │   ├── bridge/                 # Railway domain: glossary, recognition, drawn facts, project/DBR, sources, audit; knowledge/ = formula docs search

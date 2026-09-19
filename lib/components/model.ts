@@ -10,7 +10,7 @@
  * knowledge of what is being drawn.
  */
 
-import type { ComponentDefinition, ComponentInstance, Expr, XY } from "./types";
+import type { ComponentDefinition, ComponentInstance, ComponentParameter, Expr, XY } from "./types";
 import type { ComponentEvaluation } from "./evaluate";
 import { exprDependencies } from "./expr";
 
@@ -32,6 +32,8 @@ export interface ModelValue {
   drives: string[];
   /** Typed values it finally comes from (the inputs to change to move it). */
   roots: string[];
+  /** Where a typed value came from (given, scaled, drafting, required). */
+  provenance?: ComponentParameter["provenance"];
 }
 
 export type ModelEntityKind = "loop" | "path" | "circle" | "dimension" | "level" | "leader" | "text" | "hatch";
@@ -81,7 +83,7 @@ export function componentModel(def: ComponentDefinition, inst: ComponentInstance
   for (const p of def.parameters) {
     const source = ev.sources[p.name];
     const expr = source === "related" ? rel.get(p.name) : source === "auto" ? text(p.defaultExpr) : undefined;
-    values.push({ name: p.name, label: p.label, unit: p.unit, kind: source === "related" ? "related" : source === "auto" ? "auto" : "typed", expr, value: ev.scope[p.name], dependsOn: deps(expr), usedBy: [], drives: [], roots: [] });
+    values.push({ name: p.name, label: p.label, unit: p.unit, kind: source === "related" ? "related" : source === "auto" ? "auto" : "typed", expr, value: ev.scope[p.name], dependsOn: deps(expr), usedBy: [], drives: [], roots: [], provenance: p.provenance });
   }
   for (const c of inst.customValues ?? []) values.push({ name: c.name, label: c.label, unit: c.unit, kind: "custom", value: c.value, dependsOn: [], usedBy: [], drives: [], roots: [] });
   for (const f of def.formulas ?? []) {

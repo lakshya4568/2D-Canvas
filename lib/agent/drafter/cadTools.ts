@@ -65,6 +65,7 @@ const ANNOTATION_FIELDS: Record<string, unknown> = {
   suffix: S("Dimension text after the number"),
   hide_value: { type: "boolean", description: "Dimension without its number" },
   drives: S("Construction: the plan value this dimension shows"),
+  repeat: { type: "object", properties: { count: S("How many (a value, e.g. CellCount)"), index: S("Index name, default i") }, required: ["count"], description: "Dimension: one per copy of a repeated part (each cell's clear span), with the index in its expressions" },
   material: { type: "string", enum: Object.keys(HATCH_MATERIALS), description: "Hatch material" },
   boundary: S("Hatch: id of the constructed loop to fill"),
   holes: { type: "array", items: { type: "string" }, description: "Hatch: loop ids cut out of it" },
@@ -140,7 +141,7 @@ export const CAD_TOOLS: FunctionDeclaration[] = [
   {
     name: "annotate",
     description:
-      "Add drawing annotation (skill gad-drafting-style says how IR drawings use it). In the construction route it becomes part of your construction and follows your values: coordinates are numbers or expressions of plan values and entity points (\"Box.p3.x\"). " +
+      "Add drawing annotation — AFTER check_geometry passes (refused before: annotation describes finished, verified geometry). Dimensions measure between points of your geometry and levels stand on constructed lines; neither can be typed next to the drawing. (Skill gad-drafting-style says how IR drawings use it.) In the construction route it becomes part of your construction and follows your values: coordinates are numbers or expressions of plan values and entity points (\"Box.p3.x\"). " +
       "kind: dimension (from, to; offset mm from the measured points, + above/right, − below/left, default one row DIM; orientation horizontal/vertical/aligned; prefix e.g. 'FB-', suffix, hide_value, drives = the plan value it shows) | " +
       "level (at = a point ON the level line, usually its left end; label e.g. 'PROP. FORMATION LEVEL'; the RL is READ from the point's height, never typed; format '{label} {rl}' writes 'PROP. FORMATION LEVEL 59.913' — the default gad format is '{label} = {rl}M.'; side right = text runs right from the point; symbol water for HFL, ground for bed) | " +
       "leader (points [tip, elbow, shelf end]; text; placement above writes the text ON the shelf — IR callout style, the default) | text (at, text, height paper mm, align, valign, bold, rotation deg, along [p1, p2] to write along a slope) | " +

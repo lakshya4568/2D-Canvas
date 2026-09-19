@@ -72,6 +72,13 @@ export interface ComponentParameter {
    */
   sourceRequired?: boolean;
   /**
+   * Where the value came from, when a drawing was constructed from a brief or
+   * a reference: given (written there), scaled (measured off an image),
+   * drafting (a layout choice), required (not provided — a placeholder until
+   * someone enters the approved value).
+   */
+  provenance?: "given" | "scaled" | "drafting" | "required";
+  /**
    * An "auto" value: until someone types a number, the parameter follows this
    * expression (e.g. rail level = formation level + 0.762). Typing a value
    * takes it over; clearing the value hands it back to the expression.

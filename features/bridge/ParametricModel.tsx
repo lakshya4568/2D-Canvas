@@ -354,6 +354,13 @@ export function ParametricModel() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1">
+                {v.provenance === "required" && (
+                  <Chip tone="crit" title="Not provided: the drawing uses a placeholder. Enter the approved value.">
+                    required input
+                  </Chip>
+                )}
+                {v.provenance === "scaled" && <Chip title="Not written on the reference: measured off the image">scaled</Chip>}
+                {v.provenance === "drafting" && <Chip title="A drawing-layout choice, not a size of the structure">layout</Chip>}
                 {movesChip(v)}
                 {v.usedBy.length > 0 && <span className="text-[9.5px] text-(--fg-muted)">read by</span>}
                 {v.usedBy.map(valueChip)}

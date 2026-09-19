@@ -46,15 +46,21 @@ describe("a readable scale from the drawing's own size", () => {
 describe("the agent's drawings can be read", () => {
   const PLATE = {
     route: "construction",
+    structure: "Steel base plate — plan view",
+    views: [{ name: "Plan", shows: "the plate and its holes" }],
     analysis: "A steel base plate with four bolt holes, symmetric both ways; sizes given in the brief.",
-    values: [{ name: "W", expr: "400", unit: "mm" }, { name: "H", expr: "250", unit: "mm" }],
-    features: [{ name: "Plate", description: "outline" }],
+    values: [{ name: "W", expr: "400", unit: "mm", source: "given" }, { name: "H", expr: "250", unit: "mm", source: "given" }],
+    features: [
+      { name: "Axes", description: "centre lines", stage: "datum" },
+      { name: "Plate", description: "outline", stage: "primary" },
+    ],
   };
   const context = (): ToolContext => ({ ws: new DraftingWorkspace(), hasReference: false, viewedRevision: -1, suggestions: { revision: -1, byId: new Map() }, macroDepth: 0 });
 
   it("without a written scale, text is sized to be read", async () => {
     const ctx = context();
     await runTool(ctx, "plan", PLATE);
+    await runTool(ctx, "construct", { feature: "Axes", entities: [{ id: "CX", kind: "line", from: ["0", "H / 2"], to: ["W", "H / 2"], layer: "centre" }] });
     await runTool(ctx, "construct", { feature: "Plate", entities: [{ id: "P", kind: "rect", x: "0", y: "0", w: "W", h: "H" }] });
     expect(ctx.ws.cad.settings.annotationScale).toBe(2);
     expect((await runTool(ctx, "verify", {})).text).not.toMatch(/too small to read/);
@@ -63,6 +69,7 @@ describe("the agent's drawings can be read", () => {
   it("refuses 1:1 text on a part, and says what would work", async () => {
     const ctx = context();
     await runTool(ctx, "plan", { ...PLATE, scale: 1 });
+    await runTool(ctx, "construct", { feature: "Axes", entities: [{ id: "CX", kind: "line", from: ["0", "H / 2"], to: ["W", "H / 2"], layer: "centre" }] });
     await runTool(ctx, "construct", { feature: "Plate", entities: [{ id: "P", kind: "rect", x: "0", y: "0", w: "W", h: "H" }] });
     const r = await runTool(ctx, "verify", {});
     expect(r.text).toMatch(/Text and dimensions are 2.5 mm high on a 400 mm drawing — too small to read/);
