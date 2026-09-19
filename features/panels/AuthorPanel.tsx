@@ -53,6 +53,7 @@ import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "../parametric/upceContext";
 import { Group, Pill, Segmented } from "./ui/Disclosure";
 import { ComponentRelationships } from "../bridge/ComponentRelationships";
+import { ParametricModel } from "../bridge/ParametricModel";
 import { Empty } from "./DraftPanel";
 import type { ConstraintCandidate, DerivedCandidate, SketchParameter } from "@/lib/upce/types";
 import type { IntentAction } from "@/lib/upce/completion";
@@ -1056,8 +1057,16 @@ export function AuthorPanel() {
         <NoticeBar />
       </div>
 
+      {/* The parametric model of the drawing's components, open: values,
+          formulas, dependencies, constraints, dimensions and entities. */}
+      {state.cad.components.length > 0 && (
+        <Group id="author.model" title="Parametric model" defaultOpen>
+          <ParametricModel />
+        </Group>
+      )}
+
       {/* Selected Entity Inspector Banner in Author Mode */}
-      {selectedShapes.length > 0 && (
+      {selectedShapes.length > 0 && selectedShapes.every((sh) => !sh.componentInstanceId) && (
         <div className="mx-3 mt-2.5 rounded-[6px] border border-(--rule) bg-(--ink-raised) p-2.5 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-(--fg-primary) flex items-center gap-1.5">

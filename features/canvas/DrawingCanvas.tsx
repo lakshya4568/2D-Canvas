@@ -38,6 +38,8 @@ import { CadViewportOverlays } from "./CadViewportOverlays";
 import { importDxfToShapes } from "@/lib/io/dxfImporter";
 import { AnnotationLayer } from "./AnnotationLayer";
 import type { Annotation } from "@/lib/cad/types";
+import { canvasToLocal, isOwnComponent } from "@/lib/state/cadActions";
+import { entityOfGenerated } from "@/lib/components/model";
 import { useInteractiveTool } from "./tools/useInteractiveTool";
 import { SemanticChip } from "../bridge/Understanding";
 
@@ -152,6 +154,31 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
     [state.viewport]
   );
 
+  /**
+   * Entities of the drawing's own parametric component move by a new named
+   * shift in its definition — they stay parametric, and the shift is a value
+   * like any other. (Library parts move whole, as blocks.)
+   */
+  const moveOwnEntities = useCallback(
+    (moved: Shape[], dx: number, dy: number) => {
+      if (dx === 0 && dy === 0) return;
+      const byInstance = new Map<string, Set<string>>();
+      for (const orig of moved) {
+        const inst = orig.componentInstanceId;
+        if (!inst || !isOwnComponent(state.cad, inst)) continue;
+        const entity = entityOfGenerated(orig.id, inst);
+        if (entity) byInstance.set(inst, (byInstance.get(inst) ?? new Set()).add(entity));
+      }
+      for (const [instanceId, ids] of byInstance) {
+        const inst = state.cad.components.find((c) => c.id === instanceId);
+        if (!inst) continue;
+        const local = canvasToLocal(inst, dx, dy);
+        dispatch({ type: "CAD_EDIT_DEFINITION", instanceId, edit: { op: "offset", ids: [...ids], dx: local.x, dy: local.y } });
+      }
+    },
+    [state.cad, dispatch]
+  );
+
   const handleMoveStart = useCallback(
     (pt: Point, e?: React.PointerEvent) => {
       const targetShapes = state.shapes.filter(
@@ -226,6 +253,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
 
       dispatch({ type: "RESIZE_SHAPES", updatedShapes: movedShapes });
       dispatch({ type: "COMMIT_MOVE" });
+      moveOwnEntities(initialShapesRef.current, dx, dy);
 
       setMoveBasePoint(null);
       setMoveDisplacement(null);
@@ -233,8 +261,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       isMoveDraggingRef.current = false;
       hasMovedDuringDragRef.current = false;
     },
-    [moveBasePoint, state.shapes, state.selectedIds, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, dispatch]
+    [moveBasePoint, state.shapes, state.selectedIds, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, dispatch, moveOwnEntities]
   );
+
+  const ownInstances = React.useMemo(() => new Set(state.cad.components.filter((c) => isOwnComponent(state.cad, c.id)).map((c) => c.id)), [state.cad]);
 
   /**
    * A component dimension that drives one of its values is an editing handle:
@@ -1119,6 +1149,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
             setMoveBasePoint(null);
             setMoveDisplacement(null);
             dispatch({ type: "COMMIT_MOVE" });
+            if (moveDisplacement) moveOwnEntities(initialShapesRef.current, moveDisplacement.dx, moveDisplacement.dy);
           } else {
             // Flow 1: Clicked base point without dragging, keeping base point for 2nd click
             isMoveDraggingRef.current = false;
@@ -1239,7 +1270,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
         } catch {}
       }
     },
-    [marqueeBox, state.shapes, state.draft, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, selectMultiple, selectShape, getWorldPoint, dispatch]
+    [marqueeBox, state.shapes, state.draft, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, selectMultiple, selectShape, getWorldPoint, dispatch, moveDisplacement, moveOwnEntities]
   );
 
   /**
@@ -1517,6 +1548,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
               isSelectTool={state.tool === "select" || state.tool === "move"}
               onSelect={handleShapeSelect}
               onEditDrivingDimension={editDrivingDimension}
+              ownInstances={ownInstances}
             />
           </g>
 

@@ -52,7 +52,14 @@ Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch
 - Every coordinate in a `ComponentDefinition` is an **expression of named values** in the component's local frame (mm, Y up). Geometry is therefore fully determined by construction — a well-constrained system already in block-triangular form (§30.3) solved in closed form. There is no DOF to count; **do not add DOF gates to components or to drawings made only of components.**
 - What replaces the DOF gate is what it stood for: explicit **invariants** (`InvariantDef`), plus generic checks the engine runs on every regeneration (collapsed loops, self-crossing outlines, loops turned inside out vs. the defaults = chirality §31.2, openings leaving the solid). An edit that fails is **refused whole** with the reason; nothing half-regenerates.
 - Components are **data**, never renderer code: one `ComponentDefinition` format for every part and assembly, no bridge vocabulary in `evaluate.ts`. Counts are topology (repeats with index-stable ids, §23.4); composition is by placement or port attachment (§23.2). Out-of-range values are warnings (§26), never clamped. No conformal scaling — each coordinate is re-evaluated.
-- Component geometry carries `componentInstanceId`. It is **never** edited by grips, modify tools, or the authoring solver (`authoredOnly()` excludes it; `APPLY_SOLVED_SHAPES` preserves it). It changes only through `CAD_SET_COMPONENT_VALUES`.
+- Component geometry carries `componentInstanceId`. It is **never** rewritten as coordinates by grips, modify tools, or the authoring solver (`authoredOnly()` excludes it; `APPLY_SOLVED_SHAPES` preserves it). It changes through its values (`CAD_SET_COMPONENT_VALUES`) and, for a **drawing-owned** definition (`origin.kind = "drawn"`, the agent's construction or a Make parametric result), through **definition edits** (`CAD_EDIT_DEFINITION`, `lib/components/edit.ts`). Such a component is open, not a block (decision 2026-09-19):
+  - its entities are selected one by one;
+  - Delete removes the selected entities from the definition;
+  - Move gives them a new named shift value pair, so they stay parametric;
+  - a worked-out value can be unlinked into a typed one, or its formula rewritten in Author mode.
+
+  Every definition edit is evaluated first and refused whole if it breaks anything. Library parts stay blocks: selected, moved and deleted whole.
+- The model of a component (values, formulas with their expressions, what each reads and what reads it, which entities each value moves, constraints, driving dimensions) is laid open in Author mode (`features/bridge/ParametricModel.tsx`, `lib/components/model.ts`). The Properties panel says what a selected entity is and what moves it. Run mode shows a worked-out value's inputs by name and links to its formula in Author — never the expression itself.
 
 ### 2.8 The CAD Document Layer (`lib/cad/`)
 - `DrawingState.cad` holds layers, annotations, component instances, the bridge project record, sheets and settings; every history snapshot stores it with the shapes, so undo restores geometry, annotations and design data together.

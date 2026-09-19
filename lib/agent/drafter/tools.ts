@@ -1435,6 +1435,10 @@ async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<T
     }
 
     case "delete":
+      // In a construction, entities are removed from it (the model reaches for either name).
+      if (ws.construction.plan?.route === "construction" && !list(a, "targets").some((id) => ws.shapes.some((s) => s.id === id))) {
+        return { text: removeEntities(ws, { ids: list(a, "targets") }) };
+      }
       return { text: `Deleted${commitNote(ws.deleteShapes(list(a, "targets")))}.` };
 
     case "explode": {

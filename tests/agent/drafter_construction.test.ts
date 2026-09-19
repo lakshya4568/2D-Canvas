@@ -334,6 +334,14 @@ describe("annotation, measurement and verification", () => {
     expect(ctx.ws.construction.tags.D1).toBe("Annotation");
   });
 
+  it("delete removes construction entities too (the model reaches for either name)", async () => {
+    const ctx = context();
+    await buildBox(ctx);
+    const r = await ok(ctx, "delete", { targets: ["CL"] });
+    expect(r.text).toMatch(/Removed CL/);
+    expect(currentDefinition(ctx.ws)!.primitives!.some((p) => p.id === "CL")).toBe(false);
+  });
+
   it("hatches the smallest constructed loop around a point", async () => {
     const ctx = context();
     await buildBox(ctx);

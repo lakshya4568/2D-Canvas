@@ -17,6 +17,7 @@ import React from "react";
 import { Lock, TriangleAlert, Undo2, X, CircleAlert, Link2, RotateCcw, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import type { ComponentInstance, ComponentParameter, TableDef, TableRow } from "@/lib/components/types";
+import { focusModelValue } from "./ParametricModel";
 import { definitionFor, evaluateInstance } from "@/lib/cad/document";
 import { exprDependencies } from "@/lib/components/expr";
 
@@ -336,18 +337,41 @@ export function ComponentValuesForm({ instance, compact }: { instance: Component
         <section className="flex flex-col gap-1">
           <h4 className="label">Worked out for you</h4>
           <div className="rounded-[6px] border border-(--rule) overflow-hidden">
-            {[...derived.map((f) => ({ name: f.name, label: f.label ?? f.name, unit: f.unit })), ...newRelations.map((r) => ({ name: r.name, label: r.label ?? r.name, unit: r.unit }))].map((f, i) => (
-              <div key={f.name} className={`flex items-center justify-between gap-2 px-2 h-[26px] ${i ? "border-t border-(--rule)" : ""}`}>
-                <span className="text-[11px] text-(--fg-secondary) inline-flex items-center gap-1 min-w-0">
-                  <Lock className="w-[9px] h-[9px] text-(--fg-muted) shrink-0" />
-                  <span className="truncate">{f.label}</span>
-                </span>
-                <span className="num text-[11.5px] text-(--fg-primary) shrink-0">
-                  {formatResult(ev.scope[f.name], f.unit)}
-                  <span className="text-(--fg-muted) ml-1 text-[9.5px]">{f.unit === "m2" ? "m²" : f.unit === "-" || !f.unit ? "" : f.unit}</span>
-                </span>
-              </div>
-            ))}
+            {[...derived.map((f) => ({ name: f.name, label: f.label ?? f.name, unit: f.unit, expr: (instance.relations ?? []).find((r) => r.name === f.name)?.expr ?? String(f.expr) })), ...newRelations.map((r) => ({ name: r.name, label: r.label ?? r.name, unit: r.unit, expr: r.expr }))].map((f, i) => {
+              // Name what it is worked out from — never the expression (§64) — and
+              // how to change it: its inputs here, or its formula in Author mode.
+              const from = exprDependencies(f.expr).filter((n) => known.has(n));
+              return (
+                <div key={f.name} className={`flex flex-col gap-0.5 px-2 py-1 ${i ? "border-t border-(--rule)" : ""}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-(--fg-secondary) inline-flex items-center gap-1 min-w-0" title="Worked out from other values, so it cannot be typed here">
+                      <Lock className="w-[9px] h-[9px] text-(--fg-muted) shrink-0" />
+                      <span className="truncate">{f.label}</span>
+                    </span>
+                    <span className="num text-[11.5px] text-(--fg-primary) shrink-0">
+                      {formatResult(ev.scope[f.name], f.unit)}
+                      <span className="text-(--fg-muted) ml-1 text-[9.5px]">{f.unit === "m2" ? "m²" : f.unit === "-" || !f.unit ? "" : f.unit}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[9.5px] text-(--fg-muted) truncate" title={`Worked out from ${from.join(", ")}`}>
+                      {from.length ? `from ${from.join(", ")}` : "a fixed result"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        focusModelValue(instance.id, f.name);
+                        dispatch({ type: "SET_USER_MODE", mode: "author" });
+                      }}
+                      className="text-[9.5px] text-(--pen) hover:underline cursor-pointer shrink-0 inline-flex items-center gap-0.5"
+                      title="See and change the formula in Author mode"
+                    >
+                      <Link2 className="w-[9px] h-[9px]" /> formula
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

@@ -300,10 +300,6 @@ function pushHistory(
 function expandGroupIds(shapes: Shape[], ids: ID[]): ID[] {
   const selectedSet = new Set(ids);
   const groupIds = new Set<string>();
-  // A component is selected whole: its entities are one object, like a block.
-  const instances = new Set<string>();
-  for (const s of shapes) if (selectedSet.has(s.id) && s.componentInstanceId) instances.add(s.componentInstanceId);
-  if (instances.size) for (const s of shapes) if (s.componentInstanceId && instances.has(s.componentInstanceId)) selectedSet.add(s.id);
 
   for (const s of shapes) {
     if (selectedSet.has(s.id) && s.groupId) {
@@ -449,7 +445,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
         const nextIds = exists
           ? state.selectedIds.filter((i) => i !== action.id)
           : [...state.selectedIds, action.id];
-        const expanded = expandGroupIds(state.shapes, nextIds);
+        const expanded = expandGroupIds(state.shapes, expandComponentSelection(state.shapes, state.cad, nextIds));
         return {
           ...state,
           selectedId: expanded[expanded.length - 1] || null,
@@ -467,7 +463,7 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
     }
 
     case "SELECT_MULTIPLE": {
-      const expanded = expandGroupIds(state.shapes, action.ids);
+      const expanded = expandGroupIds(state.shapes, expandComponentSelection(state.shapes, state.cad, action.ids));
       return {
         ...state,
         selectedId: expanded[0] || null,

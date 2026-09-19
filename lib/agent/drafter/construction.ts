@@ -1672,14 +1672,24 @@ export function evalPointArg(ws: DraftingWorkspace, v: unknown, what: string): {
  * drawing sent back from the editor can be edited by plan update, construct
  * and remove as if the session had never ended.
  */
-export function constructionFromDrawing(cad: { definitions?: ComponentDefinition[]; components: { id: string; definitionId: string }[] }): ConstructionState | null {
+export function constructionFromDrawing(cad: { definitions?: ComponentDefinition[]; components: { id: string; definitionId: string; values?: Record<string, number> }[] }): ConstructionState | null {
   for (let i = cad.components.length - 1; i >= 0; i--) {
     const inst = cad.components[i];
     const def = (cad.definitions ?? []).find((d) => d.id === inst.definitionId);
     const rec = def?.origin?.construction;
     if (!def || !rec?.plan) continue;
     const plan = rec.plan as ConstructionPlan;
-    return { plan: { ...plan, constraints: plan.constraints ?? [] }, definitionId: def.id, instanceId: inst.id, tags: rec.tags ?? {}, verified: null };
+    // The definition is the truth: a person may have typed values, unlinked or
+    // rewritten formulas, or shifted entities since the plan was made.
+    const notes = new Map(plan.values.map((v) => [v.name, v.note]));
+    const order = new Map(plan.values.map((v, k) => [v.name, k]));
+    const values: PlanValue[] = [
+      ...def.parameters.map((p) => ({ name: p.name, expr: String(inst.values?.[p.name] ?? p.default), unit: p.unit as PlanUnit, note: notes.get(p.name) ?? p.label })),
+      ...(def.formulas ?? []).map((f) => ({ name: f.name, expr: String(f.expr), unit: (f.unit === "m2" || !f.unit ? "mm" : f.unit) as PlanUnit, note: notes.get(f.name) ?? f.label })),
+    ].sort((a, b) => (order.get(a.name) ?? 1e9) - (order.get(b.name) ?? 1e9));
+    const present = new Set([...(def.primitives ?? []), ...(def.dimensions ?? []), ...(def.levels ?? []), ...(def.leaders ?? []), ...(def.texts ?? []), ...(def.hatches ?? [])].map((x) => x.id));
+    const tags = Object.fromEntries(Object.entries(rec.tags ?? {}).filter(([id]) => present.has(id)));
+    return { plan: { ...plan, values, constraints: plan.constraints ?? [] }, definitionId: def.id, instanceId: inst.id, tags, verified: null };
   }
   return null;
 }

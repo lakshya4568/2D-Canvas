@@ -27,6 +27,8 @@ import { pointInPolygon, traceRing } from "@/lib/cad/geometry";
 import { fitScale, sheetLayout } from "@/lib/cad/sheet";
 import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import { planParametric, type ParametrizeOptions, type ParametricPlan } from "@/lib/components/fromDrawing";
+import { editDefinition, type DefinitionEdit } from "@/lib/components/edit";
+import { entityOfGenerated } from "@/lib/components/model";
 import { registryFor } from "@/lib/cad/document";
 import { resolveAnchor, indexShapes } from "@/lib/cad/geometry";
 
@@ -67,6 +69,12 @@ export type CadAction =
     }
   /** Add or replace a component definition owned by this drawing. */
   | { type: "CAD_PUT_DEFINITION"; definition: ComponentDefinition }
+  /**
+   * Edit the definition of a drawing's own component through its instance:
+   * remove entities, move some by a new named shift, make a worked-out value
+   * typed, rewrite a formula. All-or-nothing; library parts are refused.
+   */
+  | { type: "CAD_EDIT_DEFINITION"; instanceId: string; edit: DefinitionEdit; description?: string }
   /**
    * Turn free geometry (the given shapes, else everything free) and its
    * dimensions, levels and callouts into one parametric component. Refused,
@@ -280,6 +288,9 @@ export function applyCadAction(shapes: Shape[], cad: CadDocState, a: CadAction):
       const regen = regenerateInstances(shapes, nextCad, users);
       return { shapes: regen.shapes, cad: { ...nextCad, annotations: regen.annotations }, history: `Component ${a.definition.name}` };
     }
+    case "CAD_EDIT_DEFINITION":
+      return editOwnDefinition(shapes, cad, a.instanceId, a.edit, a.description);
+
     case "CAD_MAKE_PARAMETRIC": {
       const sel = parametricSelection(shapes, cad, a.shapeIds, a.annotationIds);
       if (sel.shapes.length === 0) {
@@ -561,6 +572,58 @@ function commitInstance(shapes: Shape[], cad: CadDocState, inst: ComponentInstan
   };
 }
 
+/** True when the instance's definition belongs to this drawing (agent-built or made parametric). */
+export function isOwnComponent(cad: CadDocState, instanceId: string): boolean {
+  const inst = cad.components.find((c) => c.id === instanceId);
+  return Boolean(inst && definitionFor(cad, inst.definitionId)?.origin?.kind === "drawn");
+}
+
+function editOwnDefinition(shapes: Shape[], cad: CadDocState, instanceId: string, edit: DefinitionEdit, description?: string): CadResult | null {
+  const inst = cad.components.find((c) => c.id === instanceId);
+  if (!inst) return null;
+  const def = definitionFor(cad, inst.definitionId);
+  const refuse = (message: string): CadResult => ({ shapes, cad: { ...cad, componentNotice: { instanceId, ok: false, message, issues: [], at: Date.now() } } });
+  if (!def) return refuse(`Unknown component ${inst.definitionId}.`);
+  if (def.origin?.kind !== "drawn") return refuse(`${inst.name} is a library part: change its values, or use Edit shape to turn it into your own geometry first.`);
+  let next: ComponentDefinition;
+  let said: string;
+  try {
+    ({ def: next, message: said } = editDefinition(def, edit));
+  } catch (e) {
+    return refuse((e as Error).message);
+  }
+  // A typed value typed on this instance keeps its number; a new shift is the definition's.
+  const trial: CadDocState = { ...cad, definitions: (cad.definitions ?? []).map((d) => (d.id === def.id ? next : d)) };
+  const probe = evaluateInstance(inst, trial);
+  if (!probe) return null;
+  if (probe.blocked) {
+    const errs = probe.evaluation.issues.filter((i) => i.severity === "error");
+    return { shapes, cad: { ...cad, componentNotice: { instanceId, ok: false, message: `Refused (${said}): ${errs.map((e) => e.message).join(" ")} Nothing was changed.`, issues: errs, at: Date.now() } } };
+  }
+  const users = trial.components.filter((c) => c.definitionId === def.id).map((c) => c.id);
+  const regen = regenerateInstances(shapes, trial, users);
+  return {
+    shapes: regen.shapes,
+    cad: { ...trial, annotations: regen.annotations, componentNotice: { instanceId, ok: true, message: `${inst.name}: ${said}.`, issues: [], at: Date.now() } },
+    history: description ?? `${inst.name}: ${said}`,
+  };
+}
+
+/** Definition entities selected on a drawing's own component, by instance. */
+function ownEntitiesSelected(shapes: Shape[], cad: CadDocState, ids: string[]): Map<string, { entities: Set<string>; all: boolean }> {
+  const sel = new Set(ids);
+  const out = new Map<string, { entities: Set<string>; all: boolean }>();
+  for (const inst of cad.components) {
+    if (!isOwnComponent(cad, inst.id)) continue;
+    const mine = [...shapes.filter((s) => s.componentInstanceId === inst.id), ...cad.annotations.filter((a) => a.componentInstanceId === inst.id)];
+    const picked = mine.filter((e) => sel.has(e.id));
+    if (!picked.length) continue;
+    const entities = new Set(picked.map((e) => entityOfGenerated(e.id, inst.id)).filter((x): x is string => Boolean(x)));
+    out.set(inst.id, { entities, all: picked.length === mine.length });
+  }
+  return out;
+}
+
 function describeRelationChange(before: Relationship[], after: Relationship[]): string {
   const b = new Map(before.map((r) => [r.name, r.expr]));
   const a = new Map(after.map((r) => [r.name, r.expr]));
@@ -650,6 +713,24 @@ export function selectedComponents(shapes: Shape[], cad: CadDocState, ids: strin
  * elevation.
  */
 export function moveSelection(shapes: Shape[], cad: CadDocState, ids: string[], dx: number, dy: number): { shapes: Shape[]; cad: CadDocState } {
+  // Part of a drawing's own component: those entities move by a new named
+  // shift in its definition; the rest of it, and what they follow, stay put.
+  const own = ownEntitiesSelected(shapes, cad, ids);
+  for (const [instanceId, pick] of own) {
+    if (pick.all) continue;
+    const inst = cad.components.find((c) => c.id === instanceId)!;
+    const local = canvasToLocal(inst, dx, dy);
+    const r = editOwnDefinition(shapes, cad, instanceId, { op: "offset", ids: [...pick.entities], dx: local.x, dy: local.y });
+    if (r) {
+      shapes = r.shapes;
+      cad = r.cad;
+    }
+  }
+  const partial = new Set([...own].filter(([, p]) => !p.all).map(([id]) => id));
+  ids = ids.filter((id) => {
+    const owner = shapes.find((s) => s.id === id)?.componentInstanceId ?? cad.annotations.find((a) => a.id === id)?.componentInstanceId;
+    return !owner || !partial.has(owner);
+  });
   const sel = new Set(ids);
   const comps = selectedComponents(shapes, cad, ids);
   const compShift = new Map<string, { dx: number; dy: number }>();
@@ -680,18 +761,51 @@ export function moveSelection(shapes: Shape[], cad: CadDocState, ids: string[], 
 
 /** Deletes the selection: free entities, and whole components that were selected. */
 export function deleteSelection(shapes: Shape[], cad: CadDocState, ids: string[]): { shapes: Shape[]; cad: CadDocState; count: number } {
+  // Part of a drawing's own component: just those entities leave its definition.
+  const own = ownEntitiesSelected(shapes, cad, ids);
+  let removed = 0;
+  for (const [instanceId, pick] of own) {
+    if (pick.all) continue;
+    const r = editOwnDefinition(shapes, cad, instanceId, { op: "remove", ids: [...pick.entities] });
+    if (r) {
+      removed += pick.entities.size;
+      shapes = r.shapes;
+      cad = r.cad;
+    }
+  }
+  const partial = new Set([...own].filter(([, p]) => !p.all).map(([id]) => id));
+  // A library part is deleted whole or not at all.
+  const whole = new Set([...selectedComponents(shapes, cad, ids)].filter((id) => !partial.has(id)));
+  ids = ids.filter((id) => {
+    const owner = shapes.find((s) => s.id === id)?.componentInstanceId ?? cad.annotations.find((a) => a.id === id)?.componentInstanceId;
+    return !owner || whole.has(owner);
+  });
   const sel = new Set(ids);
   const comps = selectedComponents(shapes, cad, ids);
   const nextShapes = shapes.filter((s) => (s.componentInstanceId ? !comps.has(s.componentInstanceId) : !sel.has(s.id)));
   const nextAnn = cad.annotations.filter((a) => (a.componentInstanceId ? !comps.has(a.componentInstanceId) : !sel.has(a.id)));
   const nextComps = cad.components.filter((c) => !comps.has(c.id));
-  const count = shapes.length - nextShapes.length + cad.annotations.length - nextAnn.length;
+  const count = removed + shapes.length - nextShapes.length + cad.annotations.length - nextAnn.length;
   return { shapes: nextShapes, cad: { ...cad, annotations: nextAnn, components: nextComps }, count };
 }
 
-/** Selection expanded to whole component instances. */
+/** A canvas displacement (Y down) in an instance's own frame (Y up, its rotation and mirror undone). */
+export function canvasToLocal(inst: ComponentInstance, dx: number, dy: number): { x: number; y: number } {
+  const a = (-(inst.rotation ?? 0) * Math.PI) / 180;
+  const ux = dx;
+  const uy = -dy;
+  const rx = Math.cos(a) * ux - Math.sin(a) * uy;
+  const ry = Math.sin(a) * ux + Math.cos(a) * uy;
+  return { x: inst.mirror ? -rx : rx, y: ry };
+}
+
+/**
+ * Selection expanded to whole component instances — library parts only, which
+ * are one object like a block. A drawing's own component is open: its
+ * outlines, circles, dimensions and callouts are picked one by one.
+ */
 export function expandComponentSelection(shapes: Shape[], cad: CadDocState, ids: string[]): string[] {
-  const comps = selectedComponents(shapes, cad, ids);
+  const comps = new Set([...selectedComponents(shapes, cad, ids)].filter((id) => !isOwnComponent(cad, id)));
   if (comps.size === 0) return ids;
   const out = new Set(ids.filter((id) => !cad.annotations.some((a) => a.id === id && a.componentInstanceId)));
   for (const s of shapes) if (s.componentInstanceId && comps.has(s.componentInstanceId)) out.add(s.id);

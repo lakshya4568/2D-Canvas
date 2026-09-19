@@ -36,6 +36,8 @@ interface Props {
   onSelect: (id: string, e: React.PointerEvent) => void;
   /** Double-click on a dimension that drives a component value: edit that value. */
   onEditDrivingDimension?: (a: Annotation) => void;
+  /** Instances whose definition belongs to the drawing (their parts are picked one by one). */
+  ownInstances?: Set<string>;
 }
 
 const PX_PER_LW_MM = 3.2;
@@ -115,6 +117,7 @@ export const AnnotationLayer = React.memo(function AnnotationLayer({
   isSelectTool,
   onSelect,
   onEditDrivingDimension,
+  ownInstances,
 }: Props) {
   const layerMap = React.useMemo(() => new Map(layers.map((l) => [l.id, l])), [layers]);
   const index = React.useMemo(() => indexShapes(shapes), [shapes]);
@@ -124,15 +127,16 @@ export const AnnotationLayer = React.memo(function AnnotationLayer({
   }, [annotations, index, settings]);
 
   const selected = React.useMemo(() => new Set(selectedIds), [selectedIds]);
-  // A component's dimensions and hatches highlight with it.
+  // A library part's dimensions and hatches highlight with it (it is selected
+  // whole); a drawing's own component is open, so only what is picked lights up.
   const selectedInstances = React.useMemo(() => {
     const out = new Set<string>();
     for (const id of selectedIds) {
       const s = index.get(id);
-      if (s?.componentInstanceId) out.add(s.componentInstanceId);
+      if (s?.componentInstanceId && !ownInstances?.has(s.componentInstanceId)) out.add(s.componentInstanceId);
     }
     return out;
-  }, [selectedIds, index]);
+  }, [selectedIds, index, ownInstances]);
   const selColor = "#38bdf8";
 
   return (

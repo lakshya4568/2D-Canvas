@@ -57,7 +57,9 @@ const SingleShape = React.memo<{
   const isSelectTool = selectToolOn && !(layer?.locked);
 
   const defaultThemeStroke = themeMode === "light" ? "#0f172a" : "#f8fafc";
-  const strokeColor = shape.strokeColor || (layer ? layerInk(layer.color, themeMode) : defaultThemeStroke);
+  // Component entities get no grips (their geometry is written as expressions),
+  // so the selection overlay skips them; a picked one is drawn in the selection colour.
+  const strokeColor = isSelected && raw.componentInstanceId ? "#38bdf8" : shape.strokeColor || (layer ? layerInk(layer.color, themeMode) : defaultThemeStroke);
   // Lineweights are stored in model-space millimetres, so the SVG CTM scales
   // them along with the geometry. A 1.5 mm line on a drawing zoomed to fit a
   // 460 m section renders 0.002 px wide — present in the DOM, invisible on
@@ -109,6 +111,12 @@ const SingleShape = React.memo<{
           strokeLinecap="round"
           style={{ pointerEvents: "stroke" }}
         />
+      )}
+
+      {/* The same cushion around a circle's rim: a hole is picked by clicking near
+          its outline, not only on a one-pixel stroke. */}
+      {isSelectTool && shape.type === "circle" && (
+        <circle cx={shape.cx} cy={shape.cy} r={shape.r} fill="none" stroke="transparent" strokeWidth={Math.max(16 / scale, strokeWidth + 12 / scale)} style={{ pointerEvents: "stroke" }} />
       )}
 
       {/* Render Line */}
