@@ -96,6 +96,26 @@ export function sheetLayout(size: PaperSize): SheetLayout {
 }
 
 /** The largest standard scale (smallest denominator) at which `w × h` model mm fits `pw × ph` paper mm. */
+/** Scales an annotation can be sized for, from full size up. */
+export const ANNOTATION_SCALES = [1, 2, ...STANDARD_SCALES];
+
+/** Text on a drawing this wide reads comfortably when it is about 1/50 of it. */
+export const READABLE_TEXT_FRACTION = 1 / 50;
+/** Below 1/150 of the drawing, text cannot be read when the drawing is seen whole. */
+export const ILLEGIBLE_TEXT_FRACTION = 1 / 150;
+
+/**
+ * The standard annotation scale at which text of `textHeight` paper mm reads
+ * well against a drawing of this size — the scale nearest (on a log scale) to
+ * the one that makes text 1/50 of the drawing's larger side. A 400 mm plate
+ * gets 1:5 (12.5 mm text), a 26 m bridge section 1:200.
+ */
+export function readableAnnotationScale(width: number, height: number, textHeight: number): number {
+  const extent = Math.max(width, height, 1);
+  const ideal = (extent * READABLE_TEXT_FRACTION) / Math.max(textHeight, 0.1);
+  return ANNOTATION_SCALES.reduce((best, s) => (Math.abs(Math.log(s / ideal)) < Math.abs(Math.log(best / ideal)) ? s : best), ANNOTATION_SCALES[0]);
+}
+
 export function fitScale(w: number, h: number, pw: number, ph: number): number {
   const need = Math.max(w / Math.max(pw, 1), h / Math.max(ph, 1));
   return STANDARD_SCALES.find((s) => s >= need) ?? Math.ceil(need / 1000) * 1000;

@@ -6,6 +6,7 @@
  * drawing settings that go with plotting (annotation scale, datum).
  */
 
+import { AnnotationSizeControls } from "./AnnotationSizeControls";
 import React from "react";
 import { Plus, Trash2, Printer, Eye, EyeOff, Lock, Unlock, Snowflake, Sun, Check } from "lucide-react";
 import { useDrawing } from "@/lib/state/drawingContext";
@@ -34,36 +35,7 @@ export function LayerPanel() {
     <PanelBody>
       <section className="flex flex-col gap-2">
         <h3 className="label">Drawing</h3>
-        <div className="grid grid-cols-2 gap-2 text-[11px]">
-          <label className="flex flex-col gap-1 text-(--fg-muted)">
-            Annotation scale
-            <select
-              value={cad.settings.annotationScale}
-              onChange={(e) => dispatch({ type: "CAD_SET_SETTINGS", patch: { annotationScale: Number(e.target.value) } })}
-              className="h-[26px] rounded-[5px] bg-(--ink-raised) border border-(--rule) px-1.5 text-(--fg-primary) font-mono"
-            >
-              {[20, 25, 50, 75, 100, 150, 200, 250, 500].map((s) => (
-                <option key={s} value={s}>
-                  1:{s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-(--fg-muted)">
-            Text height (paper mm)
-            <input
-              type="number"
-              step={0.5}
-              min={1}
-              value={cad.settings.textHeight}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (v > 0) dispatch({ type: "CAD_SET_SETTINGS", patch: { textHeight: v } });
-              }}
-              className="h-[26px] rounded-[5px] bg-(--ink-raised) border border-(--rule) px-1.5 text-(--fg-primary) num"
-            />
-          </label>
-        </div>
+        <AnnotationSizeControls />
       </section>
 
       <section className="flex flex-col gap-1.5">

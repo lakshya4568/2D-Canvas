@@ -133,8 +133,8 @@ export function measureDimension(d: DimensionAnnotation, ctx: PrimContext): Dime
 function dimensionPrims(d: DimensionAnnotation, ctx: PrimContext): DrawPrim[] {
   const st = style(d, "BRG-DIM");
   const unit = ctx.settings.annotationScale;
-  const h = (d.height ?? ctx.settings.textHeight) * unit;
-  const arrow = ARROW_PAPER_MM * unit;
+  const h = (d.height ?? ctx.settings.dimTextHeight ?? ctx.settings.textHeight) * unit;
+  const arrow = (ctx.settings.arrowSize ?? ARROW_PAPER_MM) * unit;
   const gap = EXT_GAP_PAPER_MM * unit;
   const over = EXT_OVERSHOOT_PAPER_MM * unit;
   const p1 = resolveAnchor(d.p1, ctx.shapes);
@@ -320,7 +320,7 @@ function leaderPrims(l: LeaderAnnotation, ctx: PrimContext): DrawPrim[] {
   const prev = pts[pts.length - 2];
   const tip = pts[0];
   const arrow = l.arrow ?? "arrow";
-  if (arrow === "arrow") out.push(arrowHead(tip, pts[1], ARROW_PAPER_MM * unit, st));
+  if (arrow === "arrow") out.push(arrowHead(tip, pts[1], (ctx.settings.arrowSize ?? ARROW_PAPER_MM) * unit, st));
   else if (arrow === "dot") out.push({ k: "dots", points: [tip], r: 0.45 * unit, ...st });
 
   if (l.placement === "above") {

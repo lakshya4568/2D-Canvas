@@ -6,6 +6,7 @@
  * grouped the way AutoCAD groups them so nothing has to be relearnt.
  */
 
+import { AnnotationSizeControls } from "../panels/AnnotationSizeControls";
 import React from "react";
 import {
   MousePointer2,
@@ -204,22 +205,8 @@ export function Ribbon(p: RibbonProps) {
         </Group>
       )}
       {all && (
-        <Group label="Scale">
-          <label className="flex flex-col items-center gap-0.5 text-[9.5px] text-(--fg-secondary)">
-            <select
-              aria-label="Annotation scale"
-              value={state.cad.settings.annotationScale}
-              onChange={(e) => dispatch({ type: "CAD_SET_SETTINGS", patch: { annotationScale: Number(e.target.value) } })}
-              className="h-[24px] rounded-[5px] bg-(--ink-app) border border-(--rule) text-[11px] px-1 text-(--fg-primary) font-mono"
-            >
-              {[20, 25, 50, 75, 100, 150, 200, 250, 500].map((s) => (
-                <option key={s} value={s}>
-                  1:{s}
-                </option>
-              ))}
-            </select>
-            Annotation
-          </label>
+        <Group label="Text & dimensions">
+          <AnnotationSizeControls compact />
         </Group>
       )}
     </>

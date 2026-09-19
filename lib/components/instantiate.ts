@@ -74,8 +74,10 @@ export function instanceTransform(inst: ComponentInstance, settings: Pick<Drawin
  * dimension lines and `TXT` the text height, both in model mm for the drawing's
  * annotation scale, so a definition's dimensions read the same at 1:50 and 1:200.
  */
-export function annotationGlobals(settings: Pick<DrawingSettings, "annotationScale" | "textHeight">): Record<string, number> {
-  return { DIM: 8 * settings.annotationScale, TXT: settings.textHeight * settings.annotationScale, SCALE: settings.annotationScale };
+export function annotationGlobals(settings: Pick<DrawingSettings, "annotationScale" | "textHeight" | "dimTextHeight">): Record<string, number> {
+  // A dimension row is spaced for its text: larger dimension text, wider rows.
+  const dimText = settings.dimTextHeight ?? settings.textHeight;
+  return { DIM: Math.max(8, dimText * 3.2) * settings.annotationScale, TXT: settings.textHeight * settings.annotationScale, SCALE: settings.annotationScale };
 }
 
 /** A root-frame angle (degrees, Y up) as it reads on the sheet after the instance's mirror and rotation. */

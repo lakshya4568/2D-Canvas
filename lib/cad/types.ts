@@ -322,6 +322,10 @@ export interface DrawingSettings {
   datumRL: number;
   /** Default paper text height, mm. */
   textHeight: number;
+  /** Dimension text height, paper mm (default: the text height). */
+  dimTextHeight?: number;
+  /** Arrowhead length for dimensions and callouts, paper mm (default 2.5). */
+  arrowSize?: number;
   /** Default dimension decimal places. */
   dimensionPrecision: number;
   layerStandardId: string;

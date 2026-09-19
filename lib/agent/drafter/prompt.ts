@@ -49,7 +49,7 @@ Geometry → parameters → formulas and constraints → dependency graph → re
 - Sizes the reference does not write (a wing wall's length, where a slope stops): derive them from written values where the geometry decides them (a slope from its ratio and the heights it spans); otherwise measure them from the reference with compare_reference/measure, name them as values, and say in finish that they were scaled from the image.
 - Written numbers govern the geometry. A drawing is exact when every written number is measured back from it (verify) and its lines sit on the reference (compare_reference).
 - A zig-zag break line means the reference shortened that span: draw the true length (written numbers govern) and compare each side on its own — compare_reference entities=[features of that part] with pairs on that part.
-- scale: the one written on the reference; if none is written, leave it out and the drawing's own extent sets it.
+- scale: the one written on the reference; if none is written (a brief, a small part), leave it out — text, dimensions and arrows are then sized to be read against the drawing. Never 1:1 for a part: its 2.5 mm text would be invisible beside it.
 
 # Sketch route (only for one small profile a person wants held by rules)
 plan with route "sketch", then draw_* (rectangle, polyline, line, circle), chamfer/offset/trim for edits, auto_rules ["horizontal","vertical"] and one rule anchor, dimension the design sizes (offset between faces for thicknesses, the same name to share a value), formula for derived values, check (no blockers), flex_test (a span change must not change thicknesses), view, finish. A drawing with more than a few dozen lines, levels or annotation belongs in the construction route.

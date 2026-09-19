@@ -51,7 +51,7 @@ import { textWidth } from "../../cad/drawList";
 import { indexShapes } from "../../cad/geometry";
 import { ToolError, fmt, type DraftingWorkspace } from "./workspace";
 import * as Sy from "../../components/symbolic";
-import { fitScale, sheetLayout } from "../../cad/sheet";
+import { ILLEGIBLE_TEXT_FRACTION, readableAnnotationScale } from "../../cad/sheet";
 
 type Args = Record<string, unknown>;
 
@@ -412,21 +412,25 @@ export function bindDimensions(def: ComponentDefinition, plan: ConstructionPlan,
   };
 }
 
+function extentOf(ev: ComponentEvaluation): { w: number; h: number } | null {
+  const pts = [...ev.loops.flatMap((l) => l.points), ...ev.circles.flatMap((c) => [{ x: c.center.x - c.r, y: c.center.y - c.r }, { x: c.center.x + c.r, y: c.center.y + c.r }])];
+  if (!pts.length) return null;
+  return { w: Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x)), h: Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y)) };
+}
+
 /**
- * The annotation scale: the one written on the reference (plan.scale), else a
- * standard scale at which the whole construction fits an A1 sheet — re-fitted
- * as the drawing grows, so text never ends up sized for its first few lines.
+ * The annotation scale: the one written on the reference (plan.scale), else
+ * the standard scale at which text reads well against the construction
+ * (lib/cad/sheet readableAnnotationScale) — re-chosen as the drawing grows, so
+ * text is never sized for its first few lines, nor 2.5 mm beside a 400 mm plate.
  */
 function keepScale(ws: DraftingWorkspace, ev: ComponentEvaluation) {
-  const plan = ws.construction.plan;
-  let scale = plan?.scale;
+  let scale = ws.construction.plan?.scale;
   if (!scale) {
-    const pts = [...ev.loops.flatMap((l) => l.points), ...ev.circles.flatMap((c) => [{ x: c.center.x - c.r, y: c.center.y - c.r }, { x: c.center.x + c.r, y: c.center.y + c.r }])];
-    if (!pts.length) return;
-    const w = Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x));
-    const h = Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y));
-    const L = sheetLayout("A1");
-    scale = fitScale(w * 1.25, h * 1.25, L.drawArea.width, L.drawArea.height - 16);
+    const e = extentOf(ev);
+    if (!e) return;
+    const s = ws.cad.settings;
+    scale = readableAnnotationScale(e.w, e.h, Math.min(s.textHeight, s.dimTextHeight ?? s.textHeight));
   }
   if (scale && scale !== ws.cad.settings.annotationScale) ws.applyCad({ type: "CAD_SET_SETTINGS", patch: { annotationScale: scale } });
 }
@@ -1416,6 +1420,18 @@ export function verifyConstruction(ws: DraftingWorkspace): VerifyReport {
   };
   const loose = ev.leaders.filter((l) => l.arrow !== "none" && distToEdges(l.points[0].x, l.points[0].y) > 2 * txt);
   if (loose.length) notes.push(`Leaders pointing at nothing: ${loose.map((l) => `${l.path} "${l.text.slice(0, 30)}"`).join("; ")}.`);
+  // Text a person cannot read, seen with the drawing, is not a drawing.
+  const e = extentOf(ev);
+  if (e) {
+    const s = ws.cad.settings;
+    const smallest = Math.min(s.textHeight, s.dimTextHeight ?? s.textHeight) * s.annotationScale;
+    const side = Math.max(e.w, e.h);
+    if (smallest < side * ILLEGIBLE_TEXT_FRACTION) {
+      problems.push(
+        `Text and dimensions are ${fmt(smallest)} mm high on a ${fmt(side)} mm drawing — too small to read. ${plan.scale ? `Scale 1:${plan.scale} does not suit a drawing this size: leave plan.scale out unless the reference writes one (it is then sized to be read, 1:${readableAnnotationScale(e.w, e.h, Math.min(s.textHeight, s.dimTextHeight ?? s.textHeight))}).` : "Raise the text height."}`
+      );
+    }
+  }
   const overlaps = textOverlaps(ws);
   if (overlaps.length) notes.push(`Texts overlapping each other (hard to read): ${overlaps.slice(0, 8).join("; ")}.`);
 
