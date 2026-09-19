@@ -65,6 +65,24 @@ Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch
 - Every audit rule cites a record in `sources.ts` (IRBM-2024 paras, IRCM Table 4.03). When software can compute a number but not establish that a rule applies, the result is **requires review** — never "compliant" or "safe".
 - Design-basis values carry a status. The agent may enter values (`INFERRED`, `ASSUMED_FOR_DRAFT`, `PENDING_CONFIRMATION`) but **never confirm** them and never approves a drawing; template defaults are drafting aids, flagged by the audit.
 
+### 2.10 Values: Auto, Typed, Related — and Tables (`lib/components/evaluate.ts`)
+- A parameter's value comes from, in order: a **relationship** on the instance (`instance.relations`, written in Author mode or by the agent's `relationship` tool), a **typed** value, its **auto** expression (`defaultExpr`, e.g. rail level = formation + 0.762 — it follows until someone types), or its default. `ComponentEvaluation.sources` records which.
+- Relationships, auto values and formulas are ordered together by their AST dependencies; a cycle, an unknown name or a broken invariant **refuses the edit whole** (`CAD_EDIT_COMPONENT_INPUTS`). A relationship may not overwrite a definition's formula; a new name becomes a reported value. Instance inputs (`customValues`) feed relationships.
+- Run mode shows a related value's result and the names it follows — **never the expression** (§64). Expressions are authored only in Author mode (`features/bridge/ComponentRelationships.tsx`).
+- **Tables** (`TableDef`, e.g. foundation layers) are list values; a `repeat: { table }` walks the rows, with `<T>_<col>`, `<T>_before_<col>`, `<T>_sum_<col>`, `<T>_count` in scope and text columns interpolated into notes. Hatches may pick their material per row.
+- Component annotation is data too: `leaders` (text on the shelf), levels in GAD style (`style: "gad"`, `format`, water/ground symbols), dimension `prefix`/`hideValue`, rotated text (`rotate`, `along`), choice labels `{Name:label}`, `{SCALE}`.
+
+### 2.11 Make Parametric — the Manual Route (`lib/components/fromDrawing.ts`)
+- Free geometry + its dimensions, level markers and callouts → one `ComponentDefinition` stored on the drawing (`cad.definitions`, `origin.kind = "drawn"`) and an instance replacing the free entities (`CAD_MAKE_PARAMETRIC`). Generic "datum" method — levels and offsets, no bridge vocabulary in the algorithm:
+  every distinct X/Y (weld tolerance from `TolerancePolicy`) is a datum; site levels are inputs; dimensions are edges taken **chain-first (Kruskal)** — an edge reaching a new datum drives it, one closing a loop is a reported **result**; widths symmetric about the centre line are split half each side; mirror-image dims share a value; a leader stating a thickness and pointing into a band that thick (or sitting on an edge that long) becomes a value, shared by the other corners of the same shape; other datums follow the nearest **structural** datum (never a water line) at a fixed offset; notes' numbers are linked to the values they state.
+- The plan is evaluated before anything changes: **every vertex must come back where it was drawn** or the conversion is refused. `CAD_EXPLODE_COMPONENT` ("Edit shape", `BEDIT`) turns a component back into geometry; dimension names ride on `drives`, relationships are carried (`cad.carried` / `origin`) to the next Make parametric.
+- Never special-case a structure type in `fromDrawing.ts`; improve the generic rules and cover them with a hand-drawn test.
+
+### 2.12 Bridge Knowledge and Agent Skills
+- `docs/bridge-formulas/*.txt` is the project's formula documentation (RCC box railway/highway, hume pipe, PSC slab, composite girder, OWG, glossary, cross-reference, Q&A). It is bundled into `lib/bridge/knowledge/corpus.generated.ts` by `bun run knowledge:build` (a test fails if stale) and searched by the agent's `bridge_reference` tool. It is a **reference, not a code** — rules citing it (`aagento-*` sources) say "requires review".
+- Component formulas cite the ids they implement (`cites: ["RCR-LVL-002"]`); a test checks every cited id exists.
+- `lib/agent/drafter/skills.ts` holds drafting playbooks (rcc-box-half-section, gad-drafting-style, make-parametric, bridge-levels, per bridge type). The prompt lists them; the agent loads one with `use_skill`. Its view (`buildScene`) renders the full draw list — hatches, leaders, level callouts, notes — so it can see whether its drawing looks like a GAD.
+
 ---
 
 ## 3. Key Engine Subsystems & Mathematical Models
@@ -123,7 +141,7 @@ UPCE maintains two complementary representations:
 │   │   ├── DimensionBadge.tsx  # Interactive dimension badge (Display -> Edit -> Commit)
 │   │   ├── CanvasOverlay.tsx   # Constraints, DOF status, and grip rendering
 │   │   └── Viewport.tsx        # Pan/zoom camera transform
-│   ├── bridge/                 # Component catalog, values form, sheet preview, "What is this?" understanding UI
+│   ├── bridge/                 # Component catalog, values form (auto/related/tables), Author relationships, Make parametric dialog, sheet preview, "What is this?" UI
 │   ├── canvas/tools/           # Interactive annotation + modify tools (TEXT, DIM*, LEVEL, HATCH, OFFSET, TRIM…)
 │   ├── panels/                 # Persona panels and docks (+ BridgePanel, LayerPanel)
 │   │   ├── DraftPanel.tsx      # Draftsman Mode (zero formulas, nominal inputs)
@@ -140,18 +158,20 @@ UPCE maintains two complementary representations:
 │   │   └── dragSolver.ts       # SVD minimum-norm solver & column damping
 │   ├── geometry/               # Primitives, predicates (P1–P10), tolerance.ts, DCEL
 │   ├── topology/               # booleanFusion.ts (Clipper2 union & web collapse)
-│   ├── agent/drafter/          # The drafting agent: workspace, tools, CAD tools (cadTools.ts), loop, prompt
+│   ├── agent/drafter/          # The drafting agent: workspace, tools, CAD tools (cadTools.ts), skills.ts, loop, prompt
 │   ├── cad/                    # CAD document: layers, annotations, draw list, hatch, modify ops, sheets, DXF/SVG/PDF
-│   ├── components/             # Constructive component engine + library (library/*.ts are DATA)
-│   ├── bridge/                 # Railway domain: glossary, recognition, drawn facts, project/DBR, sources, audit
+│   ├── components/             # Constructive component engine + library (library/*.ts are DATA); fromDrawing.ts = Make parametric
+│   ├── bridge/                 # Railway domain: glossary, recognition, drawn facts, project/DBR, sources, audit; knowledge/ = formula docs search
 │   └── state/cadActions.ts     # Reducer logic for the CAD document (shared by editor and agent)
 ├── tests/                      # Verification test suites
 │   ├── unit/                   # Unit tests (cell repeat, formulas tab, predicates)
 │   ├── integration/            # Multi-cell solver, FastMCP, agentic loop, CAD coder
 │   └── fixtures/               # Reference DXF, JSON GAD benchmarks
-├── scripts/                    # CI linting & audit scripts
+├── scripts/                    # CI linting & audit scripts; build-bridge-knowledge.ts; dev/ (render a component to SVG/PNG, round-trip, agent view)
 │   ├── lint-tolerance.ts       # Enforces model-space tolerance discipline
 │   └── license-scan.ts         # Scans dependencies for banned GPL/AGPL licenses
+├── docs/bridge-formulas/       # Project bridge formula documentation (source of lib/bridge/knowledge)
+├── docs/guides/                # How-tos (rcc-box-half-section.md: component, hand-drawn, agent, relationships)
 └── docs/audit/                 # Master specifications (UPCE-MASTER-1.0, UPCE-ADDENDUM-2.0)
 ```
 
@@ -178,6 +198,13 @@ bun run license:scan
 
 # 4. Production build verification (Next.js 16 Turbopack)
 bun run build
+
+# After editing docs/bridge-formulas: regenerate the agent's knowledge bundle
+bun run knowledge:build
+
+# See a component as it will plot (white paper) — dev helpers
+bun run scripts/dev/render-component.ts ir.rcc_box.half_section /tmp/v.svg Name=value …
+bun run scripts/dev/svg-to-png.ts /tmp/v.svg /tmp/v.png 1800
 ```
 
 ### 5.3 Next.js 16 Architectural Conventions
@@ -199,3 +226,6 @@ bun run build
 8. [ ] **Components are data**: New or changed component definitions use expressions only, declare invariants, and are covered by a test (defaults evaluate with no errors; unique entity ids). No bridge vocabulary in the engine.
 9. [ ] **Rules cite sources**: Every new audit rule names a `sources.ts` record and says "requires review" where applicability cannot be established.
 10. [ ] **One draw list**: Canvas, SVG, DXF and PDF output of any annotation come from `annotationPrims`.
+11. [ ] **Formulas never reach Run mode**: relationships and auto values show results and the names they follow, not expressions.
+12. [ ] **Make parametric stays generic**: no structure-specific branches in `fromDrawing.ts`; the self-check (every vertex reproduced) still passes.
+13. [ ] **Knowledge in sync**: after editing `docs/bridge-formulas`, `bun run knowledge:build`; formula `cites` ids exist.
