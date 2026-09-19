@@ -14,6 +14,7 @@
  * reducer actions and returns preview primitives for the rubber band.
  */
 
+import { termFromText } from "@/lib/bridge/glossary";
 import type { LineShape, Point, Shape } from "@/lib/geometry/types";
 import type { AnchorRef, Annotation, HatchMaterial } from "@/lib/cad/types";
 import type { DrawPrim } from "@/lib/cad/drawList";
@@ -279,15 +280,27 @@ const dimAngular: Factory = simple({
 const levelTool: Factory = () => {
   let at: Pick | null = null;
   return {
-    prompt: () => (at ? "Label for this level (Enter for none)" : "Pick the point whose level to mark"),
-    input: () => (at ? { kind: "text", label: "Label", placeholder: "HFL, BED LEVEL, TOP OF CAP…", initial: "" } : null),
+    prompt: () => (at ? "Label for this level — end it with = to write it on the line (BED LEVEL = 96.100M.)" : "Pick the point whose level to mark"),
+    input: () => (at ? { kind: "text", label: "Label", placeholder: "HFL, BED LEVEL =, TOP OF SLAB =…", initial: "" } : null),
     click: (p) => {
       at = p;
     },
     move: () => {},
     submit: (v, env) => {
       if (!at) return;
-      addAnnotation(env, { type: "level", at: anchorFor(at, env), label: v.trim().toUpperCase() });
+      const raw = v.trim().toUpperCase();
+      // "BED LEVEL =" asks for the GAD callout written on the level line.
+      const gad = raw.endsWith("=");
+      const label = raw.replace(/=\s*$/, "").trim();
+      const role = termFromText(label)?.role;
+      const water = role === "HFL" || role === "LWL" || role === "danger_level";
+      addAnnotation(env, {
+        type: "level",
+        at: anchorFor(at, env),
+        label,
+        ...(gad ? { style: "gad" as const, format: water ? "{label} = {rl}M" : undefined } : {}),
+        symbol: water ? "water" : role === "bed_level" ? "ground" : undefined,
+      });
       at = null;
     },
     preview: () => [],

@@ -10,13 +10,12 @@
 
 import type { Shape } from "@/lib/geometry/types";
 import type { CadDocState } from "@/lib/cad/document";
-import { componentIdOf, evaluateInstance } from "@/lib/cad/document";
+import { componentIdOf, definitionFor, evaluateInstance } from "@/lib/cad/document";
 import type { Annotation, DimensionAnnotation, LevelAnnotation } from "@/lib/cad/types";
 import { findLayer } from "@/lib/cad/layers";
 import { indexShapes } from "@/lib/cad/geometry";
 import { hatchRegion, measureDimension } from "@/lib/cad/annotationPrims";
 import { resolveAnchor } from "@/lib/cad/geometry";
-import { componentRegistry } from "@/lib/components/library";
 import type { EvalFact } from "@/lib/components/evaluate";
 import { classifyBridge, relaxedFreeBoard, requiredVerticalClearance, type BridgeClass } from "./classification";
 import { DBR_FIELD_META, INPUT_STATUS_LABEL, LEVEL_PARAMETER_MAP, isConfirmed, type DbrFields } from "./project";
@@ -96,7 +95,8 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
     for (const f of out.evaluation.facts) facts.push({ ...f, path: `${inst.id}${f.path ? "/" + f.path : ""}` });
   }
   // Facts from geometry a person drew and tagged (bed level line, openings, cushion…).
-  const drawn = drawnFacts(shapes, doc.settings);
+  const drawnInstances = new Set(doc.components.filter((c) => definitionFor(doc, c.definitionId)?.origin?.kind === "drawn").map((c) => c.id));
+  const drawn = drawnFacts(shapes, doc.settings, (s) => drawnInstances.has(s.componentInstanceId ?? ""));
   facts.push(...drawn);
   const isCulvert = allFacts(facts, "culvert_exempt_clearance").some((f) => f.value > 0) || P.structureType === "box_culvert" || P.structureType === "pipe_culvert";
   const isRiver = !["rob", "rub", "fob"].includes(P.structureType);
@@ -115,9 +115,25 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
         entityIds: [inst.id],
       });
     }
-    const def = componentRegistry.get(inst.definitionId);
-    const defaults = (def?.parameters ?? []).filter((p) => p.sourceRequired && (inst.values[p.name] === undefined || inst.values[p.name] === p.default));
-    if (defaults.length) {
+    const def = definitionFor(doc, inst.definitionId);
+    // A value that follows a relationship or its own formula is not a default;
+    // one typed equal to the default still is.
+    const src = out.evaluation.sources;
+    const defaults = (def?.parameters ?? []).filter((p) => p.sourceRequired && (src[p.name] === "default" || (src[p.name] === "typed" && inst.values[p.name] === p.default)));
+    if (defaults.length && def?.origin?.kind === "drawn") {
+      // A drawing made parametric: its levels are what the person drew, not a template's.
+      push({
+        ruleId: "PARAM-DRAWN-UNCONFIRMED",
+        gate: "parameter",
+        severity: "warning",
+        status: "requires_review",
+        message: `${inst.name}: ${defaults.length} site level(s) are read from the drawing — ${defaults.map((p) => p.label ?? p.name).slice(0, 6).join(", ")}${defaults.length > 6 ? "…" : ""}. Confirm them against the design basis.`,
+        sourceIds: [],
+        entityIds: [inst.id],
+        parameterNames: defaults.map((p) => p.name),
+        hint: "Enter the approved levels in the design basis and apply them to the drawing.",
+      });
+    } else if (defaults.length) {
       push({
         ruleId: "PARAM-TEMPLATE-DEFAULT",
         gate: "parameter",
@@ -163,7 +179,7 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
   // ---------------------------------------------------------------- consistency
   for (const { inst } of outputs) {
     for (const { field, parameter } of LEVEL_PARAMETER_MAP) {
-      const def = componentRegistry.get(inst.definitionId);
+      const def = definitionFor(doc, inst.definitionId);
       if (!def?.parameters.some((p) => p.name === parameter)) continue;
       const drawn = inst.values[parameter] ?? def.parameters.find((p) => p.name === parameter)!.default;
       const fld = P.dbr[field];

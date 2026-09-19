@@ -136,6 +136,11 @@ export const COMMAND_ALIASES: CommandAlias[] = [
   { alias: "PLOT", commandName: "PLOT", description: "Sheet preview and PDF plot", category: "utility" },
   { alias: "PUBLISH", commandName: "PLOT", description: "Sheet preview and PDF plot", category: "utility" },
   { alias: "DXFOUT", commandName: "DXFOUT", description: "Exports model space to DXF", category: "utility" },
+  { alias: "PARAMETRIZE", commandName: "PARAMETRIZE", description: "Makes what you drew parametric: dimensions and levels become values", category: "utility" },
+  { alias: "MAKEPARAM", commandName: "PARAMETRIZE", description: "Makes what you drew parametric: dimensions and levels become values", category: "utility" },
+  { alias: "MP", commandName: "PARAMETRIZE", description: "Makes what you drew parametric: dimensions and levels become values", category: "utility" },
+  { alias: "BEDIT", commandName: "BEDIT", description: "Turns the selected component back into editable geometry", category: "utility" },
+  { alias: "EDITGEOM", commandName: "BEDIT", description: "Turns the selected component back into editable geometry", category: "utility" },
 
   // CAD Agent v2 Tools
   { alias: "AGENT", commandName: "CAD_AGENT", description: "Generates CAD drawing via CAD Agent v2", category: "utility" },
@@ -390,6 +395,8 @@ export class CadCommandRegistry {
       case "INSERT":
       case "AUDIT":
       case "PLOT":
+      case "PARAMETRIZE":
+      case "BEDIT":
       case "DXFOUT": {
         if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("cad:open", { detail: matched.commandName }));
         return { success: true, message: matched.description };

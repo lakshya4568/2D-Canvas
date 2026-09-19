@@ -15,6 +15,7 @@ import { InstructionManualModal } from "../manual/InstructionManualModal";
 import { importDxfToShapes } from "@/lib/io/dxfImporter";
 import { ComponentCatalog } from "../bridge/ComponentCatalog";
 import { SheetPreview } from "../bridge/SheetPreview";
+import { MakeParametricDialog } from "../bridge/MakeParametric";
 import type { DockTab } from "./PersonaDock";
 
 /**
@@ -42,6 +43,8 @@ export function CadShell() {
     toggleDynamicInput,
   } = useDrawing();
   const agentPreview = useAgentPreview();
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
   const [cursorPos, setCursorPos] = React.useState<Point | null>(null);
   const [dockWidth, setDockWidth] = React.useState(310);
   const [dockCollapsed, setDockCollapsed] = React.useState(false);
@@ -51,6 +54,7 @@ export function CadShell() {
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [catalogOpen, setCatalogOpen] = React.useState(false);
   const [sheetsOpen, setSheetsOpen] = React.useState(false);
+  const [parametricOpen, setParametricOpen] = React.useState(false);
   const [dockRequest, setDockRequest] = React.useState<{ tab: DockTab; nonce: number } | undefined>();
   const openDock = React.useCallback((tab: DockTab) => {
     setDockCollapsed(false);
@@ -67,11 +71,19 @@ export function CadShell() {
       else if (what === "AUDIT") openDock("bridge");
       else if (what === "INSERT") setCatalogOpen(true);
       else if (what === "PLOT") setSheetsOpen(true);
+      else if (what === "PARAMETRIZE") setParametricOpen(true);
+      else if (what === "BEDIT") {
+        // Turn the selected component back into geometry to edit (make it parametric again after).
+        const st = stateRef.current;
+        const ids = new Set(st.selectedIds.length ? st.selectedIds : st.selectedId ? [st.selectedId] : []);
+        const inst = st.shapes.find((sh) => ids.has(sh.id) && sh.componentInstanceId)?.componentInstanceId ?? (st.cad.components.length === 1 ? st.cad.components[0].id : undefined);
+        if (inst) dispatch({ type: "CAD_EXPLODE_COMPONENT", instanceId: inst });
+      }
       else if (what === "DXFOUT") window.dispatchEvent(new CustomEvent("cad:export", { detail: "dxf" }));
     };
     window.addEventListener("cad:open", onOpen);
     return () => window.removeEventListener("cad:open", onOpen);
-  }, [openDock]);
+  }, [openDock, dispatch]);
 
   // Auto-open CAD Agent panel when an autonomous run starts
   React.useEffect(() => {
@@ -240,6 +252,7 @@ export function CadShell() {
       <InstructionManualModal isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ComponentCatalog open={catalogOpen} onClose={() => setCatalogOpen(false)} />
       <SheetPreview open={sheetsOpen} onClose={() => setSheetsOpen(false)} />
+      <MakeParametricDialog open={parametricOpen} onClose={() => setParametricOpen(false)} />
     </div>
   );
 }

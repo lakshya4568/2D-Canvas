@@ -17,7 +17,6 @@ import { ComponentValuesForm } from "@/features/bridge/ComponentValuesForm";
 import { UnderstandingSection } from "@/features/bridge/Understanding";
 import { Group, Pill } from "./ui/Disclosure";
 import { PanelBody } from "./DraftPanel";
-import { componentRegistry } from "@/lib/components/library";
 import {
   DBR_FIELD_META,
   INPUT_STATUS_LABEL,
@@ -29,6 +28,7 @@ import {
   type StructureType,
 } from "@/lib/bridge/project";
 import { BUILTIN_SOURCES, citation, findSource } from "@/lib/bridge/sources";
+import { definitionFor } from "@/lib/cad/document";
 import { GATE_LABEL, type AuditResult, type Gate, type Severity } from "@/lib/bridge/audit";
 import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import { fitViewportToBounds } from "@/lib/geometry/transform";
@@ -222,18 +222,18 @@ export function BridgePanel({ onOpenCatalog }: { onOpenCatalog?: () => void }) {
           <UnderstandingSection />
         </Group>
 
-        <Group id="bridge-components" title="Ready-made components" count={cad.components.length} action={onOpenCatalog && (
+        <Group id="bridge-components" title="Parametric components" count={cad.components.length} action={onOpenCatalog && (
           <button onClick={onOpenCatalog} className="h-[20px] px-1.5 rounded-[4px] text-[10px] text-(--pen) hover:bg-(--pen-soft) inline-flex items-center gap-0.5 cursor-pointer">
             <Plus className="w-3 h-3" /> Insert
           </button>
         )}>
           {cad.components.length === 0 && (
             <p className="text-[11px] text-(--fg-muted) leading-relaxed">
-              Optional. Instead of drawing a part yourself you can insert a ready-made one (bridge GAD, box culvert, pier, pile group, well) whose shape follows its values.
+              Optional. Insert a ready-made one (RCC box half section, bridge GAD, culvert, pier, pile group, well), or draw it yourself and use Parametrize to make your drawing follow its dimensions and levels.
             </p>
           )}
           {cad.components.map((inst) => {
-            const def = componentRegistry.get(inst.definitionId);
+            const def = definitionFor(cad, inst.definitionId);
             const open = openInst === inst.id;
             const errs = audit.results.filter((r) => r.entityIds?.includes(inst.id) && r.status !== "pass" && (r.severity === "error" || r.severity === "blocker")).length;
             return (

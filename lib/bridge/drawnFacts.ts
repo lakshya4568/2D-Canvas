@@ -24,10 +24,10 @@ function outlineOf(members: Shape[]): Point[] | null {
 }
 
 /** Tagged free shapes, grouped into the objects they form (a polyline is one object). */
-function tagged(shapes: Shape[]): { role: string; members: Shape[] }[] {
+function tagged(shapes: Shape[], include?: (s: Shape) => boolean): { role: string; members: Shape[] }[] {
   const byKey = new Map<string, { role: string; members: Shape[] }>();
   for (const s of shapes) {
-    if (!s.semanticRole || s.componentInstanceId) continue;
+    if (!s.semanticRole || (s.componentInstanceId && !include?.(s))) continue;
     const key = `${s.semanticRole}|${s.groupId ?? s.id}`;
     const e = byKey.get(key) ?? { role: s.semanticRole, members: [] };
     e.members.push(s);
@@ -36,10 +36,14 @@ function tagged(shapes: Shape[]): { role: string; members: Shape[] }[] {
   return [...byKey.values()];
 }
 
-export function drawnFacts(shapes: Shape[], settings: Pick<DrawingSettings, "datumRL">): EvalFact[] {
+/**
+ * @param include component shapes to read as drawn — those of components made
+ *   from a drawing, whose meaning lives in their roles rather than in facts.
+ */
+export function drawnFacts(shapes: Shape[], settings: Pick<DrawingSettings, "datumRL">, include?: (s: Shape) => boolean): EvalFact[] {
   const facts: EvalFact[] = [];
   const push = (key: string, value: number, path: string, semanticType: string) => facts.push({ key, value, path: `drawn:${path}`, semanticType });
-  const objs = tagged(shapes);
+  const objs = tagged(shapes, include);
   const level = (role: string) => {
     const o = objs.find((x) => x.role === role && x.members[0].type === "line");
     if (!o) return undefined;

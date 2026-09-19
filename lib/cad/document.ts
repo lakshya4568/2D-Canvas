@@ -9,8 +9,10 @@
 
 import type { Shape } from "@/lib/geometry/types";
 import { emptyProject, type BridgeProject } from "@/lib/bridge/project";
-import type { ComponentInstance } from "@/lib/components/types";
-import { componentRegistry } from "@/lib/components/library";
+import type { ComponentDefinition, ComponentInstance, CustomValue, Relationship } from "@/lib/components/types";
+import { COMPONENT_LIBRARY, componentRegistry } from "@/lib/components/library";
+import { makeRegistry } from "@/lib/components/instantiate";
+import type { ComponentRegistry } from "@/lib/components/evaluate";
 import { instantiateComponent, type InstanceOutput } from "@/lib/components/instantiate";
 import type { ComponentIssue } from "@/lib/components/evaluate";
 import { instantiateLayers, layerIdFor } from "./layers";
@@ -38,6 +40,16 @@ export interface CadDocState {
   componentNotice: ComponentNotice | null;
   /** Revision history for the alteration box. */
   revisions: { rev: string; description: string; date: string }[];
+  /**
+   * Components made on this drawing — a drawing turned parametric ("Make
+   * parametric"). Same data format as the library; saved with the drawing.
+   */
+  definitions?: ComponentDefinition[];
+  /**
+   * Relationships and inputs of the component last turned back into geometry,
+   * handed to the next "Make parametric" so they survive an edit of the shape.
+   */
+  carried?: { relations?: Relationship[]; customValues?: CustomValue[] };
 }
 
 export function emptyCadDoc(): CadDocState {
@@ -63,11 +75,31 @@ export function componentIdOf(s: Shape | Annotation): string | undefined {
   return (s as { componentInstanceId?: string }).componentInstanceId;
 }
 
+const registryCache = new WeakMap<ComponentDefinition[], ComponentRegistry>();
+
+/** The library plus the drawing's own components. */
+export function registryFor(doc: Pick<CadDocState, "definitions">): ComponentRegistry {
+  const own = doc.definitions;
+  if (!own || own.length === 0) return componentRegistry;
+  let r = registryCache.get(own);
+  if (!r) {
+    r = makeRegistry([...COMPONENT_LIBRARY, ...own]);
+    registryCache.set(own, r);
+  }
+  return r;
+}
+
+/** A definition by id, from the library or the drawing. */
+export function definitionFor(doc: Pick<CadDocState, "definitions">, id: string): ComponentDefinition | undefined {
+  return registryFor(doc).get(id);
+}
+
 /** Evaluates one instance against the document. */
-export function evaluateInstance(inst: ComponentInstance, doc: Pick<CadDocState, "layers" | "settings">): InstanceOutput | null {
-  const def = componentRegistry.get(inst.definitionId);
+export function evaluateInstance(inst: ComponentInstance, doc: Pick<CadDocState, "layers" | "settings" | "definitions">): InstanceOutput | null {
+  const reg = registryFor(doc);
+  const def = reg.get(inst.definitionId);
   if (!def) return null;
-  return instantiateComponent(inst, def, componentRegistry, doc.layers, doc.settings);
+  return instantiateComponent(inst, def, reg, doc.layers, doc.settings);
 }
 
 /**

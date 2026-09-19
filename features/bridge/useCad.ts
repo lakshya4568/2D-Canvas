@@ -8,13 +8,13 @@
 import React from "react";
 import { useDrawing } from "@/lib/state/drawingContext";
 import type { Point } from "@/lib/geometry/types";
-import { componentRegistry } from "@/lib/components/library";
 import { runAudit, type AuditReport } from "@/lib/bridge/audit";
 import { LEVEL_PARAMETER_MAP } from "@/lib/bridge/project";
 import type { BridgeProject } from "@/lib/bridge/project";
 import { defaultSheet, download, exportDrawingDxf, exportDrawingSvg, exportSheetsPdf, exportSheetSvg, safeFileStem } from "@/lib/cad/export";
 import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import type { PaperSize } from "@/lib/cad/sheet";
+import { definitionFor } from "@/lib/cad/document";
 
 export function useCad() {
   const { state, dispatch } = useDrawing();
@@ -47,7 +47,7 @@ export function useCad() {
   const applyDbrLevels = React.useCallback(() => {
     let count = 0;
     for (const inst of cad.components) {
-      const def = componentRegistry.get(inst.definitionId);
+      const def = definitionFor(cad, inst.definitionId);
       if (!def) continue;
       const values: Record<string, number> = {};
       for (const { field, parameter } of LEVEL_PARAMETER_MAP) {

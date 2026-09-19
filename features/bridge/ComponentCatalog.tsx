@@ -12,7 +12,8 @@
 
 import React from "react";
 import { X, Landmark, Search, TriangleAlert } from "lucide-react";
-import { COMPONENT_LIBRARY, componentRegistry } from "@/lib/components/library";
+import { COMPONENT_LIBRARY } from "@/lib/components/library";
+import { registryFor } from "@/lib/cad/document";
 import type { ComponentDefinition } from "@/lib/components/types";
 import { instantiateComponent } from "@/lib/components/instantiate";
 import { useDrawing } from "@/lib/state/drawingContext";
@@ -27,8 +28,9 @@ const CATEGORY_ORDER = ["bridge", "box_culvert", "pipe_culvert", "pier", "abutme
 function Preview({ def, values }: { def: ComponentDefinition; values: Record<string, number> }) {
   const { state } = useDrawing();
   const { svg, issues } = React.useMemo(() => {
-    const settings = { ...state.cad.settings };
-    const out = instantiateComponent({ id: "PREVIEW", definitionId: def.id, name: def.name, values, x: 0, y: 0, absoluteElevation: def.parameters.some((p) => p.kind === "level") }, def, componentRegistry, state.cad.layers, settings);
+    // A view drawn for a set scale previews at that scale, so its text reads as it will print.
+    const settings = { ...state.cad.settings, annotationScale: def.drawingScale ?? state.cad.settings.annotationScale };
+    const out = instantiateComponent({ id: "PREVIEW", definitionId: def.id, name: def.name, values, x: 0, y: 0, absoluteElevation: def.parameters.some((p) => p.kind === "level") }, def, registryFor(state.cad), state.cad.layers, settings);
     const ctx = { shapes: indexShapes(out.shapes), settings };
     const prims = [...out.shapes.flatMap((s) => shapePrims(s)), ...out.annotations.flatMap((a) => annotationPrims(a, ctx))];
     const b = primsBounds(prims);
@@ -44,7 +46,7 @@ function Preview({ def, values }: { def: ComponentDefinition; values: Record<str
       }),
       issues: out.evaluation.issues,
     };
-  }, [def, values, state.cad.settings, state.cad.layers, state.themeMode]);
+  }, [def, values, state.cad, state.themeMode]);
   const errs = issues.filter((i) => i.severity === "error");
   return (
     <div className="flex flex-col gap-2 min-h-0 flex-1">
@@ -61,10 +63,11 @@ function Preview({ def, values }: { def: ComponentDefinition; values: Record<str
 
 export function ComponentCatalog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { insertComponent } = useCad();
+  const { state } = useDrawing();
   const [q, setQ] = React.useState("");
-  const [selId, setSelId] = React.useState<string>("ir.bridge.gad");
+  const [selId, setSelId] = React.useState<string>("ir.rcc_box.half_section");
   const [values, setValues] = React.useState<Record<string, number>>({});
-  const def = componentRegistry.get(selId);
+  const def = registryFor(state.cad).get(selId);
 
   React.useEffect(() => setValues({}), [selId]);
   React.useEffect(() => {
@@ -75,11 +78,11 @@ export function ComponentCatalog({ open, onClose }: { open: boolean; onClose: ()
   }, [open, onClose]);
 
   if (!open) return null;
-  const list = COMPONENT_LIBRARY.filter((d) => {
+  const list = [...(state.cad.definitions ?? []), ...COMPONENT_LIBRARY].filter((d) => {
     const s = q.trim().toLowerCase();
     return !s || d.name.toLowerCase().includes(s) || d.tags?.some((t) => t.toLowerCase().includes(s)) || d.description.toLowerCase().includes(s);
   }).sort((a, b) => CATEGORY_ORDER.indexOf(a.semanticType) - CATEGORY_ORDER.indexOf(b.semanticType) || a.name.localeCompare(b.name));
-  const blocked = def ? instantiateBlocked(def, values) : true;
+  const blocked = def ? instantiateBlocked(def, values, registryFor(state.cad)) : true;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/45 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="Component library">
@@ -194,9 +197,9 @@ function groupParams(def: ComponentDefinition) {
   return [...m.entries()];
 }
 
-function instantiateBlocked(def: ComponentDefinition, values: Record<string, number>): boolean {
+function instantiateBlocked(def: ComponentDefinition, values: Record<string, number>, registry: ReturnType<typeof registryFor>): boolean {
   try {
-    const out = instantiateComponent({ id: "CHK", definitionId: def.id, name: def.name, values, x: 0, y: 0 }, def, componentRegistry, [], {
+    const out = instantiateComponent({ id: "CHK", definitionId: def.id, name: def.name, values, x: 0, y: 0 }, def, registry, [], {
       units: "mm",
       annotationScale: 50,
       datumRL: 0,

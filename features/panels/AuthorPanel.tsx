@@ -52,6 +52,7 @@ import {
 import { useDrawing } from "@/lib/state/drawingContext";
 import { useUpce } from "../parametric/upceContext";
 import { Group, Pill, Segmented } from "./ui/Disclosure";
+import { ComponentRelationships } from "../bridge/ComponentRelationships";
 import { Empty } from "./DraftPanel";
 import type { ConstraintCandidate, DerivedCandidate, SketchParameter } from "@/lib/upce/types";
 import type { IntentAction } from "@/lib/upce/completion";
@@ -1353,6 +1354,15 @@ export function AuthorPanel() {
             </div>
           )}
 
+        </Group>
+      )}
+
+      {state.cad.components.length > 0 && (
+        <Group id="author.component-relations" title="Component relationships" count={state.cad.components.reduce((n, c) => n + (c.relations?.length ?? 0), 0) || undefined}>
+          <p className="text-[10.5px] leading-[1.5] text-(--fg-muted)">
+            Write your own formula for a placed component: a value follows it instead of being typed, or a new value is worked out and reported. Run mode shows the results, not the formulas.
+          </p>
+          <ComponentRelationships />
         </Group>
       )}
 

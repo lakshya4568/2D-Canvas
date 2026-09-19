@@ -12,10 +12,10 @@ import type { Point, Shape } from "@/lib/geometry/types";
 import type { Annotation, AnchorRef, DrawingSettings, Layer } from "@/lib/cad/types";
 import type { BridgeProject } from "@/lib/bridge/project";
 import type { Sheet } from "@/lib/cad/sheet";
-import type { ComponentInstance } from "@/lib/components/types";
-import { componentRegistry } from "@/lib/components/library";
+import type { ComponentDefinition, ComponentInstance, CustomValue, Relationship, TableRow } from "@/lib/components/types";
 import {
   componentIdOf,
+  definitionFor,
   evaluateInstance,
   nextInstanceId,
   regenerateInstances,
@@ -26,6 +26,9 @@ import { termFor } from "@/lib/bridge/glossary";
 import { pointInPolygon, traceRing } from "@/lib/cad/geometry";
 import { fitScale, sheetLayout } from "@/lib/cad/sheet";
 import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
+import { planParametric, type ParametrizeOptions, type ParametricPlan } from "@/lib/components/fromDrawing";
+import { registryFor } from "@/lib/cad/document";
+import { resolveAnchor, indexShapes } from "@/lib/cad/geometry";
 
 export type CadAction =
   | { type: "CAD_ADD_LAYER"; layer: Partial<Layer> & { name: string }; makeCurrent?: boolean }
@@ -47,6 +50,31 @@ export type CadAction =
       mirror?: boolean;
     }
   | { type: "CAD_SET_COMPONENT_VALUES"; instanceId: string; values: Record<string, number>; description?: string }
+  /**
+   * Everything else a person can change about a placed component's values:
+   * hand a typed value back to its default/auto expression (`clear`), write or
+   * remove relationships, add inputs, replace a table's rows. All-or-nothing,
+   * like a value change.
+   */
+  | {
+      type: "CAD_EDIT_COMPONENT_INPUTS";
+      instanceId: string;
+      clear?: string[];
+      relations?: Relationship[];
+      customValues?: CustomValue[];
+      tables?: Record<string, TableRow[]>;
+      description?: string;
+    }
+  /** Add or replace a component definition owned by this drawing. */
+  | { type: "CAD_PUT_DEFINITION"; definition: ComponentDefinition }
+  /**
+   * Turn free geometry (the given shapes, else everything free) and its
+   * dimensions, levels and callouts into one parametric component. Refused,
+   * with the reason, if the component would not reproduce the drawing.
+   */
+  | { type: "CAD_MAKE_PARAMETRIC"; shapeIds?: string[]; annotationIds?: string[]; options?: ParametrizeOptions }
+  /** Turn a placed component back into free geometry and annotation (its names stay on the dimensions). */
+  | { type: "CAD_EXPLODE_COMPONENT"; instanceId: string }
   | { type: "CAD_UPDATE_COMPONENT"; instanceId: string; patch: Partial<Pick<ComponentInstance, "name" | "x" | "y" | "rotation" | "mirror" | "locked">> }
   | { type: "CAD_DELETE_COMPONENT"; instanceId: string }
   | { type: "CAD_SET_SETTINGS"; patch: Partial<DrawingSettings> }
@@ -138,7 +166,7 @@ export function applyCadAction(shapes: Shape[], cad: CadDocState, a: CadAction):
       return { shapes, cad: { ...cad, annotations: next }, history: `Delete ${cad.annotations.length - next.length} annotation(s)` };
     }
     case "CAD_INSERT_COMPONENT": {
-      const def = componentRegistry.get(a.definitionId);
+      const def = definitionFor(cad, a.definitionId);
       if (!def) {
         return { shapes, cad: { ...cad, componentNotice: { instanceId: "", ok: false, message: `Unknown component "${a.definitionId}".`, issues: [], at: Date.now() } } };
       }
@@ -169,7 +197,7 @@ export function applyCadAction(shapes: Shape[], cad: CadDocState, a: CadAction):
         const b = computeMultiShapeBounds(mine);
         if (b) {
           const L = sheetLayout("A1");
-          const scale = fitScale(b.width * 1.25, b.height * 1.25, L.drawArea.width, L.drawArea.height - 16);
+          const scale = def.drawingScale ?? fitScale(b.width * 1.25, b.height * 1.25, L.drawArea.width, L.drawArea.height - 16);
           if (scale !== cad.settings.annotationScale) {
             nextCad = { ...nextCad, settings: { ...nextCad.settings, annotationScale: scale } };
             regen = regenerateInstances(shapes, nextCad, [id]);
@@ -197,36 +225,151 @@ export function applyCadAction(shapes: Shape[], cad: CadDocState, a: CadAction):
     case "CAD_SET_COMPONENT_VALUES": {
       const inst = cad.components.find((c) => c.id === a.instanceId);
       if (!inst) return null;
-      const def = componentRegistry.get(inst.definitionId);
-      const known = new Set(def?.parameters.map((p) => p.name) ?? []);
+      const def = definitionFor(cad, inst.definitionId);
+      const known = new Set([...(def?.parameters.map((p) => p.name) ?? []), ...(inst.customValues ?? []).map((c) => c.name)]);
       const unknown = Object.keys(a.values).filter((k) => !known.has(k));
       if (unknown.length) {
         return { shapes, cad: { ...cad, componentNotice: { instanceId: inst.id, ok: false, message: `${inst.name} has no value called ${unknown.join(", ")}.`, issues: [], at: Date.now() } } };
       }
-      const candidate: ComponentInstance = { ...inst, values: { ...inst.values, ...a.values } };
-      const probe = evaluateInstance(candidate, cad);
-      if (!probe) return null;
-      const changed = Object.entries(a.values)
-        .map(([k, v]) => `${k} ${fmt(inst.values[k] ?? def?.parameters.find((p) => p.name === k)?.default)} → ${fmt(v)}`)
-        .join(", ");
-      if (probe.blocked) {
-        const errs = probe.evaluation.issues.filter((i) => i.severity === "error");
+      const related = Object.keys(a.values).filter((k) => inst.relations?.some((r) => r.name === k));
+      if (related.length) {
         return {
           shapes,
-          cad: { ...cad, componentNotice: { instanceId: inst.id, ok: false, message: `Refused (${changed}): ${errs.map((e) => e.message).join(" ")} Nothing was changed.`, issues: errs, at: Date.now() } },
+          cad: { ...cad, componentNotice: { instanceId: inst.id, ok: false, message: `${related.join(", ")} follow${related.length === 1 ? "s" : ""} a relationship; remove the relationship (Author mode) to type ${related.length === 1 ? "it" : "them"}.`, issues: [], at: Date.now() } },
         };
       }
-      const nextCad: CadDocState = { ...cad, components: cad.components.map((c) => (c.id === inst.id ? candidate : c)) };
-      const regen = regenerateInstances(shapes, nextCad, [inst.id]);
-      const warnings = probe.evaluation.issues.filter((i) => i.severity === "warning");
+      const customs = new Map((inst.customValues ?? []).map((c) => [c.name, c]));
+      const values: Record<string, number> = { ...inst.values };
+      let customValues = inst.customValues;
+      for (const [k, v] of Object.entries(a.values)) {
+        if (customs.has(k)) customValues = (customValues ?? []).map((c) => (c.name === k ? { ...c, value: v } : c));
+        else values[k] = v;
+      }
+      const candidate: ComponentInstance = { ...inst, values, customValues };
+      const changed = Object.entries(a.values)
+        .map(([k, v]) => `${k} ${fmt(inst.values[k] ?? customs.get(k)?.value ?? def?.parameters.find((p) => p.name === k)?.default)} → ${fmt(v)}`)
+        .join(", ");
+      return commitInstance(shapes, cad, inst, candidate, changed, a.description);
+    }
+    case "CAD_EDIT_COMPONENT_INPUTS": {
+      const inst = cad.components.find((c) => c.id === a.instanceId);
+      if (!inst) return null;
+      const def = definitionFor(cad, inst.definitionId);
+      const values = { ...inst.values };
+      for (const k of a.clear ?? []) delete values[k];
+      const candidate: ComponentInstance = {
+        ...inst,
+        values,
+        relations: a.relations ?? inst.relations,
+        customValues: a.customValues ?? inst.customValues,
+        tables: a.tables ? { ...(inst.tables ?? {}), ...a.tables } : inst.tables,
+      };
+      const parts: string[] = [];
+      if (a.clear?.length) parts.push(`${a.clear.join(", ")} back to ${a.clear.length === 1 ? "its" : "their"} default`);
+      if (a.relations) parts.push(describeRelationChange(inst.relations ?? [], a.relations));
+      if (a.customValues) parts.push(`inputs: ${a.customValues.map((c) => `${c.name} = ${fmt(c.value)}`).join(", ") || "none"}`);
+      if (a.tables) for (const [t, rows] of Object.entries(a.tables)) parts.push(`${def?.tables?.find((x) => x.name === t)?.label ?? t}: ${rows.length} row(s)`);
+      return commitInstance(shapes, cad, inst, candidate, parts.filter(Boolean).join("; ") || "no change", a.description);
+    }
+    case "CAD_PUT_DEFINITION": {
+      const own = cad.definitions ?? [];
+      const definitions = own.some((d) => d.id === a.definition.id) ? own.map((d) => (d.id === a.definition.id ? a.definition : d)) : [...own, a.definition];
+      const nextCad: CadDocState = { ...cad, definitions };
+      const users = cad.components.filter((c) => c.definitionId === a.definition.id).map((c) => c.id);
+      if (!users.length) return { shapes, cad: nextCad, history: `Component ${a.definition.name}` };
+      const regen = regenerateInstances(shapes, nextCad, users);
+      return { shapes: regen.shapes, cad: { ...nextCad, annotations: regen.annotations }, history: `Component ${a.definition.name}` };
+    }
+    case "CAD_MAKE_PARAMETRIC": {
+      const sel = parametricSelection(shapes, cad, a.shapeIds, a.annotationIds);
+      if (sel.shapes.length === 0) {
+        return { shapes, cad: { ...cad, componentNotice: { instanceId: "", ok: false, message: "Nothing to make parametric — draw something first (components are already parametric).", issues: [], at: Date.now() } } };
+      }
+      const plan = planFor(shapes, cad, sel, a.options);
+      if (plan.mismatches.length) {
+        return { shapes, cad: { ...cad, componentNotice: { instanceId: "", ok: false, message: `Not made parametric — ${plan.mismatches.join(" ")} Nothing was changed.`, issues: [], at: Date.now() } } };
+      }
+      const own = cad.definitions ?? [];
+      const definitions = own.some((d) => d.id === plan.definition.id) ? own.map((d) => (d.id === plan.definition.id ? plan.definition : d)) : [...own, plan.definition];
+      let nextCad: CadDocState = { ...cad, definitions };
+      const id = nextInstanceId(nextCad, plan.definition.semanticType);
+      const inst: ComponentInstance = {
+        id,
+        definitionId: plan.definition.id,
+        name: plan.definition.name,
+        values: {},
+        x: 0,
+        y: 0,
+        absoluteElevation: plan.absoluteElevation,
+        relations: plan.relations,
+        customValues: plan.customValues,
+      };
+      const probe = evaluateInstance(inst, nextCad);
+      if (!probe || probe.blocked) {
+        const errs = probe?.evaluation.issues.filter((i) => i.severity === "error") ?? [];
+        return { shapes, cad: { ...cad, componentNotice: { instanceId: "", ok: false, message: `Not made parametric: ${errs.map((e) => e.message).join(" ") || "the component could not be evaluated."} Nothing was changed.`, issues: errs, at: Date.now() } } };
+      }
+      const gone = new Set(plan.shapeIds);
+      const goneAnn = new Set(plan.annotationIds);
+      // Annotations left free keep pointing where they pointed, as fixed points.
+      const idx = indexShapes(shapes);
+      const pin = (r: AnchorRef): AnchorRef => (r.kind === "shape" && gone.has(r.shapeId) ? { kind: "point", ...(resolveAnchor(r, idx) ?? { x: 0, y: 0 }) } : r);
+      const keptAnn = cad.annotations
+        .filter((x) => !goneAnn.has(x.id))
+        .map((x) => {
+          if (x.componentInstanceId) return x;
+          if (x.type === "text" || x.type === "level" || x.type === "table") return { ...x, at: pin(x.at) } as Annotation;
+          if (x.type === "marker") return { ...x, at: pin(x.at), to: x.to ? pin(x.to) : undefined } as Annotation;
+          if (x.type === "leader") return { ...x, points: x.points.map(pin) } as Annotation;
+          if (x.type === "dimension") return { ...x, p1: pin(x.p1), p2: pin(x.p2), p3: x.p3 ? pin(x.p3) : undefined } as Annotation;
+          return x;
+        });
+      nextCad = { ...nextCad, annotations: keptAnn, components: [...nextCad.components, inst], carried: undefined };
+      const regen = regenerateInstances(
+        shapes.filter((x) => !gone.has(x.id)),
+        nextCad,
+        [id]
+      );
+      const params = plan.definition.parameters.length;
+      const results = plan.definition.formulas?.filter((f) => f.report).length ?? 0;
       return {
         shapes: regen.shapes,
         cad: {
           ...nextCad,
           annotations: regen.annotations,
-          componentNotice: { instanceId: inst.id, ok: true, message: `${inst.name}: ${changed}.${warnings.length ? ` ${warnings.length} warning(s) to review.` : ""}`, issues: warnings, at: Date.now() },
+          componentNotice: { instanceId: id, ok: true, message: `${inst.name} is parametric: ${params} value(s), ${results} result(s). Change them in the Bridge or Run panel; write relationships in Author mode.`, issues: [], at: Date.now() },
         },
-        history: a.description ?? `${inst.name}: ${changed}`,
+        history: `Make parametric: ${inst.name}`,
+        select: regen.shapes.filter((x) => x.componentInstanceId === id).map((x) => x.id),
+      };
+    }
+    case "CAD_EXPLODE_COMPONENT": {
+      const inst = cad.components.find((c) => c.id === a.instanceId);
+      if (!inst) return null;
+      const def = definitionFor(cad, inst.definitionId);
+      const free = <T extends { componentInstanceId?: string; source?: string; tags?: string[] }>(e: T): T => {
+        const { componentInstanceId: _c, ...rest } = e;
+        void _c;
+        return { ...rest, source: "user", tags: rest.tags?.filter((t) => !t.startsWith("scope:")) } as T;
+      };
+      const nextShapes = shapes.map((x) => (x.componentInstanceId === inst.id ? free(x) : x));
+      const nextAnn = cad.annotations.map((x) => (x.componentInstanceId === inst.id ? free(x) : x));
+      let definitions = cad.definitions;
+      if (def?.origin?.kind === "drawn") {
+        definitions = (cad.definitions ?? []).map((d) => (d.id === def.id ? { ...d, origin: { kind: "drawn" as const, relations: inst.relations, customValues: inst.customValues } } : d));
+      }
+      return {
+        shapes: nextShapes,
+        cad: {
+          ...cad,
+          definitions,
+          annotations: nextAnn,
+          components: cad.components.filter((c) => c.id !== inst.id),
+          componentNotice: null,
+          carried: inst.relations?.length || inst.customValues?.length ? { relations: inst.relations, customValues: inst.customValues } : undefined,
+        },
+        history: `Edit ${inst.name} as geometry`,
+        select: nextShapes.filter((x) => shapes.find((o) => o.id === x.id)?.componentInstanceId === inst.id).map((x) => x.id),
       };
     }
     case "CAD_UPDATE_COMPONENT": {
@@ -342,6 +485,89 @@ function annotationTouches(a: Annotation, ids: Set<string>): boolean {
   if (a.type === "level" && a.at.kind === "shape") return ids.has(a.at.shapeId);
   if (a.type === "hatch" && a.boundary.kind === "shapes") return a.boundary.shapeIds.some((id) => ids.has(id));
   return false;
+}
+
+/**
+ * What "Make parametric" works on: the given shapes (else every free shape),
+ * with the annotations that belong to them — those that point at them, those
+ * explicitly given, and free notes, levels and dimensions within their extent.
+ */
+export function parametricSelection(shapes: Shape[], cad: CadDocState, shapeIds?: string[], annotationIds?: string[]): { shapes: Shape[]; annotations: Annotation[] } {
+  const freeShapes = shapes.filter((s) => !s.componentInstanceId);
+  const chosen = shapeIds && shapeIds.length ? freeShapes.filter((s) => shapeIds.includes(s.id)) : freeShapes;
+  const freeAnn = cad.annotations.filter((x) => !x.componentInstanceId);
+  if (!shapeIds || shapeIds.length === 0) return { shapes: chosen, annotations: annotationIds?.length ? freeAnn.filter((x) => annotationIds.includes(x.id)) : freeAnn };
+  const ids = new Set(chosen.map((s) => s.id));
+  const b = computeMultiShapeBounds(chosen);
+  const margin = cad.settings.textHeight * cad.settings.annotationScale * 12;
+  const idx = indexShapes(shapes);
+  const inside = (r: AnchorRef) => {
+    if (r.kind === "shape") return ids.has(r.shapeId);
+    const p = resolveAnchor(r, idx);
+    return !!p && !!b && p.x >= b.minX - margin && p.x <= b.maxX + margin && p.y >= b.minY - margin && p.y <= b.maxY + margin;
+  };
+  const belongs = (x: Annotation): boolean => {
+    if (annotationIds?.includes(x.id)) return true;
+    switch (x.type) {
+      case "hatch":
+        return x.boundary.kind === "shapes" ? x.boundary.shapeIds.every((i) => ids.has(i)) : x.boundary.outer.every((p) => inside({ kind: "point", ...p }));
+      case "dimension":
+        return inside(x.p1) && inside(x.p2);
+      case "level":
+      case "text":
+        return inside(x.at);
+      case "leader":
+        return x.points.every(inside);
+      default:
+        return false;
+    }
+  };
+  return { shapes: chosen, annotations: freeAnn.filter(belongs) };
+}
+
+/** Plans "Make parametric" against the document (library + drawing components). */
+export function planFor(shapes: Shape[], cad: CadDocState, sel: { shapes: Shape[]; annotations: Annotation[] }, options?: ParametrizeOptions): ParametricPlan {
+  return planParametric(
+    { shapes: sel.shapes, context: shapes, annotations: sel.annotations, settings: cad.settings, layers: cad.layers, existing: cad.definitions, registry: registryFor(cad) },
+    { name: options?.name ?? `Drawn component ${(cad.definitions?.length ?? 0) + 1}`, carry: cad.carried, ...options }
+  );
+}
+
+/**
+ * Re-evaluates an instance with a candidate change; applies it and regenerates
+ * exactly that instance, or refuses with the reason and changes nothing.
+ */
+function commitInstance(shapes: Shape[], cad: CadDocState, inst: ComponentInstance, candidate: ComponentInstance, changed: string, description?: string): CadResult | null {
+  const probe = evaluateInstance(candidate, cad);
+  if (!probe) return null;
+  if (probe.blocked) {
+    const errs = probe.evaluation.issues.filter((i) => i.severity === "error");
+    return {
+      shapes,
+      cad: { ...cad, componentNotice: { instanceId: inst.id, ok: false, message: `Refused (${changed}): ${errs.map((e) => e.message).join(" ")} Nothing was changed.`, issues: errs, at: Date.now() } },
+    };
+  }
+  const nextCad: CadDocState = { ...cad, components: cad.components.map((c) => (c.id === inst.id ? candidate : c)) };
+  const regen = regenerateInstances(shapes, nextCad, [inst.id]);
+  const warnings = probe.evaluation.issues.filter((i) => i.severity === "warning");
+  return {
+    shapes: regen.shapes,
+    cad: {
+      ...nextCad,
+      annotations: regen.annotations,
+      componentNotice: { instanceId: inst.id, ok: true, message: `${inst.name}: ${changed}.${warnings.length ? ` ${warnings.length} warning(s) to review.` : ""}`, issues: warnings, at: Date.now() },
+    },
+    history: description ?? `${inst.name}: ${changed}`,
+  };
+}
+
+function describeRelationChange(before: Relationship[], after: Relationship[]): string {
+  const b = new Map(before.map((r) => [r.name, r.expr]));
+  const a = new Map(after.map((r) => [r.name, r.expr]));
+  const out: string[] = [];
+  for (const [n, e] of a) if (b.get(n) !== e) out.push(`${n} = ${e}`);
+  for (const n of b.keys()) if (!a.has(n)) out.push(`${n} typed again`);
+  return out.length ? `relationship ${out.join(", ")}` : "";
 }
 
 function fmt(v: number | undefined): string {

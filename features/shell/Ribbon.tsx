@@ -45,6 +45,8 @@ import {
   Cloud,
   Boxes,
   Ungroup,
+  Wand2,
+  PencilLine,
   LayoutTemplate,
   Landmark,
   ClipboardCheck,
@@ -136,6 +138,7 @@ export function Ribbon(p: RibbonProps) {
   const { state, setTool, dispatch } = useDrawing();
   const cad = useCad();
   const t = (id: ToolId) => () => setTool(id);
+  const openSurface = (what: string) => () => window.dispatchEvent(new CustomEvent("cad:open", { detail: what }));
   const on = (id: ToolId) => state.tool === id;
   const hasSel = state.selectedIds.length > 0;
 
@@ -291,6 +294,10 @@ export function Ribbon(p: RibbonProps) {
             <Btn icon={Boxes} label="Rigid" title="Group the selection into one rigid piece" onClick={p.groupRigid} disabled={!p.canGroupRigid} />
             <Btn icon={Ungroup} label="Release" title="Release rigid units" onClick={p.releaseRigid} disabled={!p.canReleaseRigid} />
           </Group>
+          <Group label="Your drawing">
+            <Btn icon={Wand2} label="Parametrize" title="Make parametric: turn what you drew — with its dimensions, levels and callouts — into a component driven by named values (PARAMETRIZE)" onClick={openSurface("PARAMETRIZE")} wide />
+            <Btn icon={PencilLine} label="Edit shape" title="Turn the selected component back into lines to edit; make it parametric again after (BEDIT)" onClick={openSurface("BEDIT")} wide />
+          </Group>
           <Group label="Templates" last>
             <Btn icon={LayoutTemplate} label="Sketch" title="Sketch template catalogue" onClick={p.onOpenTemplates} wide />
             <Btn icon={Landmark} label="Component" title="Parametric component library" onClick={p.onOpenCatalog} wide />
@@ -304,6 +311,7 @@ export function Ribbon(p: RibbonProps) {
           {select}
           <Group label="Components">
             <Btn icon={Landmark} label="Library" title="Insert a bridge, culvert, pier, abutment, pile group, well…" onClick={p.onOpenCatalog} wide />
+            <Btn icon={Wand2} label="Parametrize" title="Make parametric: turn what you drew into a component driven by its dimensions and levels (PARAMETRIZE)" onClick={openSurface("PARAMETRIZE")} wide />
           </Group>
           <Group label="Project">
             <Btn icon={ClipboardList} label="Design basis" title="Project identity, levels and design data with their sources" onClick={() => p.onOpenDock("bridge")} wide />
