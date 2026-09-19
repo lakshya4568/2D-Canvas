@@ -356,7 +356,7 @@ export function applyCadAction(shapes: Shape[], cad: CadDocState, a: CadAction):
       const nextAnn = cad.annotations.map((x) => (x.componentInstanceId === inst.id ? free(x) : x));
       let definitions = cad.definitions;
       if (def?.origin?.kind === "drawn") {
-        definitions = (cad.definitions ?? []).map((d) => (d.id === def.id ? { ...d, origin: { kind: "drawn" as const, relations: inst.relations, customValues: inst.customValues } } : d));
+        definitions = (cad.definitions ?? []).map((d) => (d.id === def.id ? { ...d, origin: { ...d.origin, kind: "drawn" as const, relations: inst.relations, customValues: inst.customValues } } : d));
       }
       return {
         shapes: nextShapes,

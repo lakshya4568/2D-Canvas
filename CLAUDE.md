@@ -92,6 +92,11 @@ Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch
   - there is no DOF gate (§2.7).
 - **Verification.** `verify` gates `finish`. It covers plan checks, the engine's geometry checks, every planned feature, and every expected dimension, level and text, measured back from the geometry. With a reference attached, `compare_reference` must run after the last change. It lives in `lib/agent/drafter/reference.ts` and does four things: decodes the PNG, builds an ink distance map, registers the drawing at two points refined by chamfer matching, and reports each entity's deviation in mm.
 - Numbers on a reference that contradict each other go to `expect.disputed`, with a reason. They are never drawn to match, and they are always reported.
+- **The result is a parametric model.** It is generic: no structure is known to the code. The chain is geometry → parameters (typed values) → formulas (derived values) and constraints (`plan.constraints` → invariants) → dependency graph → regenerated geometry.
+  - Dimensions bind to the value they measure one for one, found by sensitivity (`bindDimensions`: ∂dimension/∂value = 1). They become driving dimensions, and a double-click on one in the canvas sets its value.
+  - A relationship may rewrite a formula of a drawing-owned definition. Library formulas stay protected (`evaluate.ts`).
+  - `verify` refuses typed values that drive nothing, and levels duplicated from other values (write a formula instead). It also nudges every value ±5% as Run mode would, and reports whatever breaks.
+  - The plan and part tags travel in `origin.construction`, so the construction can be edited again from the drawing alone.
 - The **sketch route** (`route: "sketch"`) stays for one small profile held by rules (DOF, `flex_test`, `make_parametric`).
 
 ---

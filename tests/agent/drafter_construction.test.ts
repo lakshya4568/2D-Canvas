@@ -13,6 +13,7 @@ import { runTool, ToolContext, buildScene, readingTiles } from "@/lib/agent/draf
 import { constructionEvaluation, currentDefinition } from "@/lib/agent/drafter/construction";
 import { decodePng } from "@/lib/agent/drafter/reference";
 import { evalExpr } from "@/lib/components/expr";
+import { evaluateInstance } from "@/lib/cad/document";
 
 function context(references?: { data: string; mimeType: string }[]): ToolContext {
   return { ws: new DraftingWorkspace(), hasReference: Boolean(references?.length), viewedRevision: -1, suggestions: { revision: -1, byId: new Map() }, macroDepth: 0, references };
@@ -586,5 +587,101 @@ describe("the construction afterwards", () => {
     expect(again.construction.plan?.values.length).toBe(BOX_PLAN.values.length);
     const def = currentDefinition(again)!;
     expect(evalExpr(String((def.primitives![0] as { points: unknown[][] }).points[1][0]), { HalfWidth: 2755 })).toBe(2755);
+  });
+});
+
+describe("a parametric model, not a static drawing", () => {
+  it("finds which value each dimension drives, and editing the value regenerates everything", async () => {
+    const ctx = context();
+    await buildBox(ctx);
+    await annotateBox(ctx);
+    const dims = currentDefinition(ctx.ws)!.dimensions!;
+    // Found by sensitivity: each dimension that measures a typed value one for one drives it.
+    expect(dims.map((d) => d.drives)).toEqual(["ClearSpan", "MidWall", "ClearSpan", "ClearHeight"]);
+    const inst = ctx.ws.construction.instanceId!;
+    const driving = ctx.ws.cad.annotations.filter((a) => a.componentInstanceId === inst && a.type === "dimension" && a.mode === "driving");
+    expect(driving).toHaveLength(4);
+    // What a person does in the editor (double-click the dimension, type 2600):
+    const r = ctx.ws.applyCad({ type: "CAD_SET_COMPONENT_VALUES", instanceId: inst, values: { ClearSpan: 2600 } });
+    expect(r.ok, r.message).toBe(true);
+    const ev = evaluateInstance(ctx.ws.cad.components.find((c) => c.id === inst)!, ctx.ws.cad)!.evaluation;
+    const outer = ev.loops.find((l) => l.primitiveId === "BoxOuter")!.points;
+    expect(Math.max(...outer.map((p) => p.x))).toBeCloseTo(2600 + 175 + 400, 6);
+    // The mirrored cell followed; the haunch legs did not change.
+    const left = ev.loops.find((l) => l.primitiveId === "LeftCell")!.points;
+    expect(Math.min(...left.map((p) => p.x))).toBeCloseTo(-(175 + 2600), 6);
+    expect(left[2].y - left[1].y).toBeCloseTo(200, 6);
+  });
+
+  it("lets the author rewrite the drawing's own formulas, but not a library part's", async () => {
+    const ctx = context();
+    await buildBox(ctx);
+    const inst = ctx.ws.construction.instanceId!;
+    const r = await ok(ctx, "relationship", { instance: inst, name: "CellIn", expr: "MidWall / 2 + 100" });
+    expect(r.text).toMatch(/CellIn/);
+    const ev = evaluateInstance(ctx.ws.cad.components.find((c) => c.id === inst)!, ctx.ws.cad)!.evaluation;
+    expect(ev.scope.CellIn).toBeCloseTo(275, 6);
+    expect(ev.sources.CellIn).toBe("related");
+    expect(Math.min(...ev.loops.find((l) => l.primitiveId === "RightCell")!.points.map((p) => p.x))).toBeCloseTo(275, 6);
+  });
+
+  it("keeps the plan's constraints through every later edit", async () => {
+    const ctx = context();
+    await ok(ctx, "plan", { ...BOX_PLAN, constraints: [{ label: "haunches fit the span", expr: "ClearSpan", op: ">", than: "2 * Haunch" }] });
+    await buildBox(ctx);
+    await ok(ctx, "plan", { update: true, constraints: [{ label: "haunches fit the span", expr: "ClearSpan", op: ">", than: "2 * Haunch" }] });
+    const inst = ctx.ws.construction.instanceId!;
+    const r = ctx.ws.applyCad({ type: "CAD_SET_COMPONENT_VALUES", instanceId: inst, values: { Haunch: 1200 } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/haunches fit the span/);
+    expect((await call(ctx, "plan", { ...BOX_PLAN, constraints: [{ label: "impossible", expr: "ClearSpan", op: "<", than: "100" }] })).text).toMatch(/do not hold even for the values read/);
+  });
+
+  it("takes the construction up again from the drawing alone", async () => {
+    const ctx = context();
+    await buildBox(ctx);
+    const { cad, cadShapes } = ctx.ws.toState();
+    // What the editor sends back: the drawing, without the agent's session.
+    const again: ToolContext = { ...context(), ws: new DraftingWorkspace({ cad: JSON.parse(JSON.stringify(cad)), cadShapes }) };
+    expect(again.ws.construction.plan?.features.map((f) => f.name)).toEqual(["Box", "Annotation"]);
+    expect(again.ws.construction.tags.BoxOuter).toBe("Box");
+    await ok(again, "plan", { update: true, values: [V("Wall", 500)] });
+    const box = constructionEvaluation(again.ws)!.loops.find((l) => l.primitiveId === "BoxOuter")!;
+    expect(Math.max(...box.points.map((p) => p.x))).toBeCloseTo(2180 + 175 + 500, 6);
+  });
+
+  it("will not keep a number that follows from others as a second copy", async () => {
+    const ctx = context();
+    await buildBox(ctx);
+    // TopY typed from the written level instead of derived from the soffit and the slab.
+    await ok(ctx, "plan", { update: true, values: [V("TopSlabLevel", 59.658, "m"), V("SoffitLevel", 59.258, "m"), V("SoffitY", "SoffitLevel * 1000"), V("TopY", "TopSlabLevel * 1000"), V("ClearHeight", "SoffitY - FloorY")] });
+    await annotateBox(ctx);
+    const r = await ok(ctx, "verify");
+    // Wall and TopSlab are both 400: either names the relation.
+    expect(r.text).toMatch(/TopSlabLevel = SoffitLevel \+ (TopSlab|Wall) \/ 1000/);
+  });
+
+  it("points at texts that repeat a value as digits, and texts with placeholders follow an edit", async () => {
+    const ctx = context();
+    await buildBox(ctx);
+    await annotateBox(ctx);
+    expect((await ok(ctx, "verify")).text).toMatch(/LD1 "200" is Haunch → \{Haunch\}/);
+    await ok(ctx, "annotate", { kind: "text", id: "Title", feature: "Annotation", at: ["0", "BottomY - 2000"], text: "2 X {ClearSpan:m} X {ClearHeight:m} mt. BOX" });
+    const inst = ctx.ws.construction.instanceId!;
+    ctx.ws.applyCad({ type: "CAD_SET_COMPONENT_VALUES", instanceId: inst, values: { ClearSpan: 3000 } });
+    const ev = evaluateInstance(ctx.ws.cad.components.find((c) => c.id === inst)!, ctx.ws.cad)!.evaluation;
+    expect(ev.texts.find((t) => t.path === "Title")?.text).toBe("2 X 3.000 X 2.870 mt. BOX");
+  });
+
+  it("regenerates every value ±5% in verify, and names a relation that breaks", async () => {
+    const ctx = context();
+    await buildBox(ctx);
+    await annotateBox(ctx);
+    expect((await ok(ctx, "verify")).text).toMatch(/every typed value changed ±5% regenerates cleanly/);
+    // A band between two typed positions turns inside out when one moves past the other.
+    await ok(ctx, "plan", { update: true, values: [V("BandLow", 60000), V("BandHigh", 60040)] });
+    await ok(ctx, "construct", { feature: "Box", entities: [{ id: "Band", kind: "rect", x: "0", y: "BandLow", w: "1000", h: "BandHigh - BandLow" }] });
+    const r = await ok(ctx, "verify");
+    expect(r.text).toMatch(/Changing Band(Low|High) to [\d.]+ breaks the drawing/);
   });
 });

@@ -70,7 +70,7 @@ import { setComponentRigid } from "../../upce/rigid";
 import { evaluateFormula } from "../../parametric/expression";
 import { emptyCadDoc, type CadDocState } from "../../cad/document";
 import { applyCadAction, type CadAction } from "../../state/cadActions";
-import type { ConstructionState } from "./construction";
+import { constructionFromDrawing, type ConstructionState } from "./construction";
 
 // ---------------------------------------------------------------------------
 // State
@@ -160,7 +160,7 @@ export class DraftingWorkspace {
     this.sketch = state?.sketch ?? emptySketch();
     this.title = state?.title ?? state?.sketch?.meta?.name ?? "Untitled drawing";
     this.macros = state?.macros ?? [];
-    this.construction = state?.construction ?? { plan: null, definitionId: null, instanceId: null, tags: {}, verified: null };
+    this.construction = state?.construction ?? constructionFromDrawing(this.cad) ?? { plan: null, definitionId: null, instanceId: null, tags: {}, verified: null };
     if (this.shapes.length > 0) {
       // Bring the sketch level with the shapes it was handed. A canvas that was
       // never analysed arrives with an empty sketch; this is its first lowering.

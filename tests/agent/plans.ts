@@ -21,6 +21,7 @@ export function sketchPlanned(): ConstructionState {
       frame: "",
       values: [],
       checks: [],
+      constraints: [],
       features: [{ name: "Profile", description: "the outline" }],
       expect: { dimensions: [], levels: [], texts: [], disputed: [] },
     },

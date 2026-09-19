@@ -40,6 +40,7 @@ import {
   transform,
   verifyConstruction,
   evalPointArg,
+  currentDefinition,
 } from "./construction";
 import { decodePng, deviations, distanceMap, inkMask, refineRegistration, registrationFromPairs, samplePolyline, toImage, type Registration } from "./reference";
 import { renderOverlay } from "./render";
@@ -140,6 +141,11 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
           type: "array",
           description: "Cross-checks: a number the reference writes, recomputed from your values",
           items: obj({ label: S("What it is"), expr: S("Expression of plan values"), expect: N("The number the reference writes"), unit: { type: "string", enum: ["mm", "m", "deg", "-"], description: "Unit of expect" } }, ["label", "expr", "expect"]),
+        },
+        constraints: {
+          type: "array",
+          description: "Inequalities the drawing must keep through every later edit (e.g. a span longer than two haunches, a cover at least 75): an edit breaking one is refused whole",
+          items: obj({ label: S("What it protects"), expr: S("Expression of plan values"), op: { type: "string", enum: [">", ">=", "<", "<="], description: "Comparison" }, than: S("Number or expression") }, ["label", "expr", "op", "than"]),
         },
         features: {
           type: "array",
@@ -1693,8 +1699,9 @@ function finishConstruction(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" |
   const plan = ws.construction.plan!;
   const typed = plan.values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim())).map((v) => v.name);
   const derived = plan.values.filter((v) => !typed.includes(v.name)).map((v) => v.name);
+  const driving = (currentDefinition(ws)?.dimensions ?? []).filter((d) => d.drives).map((d) => `${d.id}→${d.drives}`);
   return {
-    text: `Finished "${ws.title}" — constructed from scratch and verified.${cmp && ctx.hasReference ? ` Against the reference: ${Math.round(cmp.onShare * 100)}% of the linework lies on its lines${cmp.off.length ? `; kept off it, with reasons: ${cmp.off.map((o) => `${o.id} (${explained.get(o.id)})`).join("; ")}` : ""}.` : ""}${plan.expect.disputed.length ? ` Reported as contradictions on the reference: ${plan.expect.disputed.map((d) => `${d.what} (${d.reason})`).join("; ")}.` : ""} Run Mode shows the values you read (${typed.slice(0, 20).join(", ")}${typed.length > 20 ? "…" : ""}); ${derived.length} worked-out values follow them.\nAudit at finish: ${runAuditFor(ws)}`,
+    text: `Finished "${ws.title}" — constructed from scratch and verified.${cmp && ctx.hasReference ? ` Against the reference: ${Math.round(cmp.onShare * 100)}% of the linework lies on its lines${cmp.off.length ? `; kept off it, with reasons: ${cmp.off.map((o) => `${o.id} (${explained.get(o.id)})`).join("; ")}` : ""}.` : ""}${plan.expect.disputed.length ? ` Reported as contradictions on the reference: ${plan.expect.disputed.map((d) => `${d.what} (${d.reason})`).join("; ")}.` : ""} Run Mode shows the values you read (${typed.slice(0, 20).join(", ")}${typed.length > 20 ? "…" : ""}); ${derived.length} worked-out values follow them${plan.constraints.length ? `; ${plan.constraints.length} constraint(s) guard every edit` : ""}. Dimensions that drive a value when edited: ${driving.join(", ") || "none"}. Each value regenerates the drawing cleanly ±5% (verify).\nAudit at finish: ${runAuditFor(ws)}`,
     finished: true,
   };
 }

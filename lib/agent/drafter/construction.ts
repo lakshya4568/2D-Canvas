@@ -74,6 +74,13 @@ export interface PlanCheck {
   expect: number;
   unit: PlanUnit;
 }
+/** An inequality the drawing must keep through every edit (becomes an invariant). */
+export interface PlanConstraint {
+  label: string;
+  expr: string;
+  op: ">" | ">=" | "<" | "<=";
+  than: string;
+}
 export interface PlanFeature {
   name: string;
   description: string;
@@ -97,6 +104,7 @@ export interface ConstructionPlan {
   scale?: number;
   values: PlanValue[];
   checks: PlanCheck[];
+  constraints: PlanConstraint[];
   features: PlanFeature[];
   expect: ExpectedContent;
 }
@@ -221,6 +229,17 @@ function parseChecks(raw: unknown): PlanCheck[] {
   });
 }
 
+function parseConstraints(raw: unknown): PlanConstraint[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw new ToolError(`"constraints" must be a list of {label, expr, op, than}.`);
+  return raw.map((r, i) => {
+    const o = (r ?? {}) as Args;
+    const op = String(o.op ?? "").trim();
+    if (![">", ">=", "<", "<="].includes(op)) throw new ToolError(`Constraint ${i + 1}: op is one of > >= < <=.`);
+    return { label: optStr(o, "label") ?? `constraint ${i + 1}`, expr: exprText(o.expr, `Constraint ${i + 1}'s expr`), op: op as PlanConstraint["op"], than: exprText(o.than ?? 0, `Constraint ${i + 1}'s than`) };
+  });
+}
+
 function parseFeatures(raw: unknown): PlanFeature[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) throw new ToolError(`"features" must be a list of {name, description, construction}.`);
@@ -295,14 +314,15 @@ function withPlan(def: ComponentDefinition | null, plan: ConstructionPlan, id: s
     leaders: def?.leaders ?? [],
     texts: def?.texts ?? [],
     hatches: def?.hatches ?? [],
-    origin: { kind: "drawn", relations: def?.origin?.relations, customValues: def?.origin?.customValues },
+    invariants: (plan.constraints ?? []).map((c, i) => ({ id: `c${i + 1}`, expr: c.expr, op: c.op, than: c.than, message: `${c.label}: needs ${c.expr} ${c.op} ${c.than}.`, severity: "error" as const })),
+    origin: { kind: "drawn", relations: def?.origin?.relations, customValues: def?.origin?.customValues, construction: def?.origin?.construction },
   };
 }
 
 /** Evaluates a candidate definition as the editor would, without changing anything. */
-function evaluateCandidate(ws: DraftingWorkspace, def: ComponentDefinition): ComponentEvaluation {
+function evaluateCandidate(ws: DraftingWorkspace, def: ComponentDefinition, values: Record<string, number> = {}): ComponentEvaluation {
   const registry = registryFor({ definitions: [...(ws.cad.definitions ?? []).filter((d) => d.id !== def.id), def] });
-  return evaluateComponent(def, {}, registry, undefined, { globals: globalsOf(ws) });
+  return evaluateComponent(def, values, registry, undefined, { globals: globalsOf(ws) });
 }
 
 export function constructionEvaluation(ws: DraftingWorkspace): ComponentEvaluation | null {
@@ -318,7 +338,11 @@ function hasContent(def: ComponentDefinition): boolean {
  * Put the changed definition on the drawing — or refuse the whole change, with
  * the engine's reasons, if it would not evaluate cleanly.
  */
-function commit(ws: DraftingWorkspace, next: ComponentDefinition): ComponentEvaluation {
+function commit(ws: DraftingWorkspace, draft: ComponentDefinition, tag?: { ids: string[]; feature: string | undefined }): ComponentEvaluation {
+  const plan = ws.construction.plan;
+  const tags = { ...ws.construction.tags, ...(tag?.feature ? Object.fromEntries(tag.ids.map((id) => [id, tag.feature!])) : {}) };
+  const bound = plan ? bindDimensions(draft, plan, globalsOf(ws), ws.policy.geometry_mm) : draft;
+  const next: ComponentDefinition = { ...bound, origin: { ...(bound.origin ?? { kind: "drawn" }), kind: "drawn", construction: plan ? { plan, tags } : bound.origin?.construction } };
   const ev = evaluateCandidate(ws, next);
   const errors = ev.issues.filter((i) => i.severity === "error");
   if (errors.length) throw new ToolError(`Refused — ${errors.map((e) => `${e.path ? e.path + ": " : ""}${e.message}`).join(" ")} Nothing was changed.`);
@@ -330,9 +354,62 @@ function commit(ws: DraftingWorkspace, next: ComponentDefinition): ComponentEval
     if (!r.ok) throw new ToolError(r.message);
     ws.construction = { ...ws.construction, instanceId: ws.cad.components[ws.cad.components.length - 1].id };
   }
-  ws.construction = { ...ws.construction, verified: null };
+  ws.construction = { ...ws.construction, tags, verified: null };
   keepScale(ws, ev);
   return ev;
+}
+
+/** How long a dimension measures, from its own expressions. */
+function dimensionValue(d: DimensionDef, scope: Scope): number {
+  const dx = Math.abs(evalExpr(d.to[0], scope) - evalExpr(d.from[0], scope));
+  const dy = Math.abs(evalExpr(d.to[1], scope) - evalExpr(d.from[1], scope));
+  return d.kind === "horizontal" ? dx : d.kind === "vertical" ? dy : Math.hypot(dx, dy);
+}
+
+/**
+ * Which value each dimension drives — found, not declared. A dimension drives
+ * a typed value when it measures that value exactly and moves one for one with
+ * it (∂dimension/∂value = 1, by re-evaluating the plan with the value nudged).
+ * Editing such a dimension then sets the value, and the drawing regenerates
+ * from it. A dimension that measures a combination (an overall width, a
+ * clearance between two levels) drives nothing: it is a result.
+ */
+export function bindDimensions(def: ComponentDefinition, plan: ConstructionPlan, globals: Scope, tol: number): ComponentDefinition {
+  const dims = def.dimensions ?? [];
+  if (!dims.length) return def;
+  const base = evaluatePlanValues(plan.values, globals);
+  if (base.errors.length) return def;
+  const measure = (d: DimensionDef, scope: Scope) => {
+    try {
+      return dimensionValue(d, scope);
+    } catch {
+      return NaN;
+    }
+  };
+  const m0 = dims.map((d) => measure(d, base.scope));
+  const typed = plan.values.filter((v) => v.unit === "mm" && /^-?\d+(\.\d+)?$/.test(v.expr.trim()));
+  const candidates: string[][] = dims.map(() => []);
+  for (const v of typed) {
+    const value = Number(v.expr);
+    if (!m0.some((m) => Math.abs(m - value) <= tol)) continue;
+    const nudged = evaluatePlanValues(
+      plan.values.map((x) => (x.name === v.name ? { ...x, expr: String(value + 1) } : x)),
+      globals
+    );
+    if (nudged.errors.length) continue;
+    dims.forEach((d, i) => {
+      if (Math.abs(m0[i] - value) > tol) return;
+      if (Math.abs(measure(d, nudged.scope) - m0[i] - 1) < 1e-6) candidates[i].push(v.name);
+    });
+  }
+  return {
+    ...def,
+    dimensions: dims.map((d, i) => {
+      const c = candidates[i];
+      const drives = d.drives && c.includes(d.drives) ? d.drives : c[0];
+      return drives === d.drives ? d : { ...d, drives };
+    }),
+  };
 }
 
 /**
@@ -379,6 +456,7 @@ function mergePlan(prev: ConstructionPlan, a: Args): Args {
     scale: a.scale ?? prev.scale,
     values: byKey(prev.values, parseValues(a.values), (v) => v.name, drop),
     checks: byKey(prev.checks, parseChecks(a.checks), (c) => c.label, drop),
+    constraints: byKey(prev.constraints ?? [], parseConstraints(a.constraints), (c) => c.label, drop),
     features: byKey(prev.features, parseFeatures(a.features), (f) => f.name, drop),
     expect: {
       dimensions: expectIn.dimensions ?? prev.expect.dimensions,
@@ -401,6 +479,7 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
   }
   const values = parseValues(a.values);
   const checks = parseChecks(a.checks);
+  const constraints = parseConstraints(a.constraints);
   const features = parseFeatures(a.features);
   if (route === "construction" && !features.length) throw new ToolError("List the features you will construct (name, description, construction: which tools, from which values).");
   const scale = Number(a.scale);
@@ -411,11 +490,20 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
     scale: Number.isFinite(scale) && scale > 0 ? scale : undefined,
     values,
     checks,
+    constraints,
     features,
     expect: parseExpect(a.expect),
   };
   const { scope, errors } = evaluatePlanValues(values, annotationGlobals({ ...ws.cad.settings, annotationScale: plan.scale ?? ws.cad.settings.annotationScale }));
   if (errors.length) throw new ToolError(`Plan not recorded — ${errors.join(" ")}`);
+  const broken = constraints.filter((c) => {
+    try {
+      return !holds(evalExpr(c.expr, scope), c.op, evalExpr(c.than, scope));
+    } catch {
+      return true;
+    }
+  });
+  if (broken.length) throw new ToolError(`Plan not recorded — these constraints do not hold even for the values read: ${broken.map((c) => `${c.label} (${c.expr} ${c.op} ${c.than})`).join("; ")}.`);
 
   const out: string[] = [];
   const failed: string[] = [];
@@ -445,7 +533,7 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
     }
   }
 
-  out.push(`Plan recorded (${route} route): ${values.length} values, ${checks.length} checks, ${features.length} features.`);
+  out.push(`Plan recorded (${route} route): ${values.length} values, ${checks.length} checks, ${constraints.length} constraints, ${features.length} features.`);
   const typed = values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim()));
   const derived = values.filter((v) => !typed.includes(v));
   if (typed.length) out.push(`Read: ${typed.map((v) => `${v.name}=${fmt3(scope[v.name])}${unitText(v.unit)}`).join(", ")}`);
@@ -462,6 +550,8 @@ export function recordPlan(ws: DraftingWorkspace, raw: Args): string {
   );
   return out.join("\n");
 }
+
+const holds = (a: number, op: PlanConstraint["op"], b: number) => (op === ">" ? a > b : op === ">=" ? a >= b : op === "<" ? a < b : a <= b);
 
 const fmt3 = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3))));
 const unitText = (u: PlanUnit) => (u === "-" ? "" : u === "deg" ? "°" : ` ${u}`);
@@ -679,11 +769,6 @@ function describeEntity(p: ComponentPrimitive, scope: Scope, full = true): strin
   return `${p.id} ${p.kind === "loop" ? "loop" : "path"}${p.layer !== "outline" ? ` [${p.layer}]` : ""}${p.draw === false ? " (not drawn)" : ""}: ${shown}`;
 }
 
-function tagAll(ws: DraftingWorkspace, ids: string[], feature: string | undefined) {
-  if (!feature) return;
-  ws.construction = { ...ws.construction, tags: { ...ws.construction.tags, ...Object.fromEntries(ids.map((id) => [id, feature])) } };
-}
-
 function featureArg(ws: DraftingWorkspace, a: Args): string | undefined {
   const f = optStr(a, "feature");
   if (!f) return undefined;
@@ -727,8 +812,7 @@ export function construct(ws: DraftingWorkspace, a: Args): string {
     work = upsert(work, [p]).def;
   }
   const { replaced } = upsert(def, made);
-  const ev = commit(ws, work);
-  tagAll(ws, made.map((p) => p.id), feature);
+  const ev = commit(ws, work, { ids: made.map((p) => p.id), feature });
   return [
     `${made.length} entit${made.length === 1 ? "y" : "ies"} ${replaced.length ? `(${replaced.join(", ")} replaced) ` : ""}${feature ? `for ${feature}` : "(no feature given — tag it with feature)"}:`,
     ...made.map((p) => "  " + describeEntity(p, scope)),
@@ -837,8 +921,7 @@ export function transform(ws: DraftingWorkspace, a: Args): string {
   }
   if (optStr(a, "layer")) for (const m of made) m.layer = layerOf(a, m.layer);
   const { def: next, replaced } = upsert(def, made);
-  const ev = commit(ws, next);
-  tagAll(ws, made.filter((m) => !replaced.includes(m.id)).map((m) => m.id), feature ?? ws.construction.tags[targets[0]]);
+  const ev = commit(ws, next, { ids: made.filter((m) => !replaced.includes(m.id)).map((m) => m.id), feature: feature ?? ws.construction.tags[targets[0]] });
   return [`${op}: ${made.length} entit${made.length === 1 ? "y" : "ies"}${replaced.length ? ` (${replaced.join(", ")} changed in place)` : ""}:`, ...made.map((p) => "  " + describeEntity(p, scope, false)), ...warnings(ev)].join("\n");
 }
 
@@ -874,8 +957,7 @@ export function booleanOp(ws: DraftingWorkspace, a: Args): string {
   const hatchUsers = (work.hatches ?? []).filter((h) => (a.keep_sources !== true && (A.includes(h.boundary) || B.includes(h.boundary))) || (h.holes ?? []).some((x) => a.keep_sources !== true && (A.includes(x) || B.includes(x))));
   if (hatchUsers.length) throw new ToolError(`${hatchUsers.map((h) => h.id).join(", ")} hatch${hatchUsers.length === 1 ? "es" : ""} a source loop; remove the hatch first or pass keep_sources true.`);
   const { def: next } = upsert(work, made);
-  const ev = commit(ws, next);
-  tagAll(ws, made.map((m) => m.id), feature ?? ws.construction.tags[A[0]]);
+  const ev = commit(ws, next, { ids: made.map((m) => m.id), feature: feature ?? ws.construction.tags[A[0]] });
   const holes = made.filter((m) => m.kind === "loop" && Sy.areaOf(m.points.map((q) => ({ x: num(q[0], scope), y: num(q[1], scope) }))) < 0).map((m) => m.id);
   return [`${op}: ${made.length} loop(s)${holes.length ? ` — ${holes.join(", ")} ${holes.length === 1 ? "is a hole" : "are holes"} (use as hatch holes)` : ""}${a.keep_sources === true ? "" : "; the source loops were replaced"}:`, ...made.map((p) => "  " + describeEntity(p, scope, false)), ...warnings(ev)].join("\n");
 }
@@ -904,10 +986,10 @@ export function removeEntities(ws: DraftingWorkspace, a: Args): string {
     texts: keep(def.texts),
     hatches: keep(def.hatches),
   };
-  commit(ws, next);
   const tags = { ...ws.construction.tags };
   for (const id of ids) delete tags[id];
   ws.construction = { ...ws.construction, tags };
+  commit(ws, next);
   return `Removed ${ids.join(", ")}.`;
 }
 
@@ -1074,8 +1156,9 @@ export function annotateConstruction(ws: DraftingWorkspace, a: Args): string {
     default:
       throw new ToolError(`kind "${kind}" — in the construction route annotate takes dimension, level, leader, text or hatch (note, north, flow, kilometrage and section go on the sheet as before).`);
   }
-  const ev = commit(ws, next);
-  tagAll(ws, [id], feature);
+  const ev = commit(ws, next, { ids: [id], feature });
+  const d = (currentDefinition(ws)?.dimensions ?? []).find((x) => x.id === id);
+  if (d?.drives) said += `; it drives ${d.drives} (edit it to change ${d.drives})`;
   return [`Added ${said}.`, ...warnings(ev)].join("\n");
 }
 
@@ -1336,6 +1419,22 @@ export function verifyConstruction(ws: DraftingWorkspace): VerifyReport {
   const overlaps = textOverlaps(ws);
   if (overlaps.length) notes.push(`Texts overlapping each other (hard to read): ${overlaps.slice(0, 8).join("; ")}.`);
 
+  // A number that follows from others must be a formula, not a second copy.
+  const dup = duplicatedNumbers(plan, tol);
+  if (dup.levels.length) {
+    problems.push(
+      `Typed numbers that follow exactly from other typed values: ${dup.levels.join("; ")}. Write each as a formula of the values it follows from (keep the written number as a check), so changing one of them moves it.`
+    );
+  }
+
+  // Every value must regenerate the drawing cleanly when it changes.
+  const regen = regenerationTest(ws, def, plan);
+  for (const r of regen.broken) problems.push(r);
+  if (regen.moved.length) out.push(`Regeneration: every typed value changed ±5% regenerates ${regen.broken.length ? "except as listed" : "cleanly"}; ${regen.moved.join(", ")}.`);
+
+  const frozen = frozenNumbers(def, plan);
+  if (frozen.length) notes.push(`Texts that repeat a value as a fixed number (they will not follow an edit): ${frozen.slice(0, 8).join("; ")}. Write the value's placeholder instead — {Name} in mm, {Name:m} in metres.`);
+
   for (const d of plan.expect.disputed) notes.push(`Disputed on the reference, not drawn: ${d.what} — ${d.reason}. Report it in finish.`);
 
   const ok = problems.length === 0;
@@ -1378,6 +1477,109 @@ export function deadValues(plan: ConstructionPlan, def: ComponentDefinition): st
     for (const d of exprDependencies(v.expr)) if (!used.has(d)) (used.add(d), queue.push(d));
   }
   return plan.values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim()) && !used.has(v.name)).map((v) => v.name);
+}
+
+/**
+ * Typed values that are sums or differences of other typed values, exactly.
+ * A level that equals another level ± sizes (a slab top = soffit + slab) is a
+ * relation the drawing depends on, and must be a formula. (Sizes that happen
+ * to add up — 350 = 500 − 150 — are too often coincidence to call.)
+ */
+export function duplicatedNumbers(plan: ConstructionPlan, tol: number): { levels: string[] } {
+  const typed = plan.values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim()) && (v.unit === "mm" || v.unit === "m"));
+  const mm = (v: PlanValue) => Number(v.expr) * (v.unit === "m" ? 1000 : 1);
+  const term = (v: PlanValue, sign: number) => `${sign < 0 ? "- " : "+ "}${v.name}${v.unit === "m" ? "" : " / 1000"}`;
+  const levels: string[] = [];
+  const n = typed.length;
+  for (let k = 0; k < n; k++) {
+    const K = typed[k];
+    const target = mm(K);
+    let found = false;
+    for (let i = 0; i < n && !found; i++) {
+      if (i === k) continue;
+      for (let j = 0; j < n && !found; j++) {
+        if (j === k || j === i) continue;
+        for (const sj of [1, -1]) {
+          const two = mm(typed[i]) + sj * mm(typed[j]);
+          if (Math.abs(two - target) <= tol) {
+            const involvesLevel = K.unit === "m" && typed[i].unit === "m" && typed[j].unit === "mm";
+            const text = `${K.name} = ${typed[i].name} ${term(typed[j], sj)}`;
+            if (involvesLevel) levels.push(text);
+            found = involvesLevel;
+            if (found) break;
+          }
+          if (K.unit !== "m" || typed[i].unit !== "m" || typed[j].unit !== "mm") continue;
+          for (let l = j + 1; l < n && !found; l++) {
+            if (l === k || l === i || typed[l].unit !== "mm") continue;
+            for (const sl of [1, -1]) {
+              if (Math.abs(two + sl * mm(typed[l]) - target) <= tol) {
+                levels.push(`${K.name} = ${typed[i].name} ${term(typed[j], sj)} ${term(typed[l], sl)}`);
+                found = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return { levels };
+}
+
+/**
+ * Changes every typed value a little each way and regenerates the whole
+ * construction, as Run Mode would: an edit that collapses, crosses or turns an
+ * outline inside out, or breaks a constraint, is a construction whose
+ * relations are wrong. Also says how much of the drawing each value moves.
+ */
+export function regenerationTest(ws: DraftingWorkspace, def: ComponentDefinition, plan: ConstructionPlan): { broken: string[]; moved: string[] } {
+  const typed = plan.values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim()));
+  const base = evaluateCandidate(ws, def);
+  const baseErrors = new Set(base.issues.filter((i) => i.severity === "error").map((i) => i.message));
+  const pos = new Map(base.loops.map((l) => [l.path, l.points]));
+  const broken: string[] = [];
+  const moved: string[] = [];
+  for (const v of typed) {
+    const value = Number(v.expr);
+    const step = v.unit === "m" ? 0.1 : v.unit === "deg" ? 1 : v.unit === "-" ? Math.max(Math.abs(value) * 0.05, 0.05) : Math.max(1, Math.round(Math.abs(value) * 0.05));
+    let count = 0;
+    for (const sign of [1, -1]) {
+      // As Run Mode does it: a typed value against the definition's defaults.
+      const ev = evaluateCandidate(ws, def, { [v.name]: value + sign * step });
+      const errs = ev.issues.filter((i) => i.severity === "error" && !baseErrors.has(i.message));
+      if (errs.length) broken.push(`Changing ${v.name} to ${fmt3(value + sign * step)} breaks the drawing: ${errs.slice(0, 2).map((e) => `${e.path ? e.path + ": " : ""}${e.message}`).join(" ")} Its relations are wrong somewhere (a position typed instead of derived, or a relation to the wrong face).`);
+      if (sign === 1) {
+        count = ev.loops.filter((l) => {
+          const before = pos.get(l.path);
+          return before && l.points.some((p, i) => !before[i] || Math.hypot(p.x - before[i].x, p.y - before[i].y) > ws.policy.geometry_mm);
+        }).length;
+      }
+    }
+    moved.push(`${v.name} moves ${count}`);
+  }
+  return { broken, moved };
+}
+
+/**
+ * Numbers written into texts and callouts that equal exactly one typed value
+ * (in mm, or in metres to three decimals): "HAUNCH 200 X 200" while Haunch is
+ * 200. Written as {Haunch} they follow an edit; as digits they go stale.
+ */
+export function frozenNumbers(def: ComponentDefinition, plan: ConstructionPlan): string[] {
+  const typed = plan.values.filter((v) => /^-?\d+(\.\d+)?$/.test(v.expr.trim()) && (v.unit === "mm" || v.unit === "m"));
+  const out: string[] = [];
+  const texts = [...(def.texts ?? []).map((t) => ({ id: t.id, text: t.text })), ...(def.leaders ?? []).map((l) => ({ id: l.id, text: l.text }))];
+  for (const t of texts) {
+    const bare = t.text.replace(/\{[^}]*\}/g, " ");
+    for (const m of bare.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)(?![\w.])/g)) {
+      const n = Number(m[1]);
+      const asMm = typed.filter((v) => v.unit === "mm" && Number(v.expr) === n);
+      const asM = /\.\d{3}$/.test(m[1]) ? typed.filter((v) => (v.unit === "m" ? Number(v.expr) === n : Number(v.expr) / 1000 === n)) : [];
+      const hits = [...new Set([...asMm, ...asM])];
+      if (hits.length === 1) out.push(`${t.id} "${m[1]}" is ${hits[0].name} → {${hits[0].name}${asM.includes(hits[0]) && hits[0].unit === "mm" ? ":m" : ""}}`);
+    }
+  }
+  return out;
 }
 
 /** Pairs of the construction's texts whose boxes overlap on the sheet. */
@@ -1462,4 +1664,22 @@ export function evalPointArg(ws: DraftingWorkspace, v: unknown, what: string): {
   const scope = planScope(ws);
   const p = point(v, what, def, scope);
   return { x: num(p[0], scope), y: num(p[1], scope) };
+}
+
+/**
+ * Takes an agent's construction up again from the drawing itself — the plan
+ * and the part tags travel in the definition (origin.construction), so a
+ * drawing sent back from the editor can be edited by plan update, construct
+ * and remove as if the session had never ended.
+ */
+export function constructionFromDrawing(cad: { definitions?: ComponentDefinition[]; components: { id: string; definitionId: string }[] }): ConstructionState | null {
+  for (let i = cad.components.length - 1; i >= 0; i--) {
+    const inst = cad.components[i];
+    const def = (cad.definitions ?? []).find((d) => d.id === inst.definitionId);
+    const rec = def?.origin?.construction;
+    if (!def || !rec?.plan) continue;
+    const plan = rec.plan as ConstructionPlan;
+    return { plan: { ...plan, constraints: plan.constraints ?? [] }, definitionId: def.id, instanceId: inst.id, tags: rec.tags ?? {}, verified: null };
+  }
+  return null;
 }

@@ -371,7 +371,18 @@ export interface ComponentDefinition {
    * free geometry; the relationships written on its last instance are kept
    * here when it is turned back into geometry, so re-making it keeps them.
    */
-  origin?: { kind: "drawn"; relations?: Relationship[]; customValues?: CustomValue[] };
+  origin?: {
+    kind: "drawn";
+    relations?: Relationship[];
+    customValues?: CustomValue[];
+    /**
+     * How the drawing was constructed, when an agent built it: its plan (the
+     * analysis, values, checks and features) and which part each entity
+     * belongs to. Travels with the drawing so the construction can be taken
+     * up again later. Opaque to the engine.
+     */
+    construction?: { plan: unknown; tags: Record<string, string> };
+  };
 }
 
 export type ValueUnit = "mm" | "m" | "deg" | "-" | "m2";

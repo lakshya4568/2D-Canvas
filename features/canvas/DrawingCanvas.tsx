@@ -37,6 +37,7 @@ import { DynamicInputOverlay } from "./DynamicInputOverlay";
 import { CadViewportOverlays } from "./CadViewportOverlays";
 import { importDxfToShapes } from "@/lib/io/dxfImporter";
 import { AnnotationLayer } from "./AnnotationLayer";
+import type { Annotation } from "@/lib/cad/types";
 import { useInteractiveTool } from "./tools/useInteractiveTool";
 import { SemanticChip } from "../bridge/Understanding";
 
@@ -233,6 +234,31 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
       hasMovedDuringDragRef.current = false;
     },
     [moveBasePoint, state.shapes, state.selectedIds, state.gridSnapEnabled, state.objectSnapEnabled, state.viewport, dispatch]
+  );
+
+  /**
+   * A component dimension that drives one of its values is an editing handle:
+   * the new number sets that value and the component regenerates from it (or
+   * the edit is refused whole, with the reason, and nothing moves).
+   */
+  const editDrivingDimension = useCallback(
+    (a: Annotation) => {
+      if (a.type !== "dimension" || !a.drives || !a.componentInstanceId) return;
+      const p1 = a.p1.kind === "point" ? a.p1 : null;
+      const p2 = a.p2.kind === "point" ? a.p2 : null;
+      const now =
+        p1 && p2
+          ? a.kind === "linear"
+            ? Math.abs(a.axis === "y" ? p2.y - p1.y : p2.x - p1.x)
+            : Math.hypot(p2.x - p1.x, p2.y - p1.y)
+          : NaN;
+      const raw = window.prompt(`${a.drives} (now ${Number.isFinite(now) ? Math.round(now * 10) / 10 : "?"} mm)`, Number.isFinite(now) ? String(Math.round(now * 10) / 10) : "");
+      if (raw === null) return;
+      const v = Number(raw.trim());
+      if (!Number.isFinite(v)) return;
+      dispatch({ type: "CAD_SET_COMPONENT_VALUES", instanceId: a.componentInstanceId, values: { [a.drives]: v }, description: `${a.drives} = ${v}` });
+    },
+    [dispatch]
   );
 
   /**
@@ -1490,6 +1516,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onCursorChange }) 
               selectedIds={state.selectedIds}
               isSelectTool={state.tool === "select" || state.tool === "move"}
               onSelect={handleShapeSelect}
+              onEditDrivingDimension={editDrivingDimension}
             />
           </g>
 

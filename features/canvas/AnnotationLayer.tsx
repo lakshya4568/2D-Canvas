@@ -34,6 +34,8 @@ interface Props {
   selectedIds: string[];
   isSelectTool: boolean;
   onSelect: (id: string, e: React.PointerEvent) => void;
+  /** Double-click on a dimension that drives a component value: edit that value. */
+  onEditDrivingDimension?: (a: Annotation) => void;
 }
 
 const PX_PER_LW_MM = 3.2;
@@ -112,6 +114,7 @@ export const AnnotationLayer = React.memo(function AnnotationLayer({
   selectedIds,
   isSelectTool,
   onSelect,
+  onEditDrivingDimension,
 }: Props) {
   const layerMap = React.useMemo(() => new Map(layers.map((l) => [l.id, l])), [layers]);
   const index = React.useMemo(() => indexShapes(shapes), [shapes]);
@@ -141,6 +144,7 @@ export const AnnotationLayer = React.memo(function AnnotationLayer({
         const isSel = selected.has(a.id) || (a.componentInstanceId !== undefined && selectedInstances.has(a.componentInstanceId));
         const pickable = isSelectTool && !(layer?.locked) && !a.isLocked;
         const hatch = a.type === "hatch";
+        const driving = a.type === "dimension" && Boolean(a.drives) && Boolean(a.componentInstanceId) && onEditDrivingDimension;
         return (
           <g
             key={a.id}
@@ -153,9 +157,18 @@ export const AnnotationLayer = React.memo(function AnnotationLayer({
                   }
                 : undefined
             }
-            style={{ pointerEvents: pickable && !hatch ? "visiblePainted" : "none", cursor: pickable ? "pointer" : undefined }}
+            onDoubleClick={
+              driving
+                ? (e) => {
+                    e.stopPropagation();
+                    onEditDrivingDimension!(a);
+                  }
+                : undefined
+            }
+            style={{ pointerEvents: pickable && !hatch ? "visiblePainted" : "none", cursor: pickable ? (driving ? "text" : "pointer") : undefined }}
             opacity={hatch ? 0.85 : 1}
           >
+            {driving && <title>{`Double-click to change ${(a as { drives?: string }).drives}`}</title>}
             {prims.map((p, i) => {
               const pl = layerMap.get(p.layerId) ?? layer;
               const base = p.color ?? (pl ? layerInk(pl.color, themeMode) : themeMode === "light" ? "#0f172a" : "#f8fafc");

@@ -383,9 +383,19 @@ export function buildScopeFull(
       scope[p.name] = rr;
     }
   }
+  // A drawing's own definition belongs to its author: a relationship may
+  // rewrite one of its formulas. A library definition's formulas stay its own.
+  const ownFormulas = def.origin?.kind === "drawn";
+  const rewritten = new Set<string>();
   for (const r of rel.values()) {
     if (paramNames.has(r.name)) continue;
     if (formulaNames.has(r.name)) {
+      if (ownFormulas) {
+        rewritten.add(r.name);
+        computed.push({ name: r.name, expr: r.expr, kind: "relation" });
+        sources[r.name] = "related";
+        continue;
+      }
       issue(issues, "error", "relation-formula", path, `${r.name} is worked out by ${def.name} itself; relate one of its values instead, or give the new value another name.`);
       continue;
     }
@@ -395,7 +405,7 @@ export function buildScopeFull(
     }
     computed.push({ name: r.name, expr: r.expr, kind: "relation" });
   }
-  for (const f of def.formulas ?? []) computed.push({ name: f.name, expr: f.expr, kind: "formula" });
+  for (const f of def.formulas ?? []) if (!rewritten.has(f.name)) computed.push({ name: f.name, expr: f.expr, kind: "formula" });
 
   const { order, cyclic } = orderByDependencies(computed);
   const byName = new Map(computed.map((c) => [c.name, c]));
