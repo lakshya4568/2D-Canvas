@@ -46,6 +46,7 @@ import {
   isTyped,
   FEATURE_STAGES,
   VALUE_SOURCES,
+  briefNumbers,
 } from "./construction";
 import { decodePng, deviations, distanceMap, inkMask, refineRegistration, registrationFromPairs, samplePolyline, toImage, type Registration } from "./reference";
 import { renderOverlay } from "./render";
@@ -1290,9 +1291,38 @@ function gate(ctx: ToolContext, name: string): void {
   }
 }
 
+/**
+ * A job from a text brief alone: the title block and the design basis carry
+ * only what the brief gives. A chainage, a railway or a drawing number nobody
+ * wrote stays blank for the project to fill; a number the brief does not write
+ * is not "inferred" from it.
+ */
+function briefGuard(ctx: ToolContext, name: string, a: Args): void {
+  if (ctx.hasReference || !ctx.brief) return;
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const brief = norm(ctx.brief);
+  if (name === "project_info") {
+    const made = ["railway", "division", "drawing_number", "bridge_number", "chainage", "river"].filter((k) => typeof a[k] === "string" && a[k].trim() && !brief.includes(norm(a[k] as string)));
+    if (made.length) {
+      throw new ToolError(
+        `The brief does not give ${made.map((k) => `${k} "${a[k]}"`).join(", ")}. Leave ${made.length === 1 ? "it" : "them"} out: the title block shows a blank for the project to fill. Never make up identity data. (The title and the name of work may describe what you draw.)`
+      );
+    }
+  }
+  if (name === "design_basis" && a.status === "INFERRED") {
+    const v = Number(a.value);
+    if (Number.isFinite(v) && !briefNumbers(ctx.brief).some((n) => Math.abs(n - v) <= ctx.ws.policy.geometry_mm / 1000)) {
+      throw new ToolError(
+        `INFERRED means read from the brief or a reference, and the brief does not write ${a.value}. If you worked it out from other values, use ASSUMED_FOR_DRAFT and give the working in note. If nobody gave it, leave it out: it is listed as data still needed.`
+      );
+    }
+  }
+}
+
 async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<ToolOutcome, "ok" | "stage" | "mutated">> {
   const ws = ctx.ws;
   gate(ctx, name);
+  briefGuard(ctx, name, a);
   switch (name) {
     case "plan":
       return { text: recordPlan(ws, a, { hasReference: ctx.hasReference, brief: ctx.brief }) };

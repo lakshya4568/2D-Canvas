@@ -27,6 +27,7 @@ import {
   BUILTINS,
   ExprError,
   evalExpr,
+  exprDependencies,
   interpolate,
   orderByDependencies,
   type Labels,
@@ -299,18 +300,36 @@ export function resolveTables(def: ComponentDefinition, given: Record<string, Ta
 
 /**
  * Required inputs nobody has entered yet (`provenance: "required"`, still at the
- * placeholder). Wherever the drawing states one — a text placeholder, a
- * dimension that measures it — it is marked "(TBC)", so a placeholder is never
- * read as design data.
+ * placeholder), and every value worked out from one. Wherever the drawing
+ * states one — a text placeholder, a level or a dimension that depends on it —
+ * it is marked "(TBC)", so a placeholder is never read as design data.
  */
-function unresolvedInputs(def: ComponentDefinition, sources: Record<string, string>, scope: Scope): Set<string> {
+function unresolvedInputs(def: ComponentDefinition, inputs: ComponentInputs, sources: Record<string, string>, scope: Scope): Set<string> {
   const out = new Set<string>();
   for (const p of def.parameters) {
     if (p.provenance !== "required") continue;
     if (sources[p.name] === "default" || (sources[p.name] === "typed" && scope[p.name] === p.default)) out.add(p.name);
   }
+  if (!out.size) return out;
+  const rules: [string, Expr][] = [
+    ...(def.formulas ?? []).map((f) => [f.name, f.expr] as [string, Expr]),
+    ...def.parameters.filter((p) => p.defaultExpr !== undefined && sources[p.name] === "auto").map((p) => [p.name, p.defaultExpr!] as [string, Expr]),
+    ...(inputs.relations ?? []).map((r) => [r.name, r.expr] as [string, Expr]),
+  ];
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [name, e] of rules) {
+      if (!out.has(name) && exprDependencies(e).some((d) => out.has(d))) {
+        out.add(name);
+        grew = true;
+      }
+    }
+  }
   return out;
 }
+
+/** Whether an expression reads a placeholder, directly or through what is worked out from one. */
+const readsUnresolved = (tbc: Set<string>, ...es: (Expr | undefined)[]) => tbc.size > 0 && es.some((e) => e !== undefined && exprDependencies(e).some((d) => tbc.has(d)));
 
 export const TBC_MARK = " (TBC)";
 
@@ -672,7 +691,7 @@ function evaluateInto(
   const tables = built.tables;
   const labels = labelsOf(def);
   const root: Ctx = { scope, strings: {} };
-  const tbc = unresolvedInputs(def, built.sources as Record<string, string>, scope);
+  const tbc = unresolvedInputs(def, inputs, built.sources as Record<string, string>, scope);
   if (!path) {
     out.sources = built.sources;
     out.tables = Object.fromEntries([...tables].map(([k, t]) => [k, t.rows]));
@@ -862,7 +881,7 @@ function evaluateInto(
           scopePath: path,
           axis,
           prefix: d.prefix !== undefined ? interpolate(markUnresolved(d.prefix, tbc), s, strings, labels) : undefined,
-          suffix: d.drives && tbc.has(d.drives) ? `${d.suffix !== undefined ? interpolate(d.suffix, s, strings, labels) : ""}${TBC_MARK}` : d.suffix !== undefined ? interpolate(markUnresolved(d.suffix, tbc), s, strings, labels) : undefined,
+          suffix: (d.drives && tbc.has(d.drives)) || readsUnresolved(tbc, ...(d.kind === "horizontal" ? [d.from[0], d.to[0]] : d.kind === "vertical" ? [d.from[1], d.to[1]] : [...d.from, ...d.to])) ? `${d.suffix !== undefined ? interpolate(d.suffix, s, strings, labels) : ""}${TBC_MARK}` : d.suffix !== undefined ? interpolate(markUnresolved(d.suffix, tbc), s, strings, labels) : undefined,
           hideValue: d.hideValue,
           layer: d.layer ?? "dimension",
         });
@@ -880,7 +899,7 @@ function evaluateInto(
         out.levels.push({
           path: joinPath(path, l.id + suffix),
           at: pt(l.at, s, frame),
-          label: interpolate(markUnresolved(l.label, tbc), s, strings, labels),
+          label: `${interpolate(markUnresolved(l.label, tbc), s, strings, labels)}${readsUnresolved(tbc, l.at[1]) && !l.label.includes("{") ? TBC_MARK : ""}`,
           side: frame.mirror ? (side === "left" ? "right" : "left") : side,
           style: l.style,
           format: l.format,

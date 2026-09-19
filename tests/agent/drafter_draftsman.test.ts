@@ -460,3 +460,60 @@ describe("no size without a name and a source", () => {
     expect(v.text).toMatch(/Texts that state a placeholder as if it were design data: T\d+ writes 150, the placeholder for Bedding → \{Bedding\}/);
   });
 });
+
+describe("placeholders stay visible, however far they travel", () => {
+  it("marks what is worked out from a placeholder: a level and the dimensions that read it", async () => {
+    const ctx = context();
+    await ok(ctx, "plan", {
+      ...BOX,
+      values: [...BOX.values, { name: "TrackDepth", expr: "762", unit: "mm", source: "required" }, D("FormationY", "RailLevel * 1000 - TrackDepth")],
+      expect: { ...BOX.expect, levels: [...BOX.expect.levels, { label: "FORMATION LEVEL", rl: 103.738 }] },
+    });
+    await ok(ctx, "construct", { feature: "Datums", entities: [...DATUMS.entities, { id: "FormationLine", kind: "line", from: ["-HalfWidth - 3000", "FormationY"], to: ["HalfWidth", "FormationY"], layer: "level" }] });
+    await ok(ctx, "construct", CELLS);
+    await ok(ctx, "construct", OUTER);
+    await ok(ctx, "construct", BEDDING);
+    await ok(ctx, "check_geometry");
+    await ok(ctx, "annotate", {
+      feature: "Levels",
+      items: [
+        { kind: "level", at: ["-HalfWidth - 3000", "FormationY"], label: "FORMATION LEVEL" },
+        { kind: "level", at: ["-HalfWidth - 3000", "RailLevel * 1000"], label: "RAIL LEVEL" },
+        { kind: "dimension", from: ["-HalfWidth - 2000", "HFL * 1000"], to: ["-HalfWidth - 2000", "FormationY"], prefix: "FB-" },
+        { kind: "dimension", from: ["HalfWidth", "TopY"], to: ["HalfWidth", "FormationY"] },
+      ],
+    });
+    const ev = constructionEvaluation(ctx.ws)!;
+    expect(ev.levels.find((l) => l.label.startsWith("FORMATION"))!.label).toBe("FORMATION LEVEL (TBC)");
+    expect(ev.levels.find((l) => l.label.startsWith("RAIL"))!.label).toBe("RAIL LEVEL");
+    const fb = ev.dimensions.find((d) => d.prefix === "FB-")!;
+    expect(fb.suffix).toBe(" (TBC)");
+    // Once the approved track depth is entered, the marks go.
+    ctx.ws.applyCad({ type: "CAD_SET_COMPONENT_VALUES", instanceId: ctx.ws.construction.instanceId!, values: { TrackDepth: 700 } });
+    const after = evaluateInstance(ctx.ws.cad.components.find((c) => c.id === ctx.ws.construction.instanceId)!, ctx.ws.cad)!.evaluation;
+    expect(after.levels.find((l) => l.label.startsWith("FORMATION"))!.label).toBe("FORMATION LEVEL");
+    expect(after.dimensions.find((d) => d.prefix === "FB-")!.suffix).toBeUndefined();
+  });
+
+  it("catches a grade written straight after its letter (M15)", async () => {
+    const ctx = context();
+    await buildGeometry(ctx);
+    await ok(ctx, "check_geometry");
+    await ok(ctx, "annotate", { feature: "Levels", kind: "text", at: ["0", "BaseY - 2000"], text: "LEAN CONCRETE M15" });
+    expect((await ok(ctx, "verify")).text).toMatch(/"LEAN CONCRETE M15" \(15\)/);
+  });
+});
+
+describe("the title block and design basis carry only what the brief gives", () => {
+  it("refuses identity data nobody wrote, and 'inferred' numbers the brief does not write", async () => {
+    const ctx = context();
+    const pi = await call(ctx, "project_info", { chainage: "km 45/6-7", railway: "NORTHERN RAILWAY", drawing_title: "CROSS SECTION OF 3 CELL RCC BOX CULVERT" });
+    expect(pi.ok).toBe(false);
+    expect(pi.text).toMatch(/The brief does not give railway "NORTHERN RAILWAY", chainage "km 45\/6-7"/);
+    await ok(ctx, "project_info", { drawing_title: "CROSS SECTION OF 3 CELL RCC BOX CULVERT", structure_type: "box_culvert" });
+    const db = await call(ctx, "design_basis", { field: "formationLevel", value: "103.738", status: "INFERRED" });
+    expect(db.text).toMatch(/the brief does not write 103\.738/);
+    await ok(ctx, "design_basis", { field: "hfl", value: "101.800", status: "INFERRED" });
+    await ok(ctx, "design_basis", { field: "formationLevel", value: "103.738", status: "ASSUMED_FOR_DRAFT", note: "rail 104.500 − 0.762 track depth (required input)" });
+  });
+});

@@ -311,7 +311,7 @@ export const isTyped = (v: PlanValue) => /^-?\d+(\.\d+)?$/.test(v.expr.trim());
  * Numbers a brief writes, in the units a value may carry them in: "2000 mm",
  * "RL 100.000", "3 cells", "2.5 m" (also 2500 mm), "30°".
  */
-function briefNumbers(brief: string): number[] {
+export function briefNumbers(brief: string): number[] {
   const out: number[] = [];
   for (const m of brief.matchAll(/(?<![\w.])-?\d+(?:\.\d+)?/g)) {
     const n = Number(m[0]);
@@ -1849,7 +1849,7 @@ function inventedInTexts(ws: DraftingWorkspace, plan: ConstructionPlan, ev: Comp
   const known = [...briefNumbers(inputs.brief), ...plan.values.flatMap((v) => (Number.isFinite(scope[v.name]) ? [scope[v.name], scope[v.name] / 1000, scope[v.name] * 1000] : [])), ws.cad.settings.annotationScale];
   const out: string[] = [];
   for (const t of [...ev.texts.map((x) => ({ path: x.path, text: x.text })), ...ev.leaders.map((x) => ({ path: x.path, text: x.text })), ...ev.levels.map((x) => ({ path: x.path, text: x.label }))]) {
-    const nums = [...t.text.matchAll(/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g)].map((m) => Number(m[0])).filter((n) => n > 2 && !known.some((k) => Math.abs(k - n) <= tol));
+    const nums = [...t.text.matchAll(/(?<![\d.])\d+(?:\.\d+)?(?![\d.])/g)].map((m) => Number(m[0])).filter((n) => n > 2 && !known.some((k) => Math.abs(k - n) <= tol));
     if (nums.length) out.push(`${t.path} "${t.text.slice(0, 50)}" (${[...new Set(nums)].join(", ")})`);
   }
   return out;

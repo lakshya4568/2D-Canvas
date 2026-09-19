@@ -106,10 +106,10 @@ Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch
   - `required`: needed but not provided.
 
   A required value is drawn as a placeholder and becomes a parameter with `provenance: "required"`. The audit reports it as `PARAM-REQUIRED-INPUT` (requires review), Run mode marks it "not provided", and finish lists it. It is never presented as design data.
-  - Wherever the drawing states an unresolved placeholder, the engine marks it " (TBC)": a text placeholder, or a dimension driving it (`evaluate.ts` `markUnresolved`). The mark goes when a person enters the value.
+  - Wherever the drawing states an unresolved placeholder, or anything worked out from one, the engine marks it " (TBC)" (`evaluate.ts` `unresolvedInputs`, `markUnresolved`). That covers a text placeholder, a level standing on a line that reads it, and a dimension that measures it. The mark goes when a person enters the value.
   - `check_geometry` and `verify` refuse sizes with no name: numbers above 10 (other than 100 and 1000) typed into structural coordinates (`typedSizes`) or inside plan formulas.
   - They also refuse `drafting` values that size the structure or move a level: found by sensitivity (outline shapes, level heights, measured dimensions).
-  - With a text brief only, `verify` refuses notes stating numbers that neither the brief nor any value gives (grades, mixes), and texts that write a placeholder's digits as fact.
+  - With a text brief only, `verify` refuses notes stating numbers that neither the brief nor any value gives (grades, mixes), and texts that write a placeholder's digits as fact. `project_info` refuses identity data the brief does not write (railway, chainage, drawing number), and `design_basis` refuses an "INFERRED" number the brief does not write.
 - **Construction route** (`lib/agent/drafter/construction.ts`): the agent writes its own drawing-owned `ComponentDefinition` (`drawing.agent-N`), primitive by primitive:
   - every coordinate is an expression of plan values, evaluated by the engine (typed values become parameters, relations become formulas);
   - mirror, copy, rotate, offset and polygon booleans derive new expressions from existing ones (`lib/components/symbolic.ts`); topology is fixed when the construction is made, coordinates stay parametric;
