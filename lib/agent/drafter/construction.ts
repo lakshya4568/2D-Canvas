@@ -52,6 +52,7 @@ import { indexShapes } from "../../cad/geometry";
 import { ToolError, fmt, type DraftingWorkspace } from "./workspace";
 import * as Sy from "../../components/symbolic";
 import { ILLEGIBLE_TEXT_FRACTION, readableAnnotationScale } from "../../cad/sheet";
+import { humanName, valueLabel } from "../../components/labels";
 
 type Args = Record<string, unknown>;
 
@@ -79,6 +80,8 @@ export interface PlanValue {
   expr: string;
   unit: PlanUnit;
   note?: string;
+  /** What an engineer calls it (shown in Run mode); the name spelled out when absent. */
+  label?: string;
   /** Typed values only (a derived value comes from its expression). */
   source?: ValueSource;
 }
@@ -301,7 +304,7 @@ function parseValues(raw: unknown): PlanValue[] {
     const unit = (["mm", "m", "deg", "-"].includes(String(o.unit)) ? String(o.unit) : "mm") as PlanUnit;
     const source = optStr(o, "source")?.toLowerCase();
     if (source && !(VALUE_SOURCES as string[]).includes(source)) throw new ToolError(`${name}: source is one of ${VALUE_SOURCES.join(", ")}.`);
-    return { name, expr, unit, note: optStr(o, "note"), source: source as ValueSource | undefined };
+    return { name, expr, unit, note: optStr(o, "note"), label: optStr(o, "label"), source: source as ValueSource | undefined };
   });
 }
 
@@ -311,12 +314,20 @@ export const isTyped = (v: PlanValue) => /^-?\d+(\.\d+)?$/.test(v.expr.trim());
  * Numbers a brief writes, in the units a value may carry them in: "2000 mm",
  * "RL 100.000", "3 cells", "2.5 m" (also 2500 mm), "30°".
  */
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, single: 1, two: 2, double: 2, twin: 2, three: 3, triple: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+};
+
 export function briefNumbers(brief: string): number[] {
   const out: number[] = [];
-  for (const m of brief.matchAll(/(?<![\w.])-?\d+(?:\.\d+)?/g)) {
+  // Digits after a letter count too ("M25", "4-dia"): the brief wrote them.
+  for (const m of brief.matchAll(/(?<![\d.])\d+(?:\.\d+)?/g)) {
     const n = Number(m[0]);
     if (Number.isFinite(n)) out.push(n, n * 1000, n / 1000);
   }
+  // "four bolt holes", "a double box": counts written as words.
+  for (const m of brief.toLowerCase().matchAll(/\b[a-z]+\b/g)) if (m[0] in NUMBER_WORDS) out.push(NUMBER_WORDS[m[0]]);
   return out;
 }
 
@@ -462,20 +473,21 @@ function withPlan(def: ComponentDefinition | null, plan: ConstructionPlan, id: s
   const kind = (u: PlanUnit): ComponentParameter["kind"] => (u === "m" ? "level" : u === "deg" ? "angle" : u === "-" ? "ratio" : "length");
   const group = (v: PlanValue) =>
     v.source === "required" ? "Required inputs (placeholders)" : v.source === "drafting" ? "Drawing layout" : v.unit === "m" ? "Levels" : v.source === "scaled" ? "Scaled from the reference" : "Values given";
+  // A person reads the label; where the number came from is the hint (description).
   const parameters: ComponentParameter[] = plan.values.filter(typed).map((v) => ({
     name: v.name,
-    label: v.note,
+    label: v.label ?? humanName(v.name),
     kind: kind(v.unit),
     unit: v.unit,
     default: Number(v.expr),
     group: group(v),
-    description: v.source === "required" ? `Not provided — ${fmt3(Number(v.expr))} is a placeholder. Enter the approved value.${v.note ? ` (${v.note})` : ""}` : v.note,
+    description: v.source === "required" ? `Not provided — ${fmt3(Number(v.expr))} is a placeholder. Enter the approved value.${v.note ? ` (${v.note})` : ""}` : v.note ?? "",
     provenance: v.source,
     sourceRequired: v.source === "required" || v.source === "scaled" ? true : undefined,
   }));
   const formulas: ComponentFormula[] = plan.values
     .filter((v) => !typed(v))
-    .map((v) => ({ name: v.name, expr: v.expr, label: v.note ?? v.name, unit: v.unit, report: true, group: "Worked out" }));
+    .map((v) => ({ name: v.name, expr: v.expr, label: v.label ?? humanName(v.name), description: v.note ?? "", unit: v.unit, report: true, group: "Worked out" }));
   return {
     id,
     name: title,
@@ -2379,6 +2391,7 @@ export function constructionFromDrawing(cad: { definitions?: ComponentDefinition
     const notes = new Map(plan.values.map((v) => [v.name, v.note]));
     const order = new Map(plan.values.map((v, k) => [v.name, k]));
     const recorded = new Map(plan.values.map((v) => [v.name, v.source]));
+    const named = new Map(plan.values.map((v) => [v.name, v.label]));
     // A placeholder a person has since filled in is data they gave; a value a
     // person added (a shift, an unlinked formula) is theirs too.
     const sourceOf = (p: ComponentParameter): ValueSource => {
@@ -2388,8 +2401,8 @@ export function constructionFromDrawing(cad: { definitions?: ComponentDefinition
       return was ?? "given";
     };
     const values: PlanValue[] = [
-      ...def.parameters.map((p) => ({ name: p.name, expr: String(inst.values?.[p.name] ?? p.default), unit: p.unit as PlanUnit, note: notes.get(p.name) ?? p.label, source: sourceOf(p) })),
-      ...(def.formulas ?? []).map((f) => ({ name: f.name, expr: String(f.expr), unit: (f.unit === "m2" || !f.unit ? "mm" : f.unit) as PlanUnit, note: notes.get(f.name) ?? f.label })),
+      ...def.parameters.map((p) => ({ name: p.name, expr: String(inst.values?.[p.name] ?? p.default), unit: p.unit as PlanUnit, note: notes.get(p.name) ?? p.description ?? undefined, label: named.get(p.name) ?? valueLabel(p, def), source: sourceOf(p) })),
+      ...(def.formulas ?? []).map((f) => ({ name: f.name, expr: String(f.expr), unit: (f.unit === "m2" || !f.unit ? "mm" : f.unit) as PlanUnit, note: notes.get(f.name) ?? f.description ?? undefined, label: named.get(f.name) ?? valueLabel(f, def) })),
     ].sort((a, b) => (order.get(a.name) ?? 1e9) - (order.get(b.name) ?? 1e9));
     const present = new Set([...(def.primitives ?? []), ...(def.dimensions ?? []), ...(def.levels ?? []), ...(def.leaders ?? []), ...(def.texts ?? []), ...(def.hatches ?? [])].map((x) => x.id));
     const tags = Object.fromEntries(Object.entries(rec.tags ?? {}).filter(([id]) => present.has(id)));

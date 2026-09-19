@@ -20,6 +20,7 @@ import type { ComponentInstance, ComponentParameter, TableDef, TableRow } from "
 import { focusModelValue } from "./ParametricModel";
 import { definitionFor, evaluateInstance } from "@/lib/cad/document";
 import { exprDependencies } from "@/lib/components/expr";
+import { valueLabel } from "@/lib/components/labels";
 
 const shown = (v: number) => String(Number(v.toFixed(4)));
 
@@ -257,6 +258,9 @@ export function ComponentValuesForm({ instance, compact }: { instance: Component
 
   const ev = out.evaluation;
   const known = new Set([...def.parameters.map((p) => p.name), ...(def.formulas ?? []).map((f) => f.name), ...(instance.customValues ?? []).map((c) => c.name), ...(instance.relations ?? []).map((r) => r.name)]);
+  // The names a person reads: labels, or the name spelled out — never a source note.
+  const labelOf = new Map<string, string>([...def.parameters.map((p) => [p.name, valueLabel(p, def)] as const), ...(def.formulas ?? []).map((f) => [f.name, valueLabel(f, def)] as const)]);
+  const read = (n: string) => labelOf.get(n) ?? n;
   const relOf = new Map((instance.relations ?? []).map((r) => [r.name, r]));
   const followsOf = (p: ComponentParameter): string[] => {
     const e = relOf.get(p.name)?.expr ?? p.defaultExpr;
@@ -311,10 +315,10 @@ export function ComponentValuesForm({ instance, compact }: { instance: Component
           {ps.map((p) => (
             <ValueField
               key={p.name}
-              p={p}
+              p={{ ...p, label: valueLabel(p, def) }}
               value={ev.scope[p.name] ?? instance.values[p.name] ?? p.default}
               source={ev.sources[p.name]}
-              follows={followsOf(p)}
+              follows={followsOf(p).map(read)}
               onCommit={(v) => commit(p.name, v)}
               onReset={() => reset(p.name)}
             />
@@ -345,7 +349,7 @@ export function ComponentValuesForm({ instance, compact }: { instance: Component
         <section className="flex flex-col gap-1">
           <h4 className="label">Worked out for you</h4>
           <div className="rounded-[6px] border border-(--rule) overflow-hidden">
-            {[...derived.map((f) => ({ name: f.name, label: f.label ?? f.name, unit: f.unit, expr: (instance.relations ?? []).find((r) => r.name === f.name)?.expr ?? String(f.expr) })), ...newRelations.map((r) => ({ name: r.name, label: r.label ?? r.name, unit: r.unit, expr: r.expr }))].map((f, i) => {
+            {[...derived.map((f) => ({ name: f.name, label: valueLabel(f, def), unit: f.unit, expr: (instance.relations ?? []).find((r) => r.name === f.name)?.expr ?? String(f.expr) })), ...newRelations.map((r) => ({ name: r.name, label: r.label ?? r.name, unit: r.unit, expr: r.expr }))].map((f, i) => {
               // Name what it is worked out from — never the expression (§64) — and
               // how to change it: its inputs here, or its formula in Author mode.
               const from = exprDependencies(f.expr).filter((n) => known.has(n));
@@ -362,8 +366,8 @@ export function ComponentValuesForm({ instance, compact }: { instance: Component
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[9.5px] text-(--fg-muted) truncate" title={`Worked out from ${from.join(", ")}`}>
-                      {from.length ? `from ${from.join(", ")}` : "a fixed result"}
+                    <span className="text-[9.5px] text-(--fg-muted) truncate" title={`Worked out from ${from.map(read).join(", ")}`}>
+                      {from.length ? `from ${from.map(read).join(", ")}` : "a fixed result"}
                     </span>
                     <button
                       type="button"

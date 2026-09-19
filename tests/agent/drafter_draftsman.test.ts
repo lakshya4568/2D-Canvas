@@ -517,3 +517,21 @@ describe("the title block and design basis carry only what the brief gives", () 
     await ok(ctx, "design_basis", { field: "formationLevel", value: "103.738", status: "ASSUMED_FOR_DRAFT", note: "rail 104.500 − 0.762 track depth (required input)" });
   });
 });
+
+describe("numbers a brief writes in words", () => {
+  it("takes 'four holes' as a given 4, and a grade like M25 as written", async () => {
+    const ctx = context("A steel plate 400 mm x 250 mm in M25 grade with four 22 mm holes, 50 mm from the edges.");
+    const r = await call(ctx, "plan", {
+      route: "construction",
+      structure: "Steel base plate — plan view",
+      views: [{ name: "Plan", shows: "the plate and its holes" }],
+      analysis: "A rectangular plate with four holes near its corners; every size is written in the brief.",
+      values: [G("Width", 400), G("Height", 250), G("HoleCount", 4, "-"), G("Grade", 25, "-"), G("HoleDia", 22), G("Edge", 50)],
+      features: [
+        { name: "Axes", description: "centre lines", stage: "datum" },
+        { name: "Plate", description: "outline and holes", stage: "primary" },
+      ],
+    });
+    expect(r.ok, r.text).toBe(true);
+  });
+});

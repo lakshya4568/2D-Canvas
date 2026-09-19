@@ -146,6 +146,7 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
               name: S("PascalCase name, e.g. ClearSpan, FormationLevel, HalfWidth, SoffitY"),
               expr: S("A number (read from the reference) or an expression of other values"),
               unit: { type: "string", enum: ["mm", "m", "deg", "-"], description: "mm for sizes and coordinates, m for levels (RL)" },
+              label: S("What an engineer calls it — shown in Run mode, e.g. 'Clear span of each cell', 'Top slab thickness', 'HFL'. Default: the name spelled out"),
               note: S("Where it comes from, e.g. 'written: PROP. SOFFIT LEVEL 59.258'"),
               source: {
                 type: "string",

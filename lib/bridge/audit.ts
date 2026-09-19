@@ -22,6 +22,7 @@ import { DBR_FIELD_META, INPUT_STATUS_LABEL, LEVEL_PARAMETER_MAP, isConfirmed, t
 import { BUILTIN_SOURCES, citation, findSource } from "./sources";
 import { sheetLayout } from "@/lib/cad/sheet";
 import { drawnFacts } from "./drawnFacts";
+import { valueLabel } from "@/lib/components/labels";
 
 export type Severity = "blocker" | "error" | "warning" | "info";
 export type RuleStatus = "pass" | "fail" | "requires_review" | "not_evaluated";
@@ -128,7 +129,7 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
         gate: "parameter",
         severity: "warning",
         status: "requires_review",
-        message: `${inst.name}: ${placeholders.length} design input(s) were not provided and are drawn with placeholders — ${placeholders.map((p) => `${p.label ?? p.name} (${p.default}${p.unit === "m" ? " m" : p.unit === "mm" ? " mm" : ""})`).slice(0, 6).join(", ")}${placeholders.length > 6 ? "…" : ""}. They are not design values.`,
+        message: `${inst.name}: ${placeholders.length} design input(s) were not provided and are drawn with placeholders — ${placeholders.map((p) => `${valueLabel(p, def)} (${p.default}${p.unit === "m" ? " m" : p.unit === "mm" ? " mm" : ""})`).slice(0, 6).join(", ")}${placeholders.length > 6 ? "…" : ""}. They are not design values.`,
         sourceIds: ["ircm-402"],
         entityIds: [inst.id],
         parameterNames: placeholders.map((p) => p.name),
@@ -143,7 +144,7 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
         gate: "parameter",
         severity: "warning",
         status: "requires_review",
-        message: `${inst.name}: ${defaults.length} site level(s) are read from the drawing — ${defaults.map((p) => p.label ?? p.name).slice(0, 6).join(", ")}${defaults.length > 6 ? "…" : ""}. Confirm them against the design basis.`,
+        message: `${inst.name}: ${defaults.length} site level(s) are read from the drawing — ${defaults.map((p) => valueLabel(p, def)).slice(0, 6).join(", ")}${defaults.length > 6 ? "…" : ""}. Confirm them against the design basis.`,
         sourceIds: [],
         entityIds: [inst.id],
         parameterNames: defaults.map((p) => p.name),
@@ -155,7 +156,7 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
         gate: "parameter",
         severity: "warning",
         status: "requires_review",
-        message: `${inst.name}: ${defaults.length} design value(s) are still template defaults — ${defaults.map((p) => p.label ?? p.name).slice(0, 6).join(", ")}${defaults.length > 6 ? "…" : ""}. A default is a drafting aid, not a sanctioned value.`,
+        message: `${inst.name}: ${defaults.length} design value(s) are still template defaults — ${defaults.map((p) => valueLabel(p, def)).slice(0, 6).join(", ")}${defaults.length > 6 ? "…" : ""}. A default is a drafting aid, not a sanctioned value.`,
         sourceIds: ["template-default"],
         entityIds: [inst.id],
         parameterNames: defaults.map((p) => p.name),

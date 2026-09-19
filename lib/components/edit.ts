@@ -67,8 +67,8 @@ export function editDefinition(def: ComponentDefinition, edit: DefinitionEdit): 
       const ny = `${base}Y`;
       const shift = (p: XY): XY => [plus(p[0], nx), plus(p[1], ny)];
       const params: ComponentParameter[] = [
-        { name: nx, label: `Shift of ${edit.ids.join(", ")} (x)`, kind: "length", unit: "mm", default: Math.round(edit.dx * 1000) / 1000, group: "Shifts" },
-        { name: ny, label: `Shift of ${edit.ids.join(", ")} (y)`, kind: "length", unit: "mm", default: Math.round(edit.dy * 1000) / 1000, group: "Shifts" },
+        { name: nx, label: `Shift of ${edit.ids.join(", ")} (x)`, kind: "length", unit: "mm", default: Math.round(edit.dx * 1000) / 1000, group: "Shifts", description: "Added when those entities were moved" },
+        { name: ny, label: `Shift of ${edit.ids.join(", ")} (y)`, kind: "length", unit: "mm", default: Math.round(edit.dy * 1000) / 1000, group: "Shifts", description: "Added when those entities were moved" },
       ];
       let touched = 0;
       const next: ComponentDefinition = {

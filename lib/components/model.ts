@@ -13,6 +13,7 @@
 import type { ComponentDefinition, ComponentInstance, ComponentParameter, Expr, XY } from "./types";
 import type { ComponentEvaluation } from "./evaluate";
 import { exprDependencies } from "./expr";
+import { valueLabel } from "./labels";
 
 export type ModelValueKind = "typed" | "related" | "auto" | "formula" | "custom";
 
@@ -83,12 +84,12 @@ export function componentModel(def: ComponentDefinition, inst: ComponentInstance
   for (const p of def.parameters) {
     const source = ev.sources[p.name];
     const expr = source === "related" ? rel.get(p.name) : source === "auto" ? text(p.defaultExpr) : undefined;
-    values.push({ name: p.name, label: p.label, unit: p.unit, kind: source === "related" ? "related" : source === "auto" ? "auto" : "typed", expr, value: ev.scope[p.name], dependsOn: deps(expr), usedBy: [], drives: [], roots: [], provenance: p.provenance });
+    values.push({ name: p.name, label: valueLabel(p, def), unit: p.unit, kind: source === "related" ? "related" : source === "auto" ? "auto" : "typed", expr, value: ev.scope[p.name], dependsOn: deps(expr), usedBy: [], drives: [], roots: [], provenance: p.provenance });
   }
   for (const c of inst.customValues ?? []) values.push({ name: c.name, label: c.label, unit: c.unit, kind: "custom", value: c.value, dependsOn: [], usedBy: [], drives: [], roots: [] });
   for (const f of def.formulas ?? []) {
     const expr = rel.get(f.name) ?? text(f.expr);
-    values.push({ name: f.name, label: f.label, unit: f.unit, kind: rel.has(f.name) ? "related" : "formula", expr, value: ev.scope[f.name], dependsOn: deps(expr), usedBy: [], drives: [], roots: [] });
+    values.push({ name: f.name, label: valueLabel(f, def), unit: f.unit, kind: rel.has(f.name) ? "related" : "formula", expr, value: ev.scope[f.name], dependsOn: deps(expr), usedBy: [], drives: [], roots: [] });
   }
   for (const r of inst.relations ?? []) {
     if (values.some((v) => v.name === r.name)) continue;

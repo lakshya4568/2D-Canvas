@@ -29,6 +29,7 @@ import { computeMultiShapeBounds } from "@/lib/geometry/metrics";
 import { planParametric, type ParametrizeOptions, type ParametricPlan } from "@/lib/components/fromDrawing";
 import { editDefinition, type DefinitionEdit } from "@/lib/components/edit";
 import { entityOfGenerated } from "@/lib/components/model";
+import { valueLabel } from "@/lib/components/labels";
 import { registryFor } from "@/lib/cad/document";
 import { resolveAnchor, indexShapes } from "@/lib/cad/geometry";
 
@@ -255,7 +256,10 @@ export function applyCadAction(shapes: Shape[], cad: CadDocState, a: CadAction):
       }
       const candidate: ComponentInstance = { ...inst, values, customValues };
       const changed = Object.entries(a.values)
-        .map(([k, v]) => `${k} ${fmt(inst.values[k] ?? customs.get(k)?.value ?? def?.parameters.find((p) => p.name === k)?.default)} → ${fmt(v)}`)
+        .map(([k, v]) => {
+          const p = def?.parameters.find((q) => q.name === k);
+          return `${p ? valueLabel(p, def) : k} ${fmt(inst.values[k] ?? customs.get(k)?.value ?? p?.default)} → ${fmt(v)}`;
+        })
         .join(", ");
       return commitInstance(shapes, cad, inst, candidate, changed, a.description);
     }
