@@ -21,6 +21,7 @@ import type {
   DrawingSettings,
   HatchAnnotation,
   Layer,
+  LeaderAnnotation,
   LevelAnnotation,
   TextAnnotation,
 } from "@/lib/cad/types";
@@ -30,6 +31,7 @@ import {
   IDENTITY_FRAME,
   evaluateComponent,
   hasBlockingIssues,
+  readingDegrees,
   type ComponentEvaluation,
   type ComponentRegistry,
 } from "./evaluate";
@@ -73,7 +75,18 @@ export function instanceTransform(inst: ComponentInstance, settings: Pick<Drawin
  * annotation scale, so a definition's dimensions read the same at 1:50 and 1:200.
  */
 export function annotationGlobals(settings: Pick<DrawingSettings, "annotationScale" | "textHeight">): Record<string, number> {
-  return { DIM: 8 * settings.annotationScale, TXT: settings.textHeight * settings.annotationScale };
+  return { DIM: 8 * settings.annotationScale, TXT: settings.textHeight * settings.annotationScale, SCALE: settings.annotationScale };
+}
+
+/** A root-frame angle (degrees, Y up) as it reads on the sheet after the instance's mirror and rotation. */
+function instanceAngle(inst: ComponentInstance, deg: number): number {
+  const a = (deg * Math.PI) / 180;
+  const lx = inst.mirror ? -Math.cos(a) : Math.cos(a);
+  const ly = Math.sin(a);
+  const r = ((inst.rotation ?? 0) * Math.PI) / 180;
+  const x = Math.cos(r) * lx - Math.sin(r) * ly;
+  const y = Math.sin(r) * lx + Math.cos(r) * ly;
+  return readingDegrees((Math.atan2(y, x) * 180) / Math.PI);
 }
 
 function lineId(inst: string, path: string, k: number): string {
@@ -87,7 +100,12 @@ export function instantiateComponent(
   layers: Layer[],
   settings: DrawingSettings
 ): InstanceOutput {
-  const evaluation = evaluateComponent(def, inst.values, registry, IDENTITY_FRAME, { globals: annotationGlobals(settings) });
+  const evaluation = evaluateComponent(def, inst.values, registry, IDENTITY_FRAME, {
+    globals: annotationGlobals(settings),
+    relations: inst.relations,
+    customValues: inst.customValues,
+    tables: inst.tables,
+  });
   const T = instanceTransform(inst, settings);
   const L = (cat: Parameters<typeof layerIdFor>[1]) => layerIdFor(layers, cat);
   const shapes: ComponentShape[] = [];
@@ -144,6 +162,8 @@ export function instantiateComponent(
       type: "hatch",
       boundary: { kind: "polygon", outer: h.outer.map(T), holes: h.holes.map((r) => r.map(T)) },
       material: h.material,
+      angle: h.angle !== undefined ? instanceAngle(inst, h.angle) : undefined,
+      scale: h.scale,
       layerId: L("hatch"),
       ...meta,
     };
@@ -181,13 +201,20 @@ export function instantiateComponent(
       dim = { id: `${inst.id}:${d.path}`, type: "dimension", kind: "aligned", p1: { kind: "point", ...p1 }, p2: { kind: "point", ...p2 }, offset, mode: d.drives ? "driving" : "reference", drives: d.drives, layerId: L("dimension"), ...meta };
     }
     if (d.scopePath) dim.tags = [`scope:${d.scopePath}`];
+    dim.layerId = L(d.layer);
+    if (d.prefix) dim.prefix = d.prefix;
+    if (d.suffix) dim.suffix = d.suffix;
+    if (d.hideValue) dim.hideValue = true;
     annotations.push(dim);
   }
 
   for (const l of evaluation.levels) {
     const at = T(l.at);
     const side = inst.mirror ? (l.side === "left" ? "right" : "left") : l.side;
-    const lev: LevelAnnotation = { id: `${inst.id}:${l.path}`, type: "level", at: { kind: "point", ...at }, label: l.label, side, layerId: L("level"), ...meta };
+    const lev: LevelAnnotation = { id: `${inst.id}:${l.path}`, type: "level", at: { kind: "point", ...at }, label: l.label, side, layerId: L(l.layer), ...meta };
+    if (l.style) lev.style = l.style;
+    if (l.format) lev.format = l.format;
+    if (l.symbol) lev.symbol = l.symbol;
     annotations.push(lev);
   }
 
@@ -203,7 +230,35 @@ export function instantiateComponent(
       layerId: L(t.layer),
       ...meta,
     };
+    const rot = t.rotation || inst.mirror || inst.rotation ? instanceAngle(inst, t.rotation) : 0;
+    if (rot) txt.rotation = rot;
+    if (t.valign) txt.valign = t.valign;
+    if (t.bold) txt.bold = true;
     annotations.push(txt);
+  }
+
+  for (const l of evaluation.leaders) {
+    const ld: LeaderAnnotation = {
+      id: `${inst.id}:${l.path}`,
+      type: "leader",
+      points: l.points.map((p) => ({ kind: "point" as const, ...T(p) })),
+      text: l.text,
+      height: l.height ?? settings.textHeight,
+      placement: l.placement,
+      arrow: l.arrow,
+      layerId: L(l.layer),
+      ...meta,
+    };
+    annotations.push(ld);
+  }
+
+  // Element ids are unique within their kind in a definition; a dimension and
+  // a note may share one ("cushion"). Keep annotation ids unique across kinds,
+  // deterministically, by qualifying a repeat with its kind.
+  const used = new Set<string>();
+  for (const a of annotations) {
+    if (used.has(a.id)) a.id = `${a.id}~${a.type}`;
+    used.add(a.id);
   }
 
   const anchors: Record<string, Point> = {};

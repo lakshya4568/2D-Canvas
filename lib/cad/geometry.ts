@@ -206,6 +206,20 @@ export function clipLineToRegion(o: Point, d: Point, rings: Point[][]): [Point, 
   return out;
 }
 
+/** The parts of segment a→b that lie inside a region (even-odd rule). */
+export function clipSegmentToRegion(a: Point, b: Point, rings: Point[][]): [Point, Point][] {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len === 0) return [];
+  const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+  const out: [Point, Point][] = [];
+  for (const [p, q] of clipLineToRegion(a, d, rings)) {
+    const t0 = Math.max(0, (p.x - a.x) * d.x + (p.y - a.y) * d.y);
+    const t1 = Math.min(len, (q.x - a.x) * d.x + (q.y - a.y) * d.y);
+    if (t1 > t0) out.push([{ x: a.x + d.x * t0, y: a.y + d.y * t0 }, { x: a.x + d.x * t1, y: a.y + d.y * t1 }]);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Boundary tracing
 // ---------------------------------------------------------------------------

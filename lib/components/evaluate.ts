@@ -3,12 +3,15 @@
  * a list of problems.
  *
  * One pass, in dependency order:
- *   1. parameters (given values, else defaults) and formulas (topologically
- *      ordered; a cycle is an error, not a hang);
+ *   1. values — typed values, the definition's defaults and "auto" values
+ *      (`defaultExpr`), the instance's own inputs and relationships, table
+ *      rows, and the formulas; everything computed is ordered by what it reads
+ *      (a cycle is an error, not a hang);
  *   2. invariants;
  *   3. children — each child's values are expressions in THIS scope, its frame
  *      is this frame composed with its placement or attachment (§23.2, §37);
- *   4. primitives, repeats expanded with index-stable ids (§23.4);
+ *   4. primitives, repeats expanded with index-stable ids (§23.4) — a repeat
+ *      may walk a table's rows;
  *   5. generic geometric checks — collapsed loops, loops that turned inside out
  *      compared with the definition's defaults (the chirality guard of §31.2),
  *      self-crossing outlines, openings that left the solid they are cut from.
@@ -20,13 +23,25 @@
 import type { Point } from "@/lib/geometry/types";
 import { pointInPolygon, signedArea } from "@/lib/cad/geometry";
 import type { HatchMaterial, LayerCategory } from "@/lib/cad/types";
-import { BUILTINS, ExprError, evalExpr, interpolate, orderByDependencies, type Scope } from "./expr";
+import {
+  BUILTINS,
+  ExprError,
+  evalExpr,
+  interpolate,
+  orderByDependencies,
+  type Labels,
+  type Scope,
+  type Strings,
+} from "./expr";
 import type {
   ComponentDefinition,
-  ComponentFormula,
+  CustomValue,
   Expr,
   InvariantDef,
+  Relationship,
   RepeatSpec,
+  TableDef,
+  TableRow,
   XY,
 } from "./types";
 
@@ -68,6 +83,15 @@ function compose(parent: Frame, origin: Point, rotateDeg: number, mirror: boolea
   };
 }
 
+/** Text never reads upside down: an angle folded into (−90°, 90°]. */
+export function readingDegrees(deg: number): number {
+  let a = ((deg % 360) + 360) % 360;
+  if (a > 180) a -= 360;
+  if (a > 90) a -= 180;
+  if (a <= -90) a += 180;
+  return a;
+}
+
 export interface EvalLoop {
   /** Index-stable path, e.g. `cells[2]` or `pier[1]/shaft`. */
   path: string;
@@ -78,6 +102,8 @@ export interface EvalLoop {
   points: Point[];
   closed: boolean;
   draw: boolean;
+  /** The scope this instance was evaluated in (its repeat index included). */
+  scope?: Scope;
 }
 
 export interface EvalCircle {
@@ -88,6 +114,7 @@ export interface EvalCircle {
   label: string;
   center: Point;
   r: number;
+  scope?: Scope;
 }
 
 export interface EvalDimension {
@@ -102,6 +129,10 @@ export interface EvalDimension {
   scopePath: string;
   /** Root-frame x axis of the owning component, to keep "horizontal" meaningful under rotation. */
   axis: Point;
+  prefix?: string;
+  suffix?: string;
+  hideValue?: boolean;
+  layer: LayerCategory;
 }
 
 export interface EvalLevel {
@@ -109,6 +140,10 @@ export interface EvalLevel {
   at: Point;
   label: string;
   side: "left" | "right";
+  style?: "marker" | "gad";
+  format?: string;
+  symbol?: "none" | "water" | "ground";
+  layer: LayerCategory;
 }
 
 export interface EvalHatch {
@@ -116,6 +151,8 @@ export interface EvalHatch {
   outer: Point[];
   holes: Point[][];
   material: HatchMaterial;
+  angle?: number;
+  scale?: number;
 }
 
 export interface EvalText {
@@ -124,6 +161,20 @@ export interface EvalText {
   text: string;
   height?: number;
   align: "left" | "center" | "right";
+  valign?: "top" | "middle" | "bottom";
+  /** Degrees, counter-clockwise, in the root frame. */
+  rotation: number;
+  bold?: boolean;
+  layer: LayerCategory;
+}
+
+export interface EvalLeader {
+  path: string;
+  points: Point[];
+  text: string;
+  height?: number;
+  placement: "end" | "above";
+  arrow: "arrow" | "dot" | "none";
   layer: LayerCategory;
 }
 
@@ -151,6 +202,9 @@ export interface ScopeReport {
   scope: Scope;
 }
 
+/** How a root value got its number. */
+export type ValueSource = "typed" | "default" | "auto" | "related" | "custom";
+
 export interface ComponentEvaluation {
   definitionId: string;
   scope: Scope;
@@ -161,10 +215,23 @@ export interface ComponentEvaluation {
   levels: EvalLevel[];
   hatches: EvalHatch[];
   texts: EvalText[];
+  leaders: EvalLeader[];
   facts: EvalFact[];
   issues: ComponentIssue[];
   /** Every (sub)component's evaluated scope, root first. */
   scopes: ScopeReport[];
+  /** For each root value: typed, default, auto (follows its default expression), related or custom. */
+  sources: Record<string, ValueSource>;
+  /** The root's tables as evaluated (defaults and missing cells filled in). */
+  tables: Record<string, TableRow[]>;
+}
+
+/** What an instance adds to its definition's defaults. */
+export interface ComponentInputs {
+  values: Record<string, number>;
+  relations?: Relationship[];
+  customValues?: CustomValue[];
+  tables?: Record<string, TableRow[]>;
 }
 
 export interface EvaluateOptions {
@@ -173,11 +240,15 @@ export interface EvaluateOptions {
   /** Depth guard against definitions that include themselves. */
   depth?: number;
   /**
-   * Values every expression can read, e.g. `DIM` (dimension-line spacing) and
-   * `TXT` (text height) in model mm at the drawing's annotation scale. Geometry
-   * must not read them; only annotation placement does.
+   * Values every expression can read, e.g. `DIM` (dimension-line spacing),
+   * `TXT` (text height) and `SCALE` (the annotation scale) in model mm at the
+   * drawing's annotation scale. Geometry must not read them; only annotation
+   * placement does.
    */
   globals?: Scope;
+  relations?: Relationship[];
+  customValues?: CustomValue[];
+  tables?: Record<string, TableRow[]>;
 }
 
 const MAX_REPEAT = 400;
@@ -191,27 +262,170 @@ function joinPath(base: string, part: string): string {
   return base ? `${base}/${part}` : part;
 }
 
+function fmt(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
+// ---------------------------------------------------------------------------
+// Tables
+// ---------------------------------------------------------------------------
+
+interface ResolvedTable {
+  def: TableDef;
+  rows: TableRow[];
+}
+
+/** A definition's tables with the given rows (or the defaults), every cell filled. */
+export function resolveTables(def: ComponentDefinition, given: Record<string, TableRow[]> = {}): Map<string, ResolvedTable> {
+  const out = new Map<string, ResolvedTable>();
+  for (const t of def.tables ?? []) {
+    const src = given[t.name] ?? t.rows;
+    const rows = src.map((r) => {
+      const row: TableRow = {};
+      for (const c of t.columns) {
+        const v = r[c.name];
+        if (c.kind === "text") row[c.name] = v === undefined ? String(c.default) : String(v);
+        else {
+          const n = typeof v === "number" ? v : Number(v);
+          row[c.name] = Number.isFinite(n) ? n : Number(c.default);
+        }
+      }
+      return row;
+    });
+    out.set(t.name, { def: t, rows });
+  }
+  return out;
+}
+
+function labelsOf(def: ComponentDefinition): Labels {
+  const labels: Labels = {};
+  for (const p of def.parameters) if (p.options) labels[p.name] = p.options;
+  for (const t of def.tables ?? []) for (const c of t.columns) if (c.options) labels[`${t.name}_${c.name}`] = c.options;
+  return labels;
+}
+
+// ---------------------------------------------------------------------------
+// Values
+// ---------------------------------------------------------------------------
+
+export interface BuiltScope {
+  scope: Scope;
+  sources: Record<string, ValueSource>;
+  tables: Map<string, ResolvedTable>;
+}
+
 /**
- * Builds a definition's scope from given values: parameters first, then
- * formulas in dependency order.
+ * A definition's scope: typed values and defaults, the tables' counts and
+ * sums, the instance's own inputs, then everything computed — auto values,
+ * relationships and formulas — in dependency order.
  */
-export function buildScope(
+export function buildScopeFull(
   def: ComponentDefinition,
-  values: Record<string, number>,
+  inputs: ComponentInputs,
   issues: ComponentIssue[],
   path = "",
   globals: Scope = {}
-): Scope {
+): BuiltScope {
   const scope: Scope = { ...BUILTINS, ...globals };
-  for (const p of def.parameters) {
-    let v = values[p.name];
-    if (v === undefined || !Number.isFinite(v)) v = p.default;
-    if (p.kind === "count") {
-      const r = Math.round(v);
-      if (r !== v) issue(issues, "warning", "count-rounded", path, `${p.label ?? p.name} is a count; ${v} was taken as ${r}.`);
-      v = r;
+  const sources: Record<string, ValueSource> = {};
+  const values = inputs.values;
+  const tables = resolveTables(def, inputs.tables);
+  for (const [name, t] of tables) {
+    scope[`${name}_count`] = t.rows.length;
+    for (const c of t.def.columns) {
+      if (c.kind !== "number") continue;
+      scope[`${name}_sum_${c.name}`] = t.rows.reduce((s, r) => s + Number(r[c.name]), 0);
     }
-    scope[p.name] = v;
+    if (t.def.minRows !== undefined && t.rows.length < t.def.minRows) {
+      issue(issues, "error", "table-rows", path, `${t.def.label ?? name} needs at least ${t.def.minRows} row(s).`);
+    }
+    if (t.def.maxRows !== undefined && t.rows.length > t.def.maxRows) {
+      issue(issues, "error", "table-rows", path, `${t.def.label ?? name} can have at most ${t.def.maxRows} rows.`);
+    }
+  }
+
+  const formulaNames = new Set((def.formulas ?? []).map((f) => f.name));
+  const paramNames = new Set(def.parameters.map((p) => p.name));
+  for (const c of inputs.customValues ?? []) {
+    if (paramNames.has(c.name) || formulaNames.has(c.name)) {
+      issue(issues, "error", "custom-conflict", path, `"${c.name}" is already a value of ${def.name}; give the new value another name.`);
+      continue;
+    }
+    scope[c.name] = c.value;
+    sources[c.name] = "custom";
+  }
+
+  const rel = new Map((inputs.relations ?? []).map((r) => [r.name, r]));
+  type Computed = { name: string; expr: Expr; kind: "auto" | "related" | "relation" | "formula" };
+  const computed: Computed[] = [];
+  const countParams = new Set<string>();
+  for (const p of def.parameters) {
+    if (p.kind === "count") countParams.add(p.name);
+    const r = rel.get(p.name);
+    const typed = values[p.name];
+    if (r) {
+      computed.push({ name: p.name, expr: r.expr, kind: "related" });
+      sources[p.name] = "related";
+    } else if (typed !== undefined && Number.isFinite(typed)) {
+      scope[p.name] = typed;
+      sources[p.name] = "typed";
+    } else if (p.defaultExpr !== undefined) {
+      computed.push({ name: p.name, expr: p.defaultExpr, kind: "auto" });
+      sources[p.name] = "auto";
+    } else {
+      scope[p.name] = p.default;
+      sources[p.name] = "default";
+    }
+    if (scope[p.name] !== undefined && p.kind === "count") {
+      const v = scope[p.name];
+      const rr = Math.round(v);
+      if (rr !== v) issue(issues, "warning", "count-rounded", path, `${p.label ?? p.name} is a count; ${v} was taken as ${rr}.`);
+      scope[p.name] = rr;
+    }
+  }
+  for (const r of rel.values()) {
+    if (paramNames.has(r.name)) continue;
+    if (formulaNames.has(r.name)) {
+      issue(issues, "error", "relation-formula", path, `${r.name} is worked out by ${def.name} itself; relate one of its values instead, or give the new value another name.`);
+      continue;
+    }
+    if (sources[r.name] === "custom") {
+      issue(issues, "error", "relation-custom", path, `${r.name} is an input you added; a relationship cannot also set it.`);
+      continue;
+    }
+    computed.push({ name: r.name, expr: r.expr, kind: "relation" });
+  }
+  for (const f of def.formulas ?? []) computed.push({ name: f.name, expr: f.expr, kind: "formula" });
+
+  const { order, cyclic } = orderByDependencies(computed);
+  const byName = new Map(computed.map((c) => [c.name, c]));
+  for (const n of cyclic) {
+    const c = byName.get(n)!;
+    issue(
+      issues,
+      "error",
+      c.kind === "formula" ? "formula-cycle" : "relation-cycle",
+      path,
+      c.kind === "formula" ? `Formula ${n} depends on itself through other formulas.` : `${n} = ${c.expr} goes round in a circle — it depends on itself through other values.`
+    );
+    scope[n] = NaN;
+  }
+  for (const n of order) {
+    const c = byName.get(n)!;
+    try {
+      let v = evalExpr(c.expr, scope);
+      if (countParams.has(n)) v = Math.round(v);
+      scope[n] = v;
+    } catch (e) {
+      scope[n] = NaN;
+      if (c.kind === "formula") issue(issues, "error", "formula-error", path, `Formula ${n} could not be evaluated: ${(e as Error).message}.`);
+      else issue(issues, "error", "relation-error", path, `${n} = ${c.expr}: ${(e as Error).message}.`);
+    }
+  }
+
+  for (const p of def.parameters) {
+    const v = scope[p.name];
+    if (!Number.isFinite(v)) continue;
     if (p.min !== undefined && v < p.min) {
       issue(issues, "warning", "below-range", path, `${p.label ?? p.name} = ${fmt(v)} ${p.unit} is below the usual minimum ${fmt(p.min)} ${p.unit}.`);
     }
@@ -219,27 +433,18 @@ export function buildScope(
       issue(issues, "warning", "above-range", path, `${p.label ?? p.name} = ${fmt(v)} ${p.unit} is above the usual maximum ${fmt(p.max)} ${p.unit}.`);
     }
   }
-  const formulas: ComponentFormula[] = def.formulas ?? [];
-  const { order, cyclic } = orderByDependencies(formulas);
-  for (const n of cyclic) {
-    issue(issues, "error", "formula-cycle", path, `Formula ${n} depends on itself through other formulas.`);
-    scope[n] = NaN;
-  }
-  const byName = new Map(formulas.map((f) => [f.name, f]));
-  for (const n of order) {
-    const f = byName.get(n)!;
-    try {
-      scope[n] = evalExpr(f.expr, scope);
-    } catch (e) {
-      scope[n] = NaN;
-      issue(issues, "error", "formula-error", path, `Formula ${n} could not be evaluated: ${(e as Error).message}.`);
-    }
-  }
-  return scope;
+  return { scope, sources, tables };
 }
 
-function fmt(v: number): string {
-  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+/** A definition's scope from plain values (defaults for everything else). */
+export function buildScope(
+  def: ComponentDefinition,
+  values: Record<string, number>,
+  issues: ComponentIssue[],
+  path = "",
+  globals: Scope = {}
+): Scope {
+  return buildScopeFull(def, { values }, issues, path, globals).scope;
 }
 
 function checkInvariant(inv: InvariantDef, scope: Scope): boolean {
@@ -257,12 +462,50 @@ function checkInvariant(inv: InvariantDef, scope: Scope): boolean {
   }
 }
 
+interface Ctx {
+  scope: Scope;
+  strings: Strings;
+}
+
 /** Expands a repeat into the scopes it produces (a single unindexed scope when absent). */
-function expand(repeat: RepeatSpec | undefined, scope: Scope, issues: ComponentIssue[], path: string, what: string): { scope: Scope; suffix: string }[] {
-  if (!repeat) return [{ scope, suffix: "" }];
+function expand(
+  repeat: RepeatSpec | undefined,
+  ctx: Ctx,
+  tables: Map<string, ResolvedTable>,
+  issues: ComponentIssue[],
+  path: string,
+  what: string
+): (Ctx & { suffix: string })[] {
+  if (!repeat) return [{ ...ctx, suffix: "" }];
+  if (repeat.table !== undefined) {
+    const t = tables.get(repeat.table);
+    if (!t) {
+      issue(issues, "error", "repeat-table", path, `${what}: there is no table "${repeat.table}".`);
+      return [];
+    }
+    const out: (Ctx & { suffix: string })[] = [];
+    const before: Record<string, number> = {};
+    t.rows.forEach((row, i) => {
+      const scope: Scope = { ...ctx.scope, [repeat.index]: i };
+      const strings: Strings = { ...ctx.strings };
+      for (const c of t.def.columns) {
+        const key = `${t.def.name}_${c.name}`;
+        if (c.kind === "text") {
+          strings[key] = String(row[c.name]);
+          continue;
+        }
+        const v = Number(row[c.name]);
+        scope[key] = v;
+        if (c.kind === "number") scope[`${t.def.name}_before_${c.name}`] = before[c.name] ?? 0;
+      }
+      for (const c of t.def.columns) if (c.kind === "number") before[c.name] = (before[c.name] ?? 0) + Number(row[c.name]);
+      out.push({ scope, strings, suffix: `[${i}]` });
+    });
+    return out;
+  }
   let n: number;
   try {
-    n = Math.round(evalExpr(repeat.count, scope));
+    n = Math.round(evalExpr(repeat.count, ctx.scope));
   } catch (e) {
     issue(issues, "error", "repeat-error", path, `${what}: repeat count could not be evaluated (${(e as Error).message}).`);
     return [];
@@ -275,8 +518,8 @@ function expand(repeat: RepeatSpec | undefined, scope: Scope, issues: ComponentI
     issue(issues, "error", "repeat-too-many", path, `${what}: ${n} copies is more than this drawing can hold (${MAX_REPEAT}).`);
     return [];
   }
-  const out: { scope: Scope; suffix: string }[] = [];
-  for (let i = 0; i < n; i++) out.push({ scope: { ...scope, [repeat.index]: i }, suffix: `[${i}]` });
+  const out: (Ctx & { suffix: string })[] = [];
+  for (let i = 0; i < n; i++) out.push({ scope: { ...ctx.scope, [repeat.index]: i }, strings: ctx.strings, suffix: `[${i}]` });
   return out;
 }
 
@@ -349,19 +592,29 @@ function emptyEvaluation(defId: string): ComponentEvaluation {
     levels: [],
     hatches: [],
     texts: [],
+    leaders: [],
     facts: [],
     issues: [],
     scopes: [],
+    sources: {},
+    tables: {},
   };
 }
 
+/** A local angle (degrees, component frame) in the root frame. */
+function frameAngle(frame: Frame, deg: number): number {
+  const a = (deg * Math.PI) / 180;
+  const v = applyFrameVector(frame, Math.cos(a), Math.sin(a));
+  return (Math.atan2(v.y, v.x) * 180) / Math.PI;
+}
+
 /**
- * Evaluates `def` with `values` into the frame `frame`, appending into `out`.
+ * Evaluates `def` with `inputs` into the frame `frame`, appending into `out`.
  * `path` prefixes every id so nested and repeated children stay distinct.
  */
 function evaluateInto(
   def: ComponentDefinition,
-  values: Record<string, number>,
+  inputs: ComponentInputs,
   registry: ComponentRegistry,
   frame: Frame,
   path: string,
@@ -373,12 +626,20 @@ function evaluateInto(
     issue(out.issues, "error", "nesting-too-deep", path, `${def.name} nests deeper than ${MAX_DEPTH} levels; check for a component that contains itself.`);
     return {};
   }
-  const scope = buildScope(def, values, out.issues, path, globals);
+  const built = buildScopeFull(def, inputs, out.issues, path, globals);
+  const scope = built.scope;
+  const tables = built.tables;
+  const labels = labelsOf(def);
+  const root: Ctx = { scope, strings: {} };
+  if (!path) {
+    out.sources = built.sources;
+    out.tables = Object.fromEntries([...tables].map(([k, t]) => [k, t.rows]));
+  }
   out.scopes.push({ path, definitionId: def.id, name: def.name, scope });
 
   for (const inv of def.invariants ?? []) {
     try {
-      if (!checkInvariant(inv, scope)) issue(out.issues, inv.severity, `invariant:${inv.id}`, path, inv.message, inv.source);
+      if (!checkInvariant(inv, scope)) issue(out.issues, inv.severity, `invariant:${inv.id}`, path, interpolate(inv.message, scope, {}, labels), inv.source);
     } catch (e) {
       issue(out.issues, "error", `invariant:${inv.id}`, path, `${inv.message} (could not evaluate: ${(e as Error).message})`);
     }
@@ -391,7 +652,7 @@ function evaluateInto(
   };
 
   for (const a of def.anchors ?? []) {
-    for (const { scope: s, suffix } of expand(a.repeat, scope, out.issues, path, `anchor ${a.id}`)) {
+    for (const { scope: s, suffix } of expand(a.repeat, root, tables, out.issues, path, `anchor ${a.id}`)) {
       try {
         addAnchor(a.id + suffix, pt(a.at, s, frame));
       } catch (e) {
@@ -418,7 +679,7 @@ function evaluateInto(
       issue(out.issues, "error", "missing-component", path, `Child ${child.id} refers to an unknown component "${child.component}".`);
       continue;
     }
-    for (const { scope: s, suffix } of expand(child.repeat, scope, out.issues, path, `child ${child.id}`)) {
+    for (const { scope: s, suffix } of expand(child.repeat, root, tables, out.issues, path, `child ${child.id}`)) {
       try {
         if (!enabled(child.when, s)) continue;
       } catch (e) {
@@ -436,6 +697,13 @@ function evaluateInto(
         }
       }
       if (failed) continue;
+      const ctables: Record<string, TableRow[]> = {};
+      for (const [k, from] of Object.entries(child.tables ?? {})) {
+        const t = tables.get(from);
+        if (t) ctables[k] = t.rows;
+        else issue(out.issues, "error", "child-table", path, `Child ${child.id}: there is no table "${from}".`);
+      }
+      const cinputs: ComponentInputs = { values: cvalues, tables: ctables };
       const cpath = joinPath(path, child.id + suffix);
       let cframe: Frame;
       if (child.attach) {
@@ -446,7 +714,7 @@ function evaluateInto(
         }
         // Evaluate the child's own anchor in its local frame to find where its origin must go.
         const probe = emptyEvaluation(cdef.id);
-        const cscope = buildScope(cdef, cvalues, probe.issues, cpath, globals);
+        const cscope = buildScopeFull(cdef, cinputs, probe.issues, cpath, globals).scope;
         const selfDef = (cdef.anchors ?? []).find((a) => a.id === child.attach!.self);
         if (!selfDef) {
           issue(out.issues, "error", "attach-missing", path, `${cdef.name} has no anchor "${child.attach.self}".`);
@@ -475,7 +743,7 @@ function evaluateInto(
         }
       }
       const before = Object.keys(out.anchors).length;
-      evaluateInto(cdef, cvalues, registry, cframe, cpath, out, depth + 1, globals);
+      evaluateInto(cdef, cinputs, registry, cframe, cpath, out, depth + 1, globals);
       // Collect the child's own anchors for its siblings to attach to.
       const mine: Record<string, Point> = {};
       const prefix = `${cpath}.`;
@@ -487,7 +755,7 @@ function evaluateInto(
   }
 
   for (const prim of def.primitives ?? []) {
-    for (const { scope: s, suffix } of expand(prim.repeat, scope, out.issues, path, `${prim.id}`)) {
+    for (const { scope: s, suffix } of expand(prim.repeat, root, tables, out.issues, path, `${prim.id}`)) {
       const ppath = joinPath(path, prim.id + suffix);
       try {
         if (!enabled(prim.when, s)) continue;
@@ -498,7 +766,7 @@ function evaluateInto(
             issue(out.issues, "error", "circle-radius", ppath, `${label}: radius ${fmt(r)} mm is not positive.`);
             continue;
           }
-          out.circles.push({ path: ppath, primitiveId: prim.id, role: prim.role, layer: prim.layer, label, center: pt(prim.center, s, frame), r });
+          out.circles.push({ path: ppath, primitiveId: prim.id, role: prim.role, layer: prim.layer, label, center: pt(prim.center, s, frame), r, scope: s });
           continue;
         }
         const pts = dedupe(prim.points.map((xy) => pt(xy, s, frame)), prim.kind === "loop");
@@ -506,10 +774,11 @@ function evaluateInto(
           issue(out.issues, "error", "loop-collapsed", ppath, `${label} has collapsed to ${pts.length} point(s) — a thickness or size has gone to zero.`);
           continue;
         }
+        if (prim.kind === "path" && pts.length < 2) continue;
         if (prim.kind === "loop" && selfCrosses(pts)) {
           issue(out.issues, "error", "loop-self-crossing", ppath, `${label} crosses itself — a size is larger than the space it sits in.`);
         }
-        out.loops.push({ path: ppath, primitiveId: prim.id, role: prim.role, layer: prim.layer, label, points: pts, closed: prim.kind === "loop", draw: prim.draw !== false });
+        out.loops.push({ path: ppath, primitiveId: prim.id, role: prim.role, layer: prim.layer, label, points: pts, closed: prim.kind === "loop", draw: prim.draw !== false, scope: s });
       } catch (e) {
         issue(out.issues, "error", e instanceof ExprError ? "expr-error" : "primitive-error", ppath, `${prim.id}${suffix}: ${(e as Error).message}.`);
       }
@@ -518,7 +787,7 @@ function evaluateInto(
 
   const axis = applyFrameVector(frame, 1, 0);
   for (const d of def.dimensions ?? []) {
-    for (const { scope: s, suffix } of expand(d.repeat, scope, out.issues, path, `dimension ${d.id}`)) {
+    for (const { scope: s, strings, suffix } of expand(d.repeat, root, tables, out.issues, path, `dimension ${d.id}`)) {
       try {
         if (!enabled(d.when, s)) continue;
         const fx = evalExpr(d.from[0], s);
@@ -550,6 +819,10 @@ function evaluateInto(
           drives: d.drives,
           scopePath: path,
           axis,
+          prefix: d.prefix !== undefined ? interpolate(d.prefix, s, strings, labels) : undefined,
+          suffix: d.suffix !== undefined ? interpolate(d.suffix, s, strings, labels) : undefined,
+          hideValue: d.hideValue,
+          layer: d.layer ?? "dimension",
         });
       } catch (e) {
         issue(out.issues, "error", "dimension-error", path, `Dimension ${d.id}${suffix}: ${(e as Error).message}.`);
@@ -558,11 +831,20 @@ function evaluateInto(
   }
 
   for (const l of def.levels ?? []) {
-    for (const { scope: s, suffix } of expand(l.repeat, scope, out.issues, path, `level ${l.id}`)) {
+    for (const { scope: s, strings, suffix } of expand(l.repeat, root, tables, out.issues, path, `level ${l.id}`)) {
       try {
         if (!enabled(l.when, s)) continue;
         const side = l.side ?? "right";
-        out.levels.push({ path: joinPath(path, l.id + suffix), at: pt(l.at, s, frame), label: l.label, side: frame.mirror ? (side === "left" ? "right" : "left") : side });
+        out.levels.push({
+          path: joinPath(path, l.id + suffix),
+          at: pt(l.at, s, frame),
+          label: interpolate(l.label, s, strings, labels),
+          side: frame.mirror ? (side === "left" ? "right" : "left") : side,
+          style: l.style,
+          format: l.format,
+          symbol: l.symbol,
+          layer: l.layer ?? "level",
+        });
       } catch (e) {
         issue(out.issues, "error", "level-error", path, `Level ${l.id}${suffix}: ${(e as Error).message}.`);
       }
@@ -570,33 +852,87 @@ function evaluateInto(
   }
 
   for (const t of def.texts ?? []) {
-    for (const { scope: s, suffix } of expand(t.repeat, scope, out.issues, path, `text ${t.id}`)) {
+    for (const { scope: s, strings, suffix } of expand(t.repeat, root, tables, out.issues, path, `text ${t.id}`)) {
       try {
         if (!enabled(t.when, s)) continue;
-        out.texts.push({ path: joinPath(path, t.id + suffix), at: pt(t.at, s, frame), text: interpolate(t.text, s), height: t.height, align: t.align ?? "center", layer: t.layer ?? "text" });
+        let rotation = 0;
+        if (t.along) {
+          const a = pt(t.along[0], s, frame);
+          const b = pt(t.along[1], s, frame);
+          rotation = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+        } else if (t.rotate !== undefined) {
+          rotation = frameAngle(frame, evalExpr(t.rotate, s));
+        } else if (frame.sin !== 0 || frame.cos !== 1) {
+          rotation = frameAngle(frame, 0);
+        }
+        out.texts.push({
+          path: joinPath(path, t.id + suffix),
+          at: pt(t.at, s, frame),
+          text: interpolate(t.text, s, strings, labels),
+          height: t.height,
+          align: t.align ?? "center",
+          valign: t.valign,
+          rotation: readingDegrees(rotation),
+          bold: t.bold,
+          layer: t.layer ?? "text",
+        });
       } catch (e) {
         issue(out.issues, "error", "text-error", path, `Text ${t.id}${suffix}: ${(e as Error).message}.`);
       }
     }
   }
 
+  for (const l of def.leaders ?? []) {
+    for (const { scope: s, strings, suffix } of expand(l.repeat, root, tables, out.issues, path, `leader ${l.id}`)) {
+      try {
+        if (!enabled(l.when, s)) continue;
+        const pts = dedupe(l.points.map((xy) => pt(xy, s, frame)), false);
+        if (pts.length < 2) continue;
+        out.leaders.push({
+          path: joinPath(path, l.id + suffix),
+          points: pts,
+          text: interpolate(l.text, s, strings, labels),
+          height: l.height,
+          placement: l.placement ?? "end",
+          arrow: l.arrow ?? "arrow",
+          layer: l.layer ?? "leader",
+        });
+      } catch (e) {
+        issue(out.issues, "error", "leader-error", path, `Leader ${l.id}${suffix}: ${(e as Error).message}.`);
+      }
+    }
+  }
+
   // Hatches: every instance of the boundary loop, with the hole loops that lie inside it.
   const depthOf = (p: string) => (path ? path.split("/").length + 1 : 1) === p.split("/").length && p.startsWith(path ? path + "/" : "");
-  const myLoops = (primId: string): { path: string; label: string; points: Point[] }[] => [
+  const myLoops = (primId: string): { path: string; label: string; points: Point[]; scope?: Scope }[] => [
     ...out.loops.filter((l) => l.closed && l.primitiveId === primId && depthOf(l.path)),
     ...out.circles
       .filter((c) => c.primitiveId === primId && depthOf(c.path))
-      .map((c) => ({ path: c.path, label: c.label, points: ring(c.center, c.r) })),
+      .map((c) => ({ path: c.path, label: c.label, points: ring(c.center, c.r), scope: c.scope })),
   ];
   for (const h of def.hatches ?? []) {
-    try {
-      if (!enabled(h.when, scope)) continue;
-    } catch {
-      continue;
-    }
     const outers = myLoops(h.boundary);
     const holeLoops = (h.holes ?? []).flatMap((id) => myLoops(id));
     for (const [oi, o] of outers.entries()) {
+      const s = o.scope ?? scope;
+      let material: HatchMaterial | null;
+      let angle: number | undefined;
+      let hscale: number | undefined;
+      try {
+        if (!enabled(h.when, s)) continue;
+        if (typeof h.material === "string") material = h.material;
+        else {
+          const k = Math.round(evalExpr(h.material.pick, s));
+          material = h.material.from[k] ?? null;
+        }
+        angle = h.angle !== undefined ? frameAngle(frame, evalExpr(h.angle, s)) : undefined;
+        hscale = h.scale !== undefined ? evalExpr(h.scale, s) : undefined;
+      } catch (e) {
+        issue(out.issues, "error", "hatch-error", path, `Hatch ${h.id}: ${(e as Error).message}.`);
+        continue;
+      }
+      if (!material) continue;
       const holes: Point[][] = [];
       for (const hl of holeLoops) {
         const inside = hl.points.every((p) => pointInPolygon(p, o.points));
@@ -606,7 +942,7 @@ function evaluateInto(
         }
       }
       // One hatch per instance of a repeated boundary, each with its own stable id.
-      out.hatches.push({ path: joinPath(path, h.id + (outers.length > 1 ? `[${oi}]` : "")), outer: o.points, holes, material: h.material });
+      out.hatches.push({ path: joinPath(path, h.id + (outers.length > 1 || o.path.endsWith("]") ? `[${oi}]` : "")), outer: o.points, holes, material, angle, scale: hscale });
     }
   }
 
@@ -638,10 +974,11 @@ export function evaluateComponent(
 ): ComponentEvaluation {
   const out = emptyEvaluation(def.id);
   const globals = options.globals ?? {};
-  out.scope = evaluateInto(def, values, registry, frame, "", out, options.depth ?? 0, globals);
+  const inputs: ComponentInputs = { values, relations: options.relations, customValues: options.customValues, tables: options.tables };
+  out.scope = evaluateInto(def, inputs, registry, frame, "", out, options.depth ?? 0, globals);
 
   if (!options.skipOrientationCheck) {
-    const ref = evaluateComponent(def, {}, registry, frame, { skipOrientationCheck: true, globals });
+    const ref = evaluateComponent(def, {}, registry, frame, { skipOrientationCheck: true, globals, tables: options.tables });
     const refArea = new Map(ref.loops.filter((l) => l.closed).map((l) => [l.path, signedArea(l.points)]));
     for (const l of out.loops) {
       if (!l.closed) continue;

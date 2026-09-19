@@ -147,6 +147,8 @@ export interface TextAnnotation extends AnnotationBase {
   /** Paper millimetres; wraps words when set. */
   wrapWidth?: number;
   bold?: boolean;
+  /** Where `at` sits vertically on the text block. Default `top`. */
+  valign?: "top" | "middle" | "bottom";
 }
 
 export interface LeaderAnnotation extends AnnotationBase {
@@ -155,6 +157,14 @@ export interface LeaderAnnotation extends AnnotationBase {
   points: AnchorRef[];
   text: string;
   height: number;
+  /**
+   * `end` (default): a short landing, then the text beside it.
+   * `above`: the last segment is the shelf and the text sits on it — the usual
+   * GAD callout ("HAUNCH 600 X 600mm" written over its leader line).
+   */
+  placement?: "end" | "above";
+  /** Arrowhead at the tip (default), a dot (pointing into an area), or nothing. */
+  arrow?: "arrow" | "dot" | "none";
 }
 
 export type DimensionKind = "linear" | "aligned" | "angular" | "radius" | "diameter" | "ordinate";
@@ -184,6 +194,12 @@ export interface DimensionAnnotation extends AnnotationBase {
   textOverride?: string;
   prefix?: string;
   suffix?: string;
+  /**
+   * Draw the dimension line without its number — used when the value is
+   * written beside it in a note that reads from the same geometry (e.g.
+   * "4000 mm EARTH CUSHION"). Not an override: nothing contradicts the geometry.
+   */
+  hideValue?: boolean;
   /** Paper millimetres. */
   height?: number;
   /** Decimal places shown. */
@@ -205,6 +221,17 @@ export interface LevelAnnotation extends AnnotationBase {
   /** The value the author SAYS this level is (m); checked against geometry. */
   declaredValue?: number;
   height?: number;
+  /**
+   * `marker` (default): triangle standing on the level with "LABEL +RL".
+   * `gad`: the Indian Railways GAD callout — the text sits on the level line at
+   * its start, e.g. "PROP. FORMATION LEVEL = 105.000M." The line itself is
+   * drawn geometry; this only writes on it.
+   */
+  style?: "marker" | "gad";
+  /** Text template: `{label}`, `{rl}` (3 decimals), `{rl+}` (signed). */
+  format?: string;
+  /** Extra symbol after the text: water (HFL/LWL) or ground (bed). */
+  symbol?: "none" | "water" | "ground";
 }
 
 export type HatchMaterial =
@@ -220,6 +247,10 @@ export type HatchMaterial =
   | "rock"
   | "sand"
   | "ballast"
+  | "boulder"
+  | "gravel"
+  | "pitching"
+  | "granular"
   | "solid";
 
 export type HatchBoundary =

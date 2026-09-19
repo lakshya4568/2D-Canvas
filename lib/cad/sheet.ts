@@ -105,13 +105,16 @@ export function fitScale(w: number, h: number, pw: number, ph: number): number {
  * One viewport showing everything, at the largest standard scale that fits
  * the drawing area. The window is centred on the model.
  */
-export function autoSheet(id: string, name: string, size: PaperSize, modelPrims: DrawPrim[]): Sheet {
+export function autoSheet(id: string, name: string, size: PaperSize, modelPrims: DrawPrim[], preferredScale?: number): Sheet {
   const layout = sheetLayout(size);
   const b = primsBounds(modelPrims) ?? { minX: 0, minY: 0, maxX: 1000, maxY: 1000 };
   const title = 16;
   const w = b.maxX - b.minX;
   const h = b.maxY - b.minY;
-  const scale = fitScale(w * 1.04, h * 1.04, layout.drawArea.width, layout.drawArea.height - title);
+  const fit = fitScale(w * 1.04, h * 1.04, layout.drawArea.width, layout.drawArea.height - title);
+  // Text and arrows are sized for the annotation scale: plot at it whenever the drawing fits,
+  // or a 2.5 mm note comes out larger (or smaller) than 2.5 mm on paper.
+  const scale = preferredScale && preferredScale >= fit ? preferredScale : fit;
   const winW = layout.drawArea.width * scale;
   const winH = (layout.drawArea.height - title) * scale;
   const cx = (b.minX + b.maxX) / 2;

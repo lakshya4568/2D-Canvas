@@ -19,6 +19,7 @@ export type SourceKind =
   | "hydrology"
   | "geotechnical"
   | "site_record"
+  | "reference"
   | "template";
 
 export type Applicability = "confirmed" | "pending_review" | "unknown";
@@ -145,6 +146,28 @@ export const BUILTIN_SOURCES: SourceRecord[] = [
     projectApplicability: "unknown",
     summary: "Moving and fixed dimensions; required for any clearance claim. Not encoded — must be supplied per project.",
   },
+  // The team's own formula documentation (docs/bridge-formulas). It restates
+  // IRS/RDSO practice as formulas and checks; it is a working reference, not a
+  // code, so every rule citing it still says "requires review".
+  ...(
+    [
+      ["aagento-rcr", "01-rcc-box-railway.txt", "RCC box culvert (railway)", "IRS, RDSO 10152"],
+      ["aagento-hwb", "02-highway-rcc-box.txt", "RCC box culvert (highway)", "IRC, IRC:SP:13"],
+      ["aagento-hpc", "03-hume-pipe-culvert.txt", "Hume pipe culvert", "IRS, IS:458"],
+      ["aagento-psc", "04-psc-slab-bridge.txt", "PSC slab bridge", "IRS T-39, IRS Bridge Rules, RDSO/B-10271R, IS:1343"],
+      ["aagento-cg", "05-composite-girder.txt", "Composite girder bridge", "RDSO, IS:1343, IS:800"],
+      ["aagento-owg", "06-open-web-girder.txt", "Open web girder", "RDSO/B-10022"],
+      ["aagento-tpe", "07-parametric-template-engine.txt", "Parametric template engine", "—"],
+    ] as const
+  ).map(([id, file, title, refs]) => ({
+    id,
+    kind: "reference" as const,
+    title: `Aagento bridge formula documentation — ${title}`,
+    documentNumber: `docs/bridge-formulas/${file}`,
+    issuingAuthority: "Project engineering reference",
+    projectApplicability: "pending_review" as const,
+    summary: `Formulas, level chains and checks as practised on the project; cites ${refs}. Not a code — confirm the clause before relying on a limit.`,
+  })),
   {
     id: "template-default",
     kind: "template",

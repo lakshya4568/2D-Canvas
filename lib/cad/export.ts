@@ -84,7 +84,7 @@ export function titleBlockData(cad: CadDocState, sheet: Sheet): TitleBlockData {
 /** A sheet that shows the whole drawing, at the largest standard scale that fits. */
 export function defaultSheet(shapes: Shape[], cad: CadDocState, size: PaperSize = "A1"): Sheet {
   const n = cad.sheets.length + 1;
-  return autoSheet(`sheet-${n}`, cad.project.identity.drawingTitle || `Sheet ${n}`, size, drawingPrims(shapes, cad));
+  return autoSheet(`sheet-${n}`, cad.project.identity.drawingTitle || `Sheet ${n}`, size, drawingPrims(shapes, cad), cad.settings.annotationScale);
 }
 
 export function sheetPrims(sheet: Sheet, shapes: Shape[], cad: CadDocState): DrawPrim[] {

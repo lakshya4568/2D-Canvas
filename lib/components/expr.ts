@@ -83,11 +83,25 @@ export function orderByDependencies(items: { name: string; expr: Expr }[]): { or
   return { order, cyclic };
 }
 
-/** `{Name}`, `{Name:m}` (mm shown as m), `{Name:rl}` (level with sign), `{Name:0}` (fixed decimals). */
-export function interpolate(template: string, scope: Scope): string {
+/** Text values in scope (a table row's name column). */
+export type Strings = Record<string, string>;
+/** Option labels of choice values, for `{Name:label}`. */
+export type Labels = Record<string, { value: number; label: string }[]>;
+
+/**
+ * Fills a text template: `{Name}` (a value, or a text column), `{Name:m}` (mm
+ * shown as m), `{Name:rl}` (level with sign), `{Name:3}` (fixed decimals),
+ * `{Name:label}` (a choice's label). Unknown names stay visible as `{Name}`.
+ */
+export function interpolate(template: string, scope: Scope, strings: Strings = {}, labels: Labels = {}): string {
   return template.replace(/\{([A-Za-z_][A-Za-z0-9_]*)(?::([a-z0-9]+))?\}/g, (_m, name: string, fmt?: string) => {
+    if (!fmt && strings[name] !== undefined) return strings[name];
     const v = scope[name];
-    if (v === undefined || !Number.isFinite(v)) return `{${name}}`;
+    if (fmt === "label") {
+      const opt = labels[name]?.find((o) => o.value === v);
+      if (opt) return opt.label;
+    }
+    if (v === undefined || !Number.isFinite(v)) return strings[name] ?? `{${name}}`;
     if (fmt === "m") return (v / 1000).toFixed(3);
     if (fmt === "rl") return (v >= 0 ? "+" : "") + v.toFixed(3);
     if (fmt && /^\d$/.test(fmt)) return v.toFixed(Number(fmt));

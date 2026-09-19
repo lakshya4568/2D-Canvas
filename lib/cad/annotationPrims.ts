@@ -121,9 +121,9 @@ export function measureDimension(d: DimensionAnnotation, ctx: PrimContext): Dime
       value = d.axis === "y" ? levelAt(p1.y, ctx.settings) : p1.x - p2.x;
       break;
   }
-  const measured = `${prefix}${
-    d.kind === "angular" ? `${value.toFixed(Math.max(precision, 1))}°` : formatLength(value, precision)
-  }${d.suffix ?? ""}`;
+  const measured = d.hideValue
+    ? ""
+    : `${prefix}${d.kind === "angular" ? `${value.toFixed(Math.max(precision, 1))}°` : formatLength(value, precision)}${d.suffix ?? ""}`;
   if (d.textOverride && d.textOverride.trim() && d.textOverride.trim() !== measured) {
     return { value, text: `${d.textOverride.trim()}*`, overridden: true };
   }
@@ -244,6 +244,7 @@ function dimensionPrims(d: DimensionAnnotation, ctx: PrimContext): DrawPrim[] {
     }
   }
 
+  if (!m.text) return out;
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const rot = readingAngle(b.x - a.x, b.y - a.y);
   // Text sits on the side of the line facing up on the page.
@@ -301,7 +302,7 @@ function textPrims(t: TextAnnotation, ctx: PrimContext): DrawPrim[] {
       height: h,
       rotation: t.rotation ?? 0,
       align: t.align ?? "left",
-      baseline: "top",
+      baseline: t.valign ?? "top",
       bold: t.bold,
       ...style(t, "BRG-TEXT"),
     },
@@ -317,10 +318,32 @@ function leaderPrims(l: LeaderAnnotation, ctx: PrimContext): DrawPrim[] {
   const out: DrawPrim[] = [];
   const last = pts[pts.length - 1];
   const prev = pts[pts.length - 2];
+  const tip = pts[0];
+  const arrow = l.arrow ?? "arrow";
+  if (arrow === "arrow") out.push(arrowHead(tip, pts[1], ARROW_PAPER_MM * unit, st));
+  else if (arrow === "dot") out.push({ k: "dots", points: [tip], r: 0.45 * unit, ...st });
+
+  if (l.placement === "above") {
+    // The last segment is the shelf; the text is written on it, starting at its
+    // left end, so a shelf running left reads from its far end back to the bend.
+    out.push({ k: "polyline", points: pts, closed: false, ...st });
+    out.push({
+      k: "text",
+      x: Math.min(prev.x, last.x) + h * 0.3,
+      y: Math.min(prev.y, last.y) - h * 0.35,
+      text: l.text,
+      height: h,
+      rotation: 0,
+      align: "left",
+      baseline: "bottom",
+      ...st,
+    });
+    return out;
+  }
+
   const toRight = last.x >= prev.x;
   const landing = { x: last.x + (toRight ? 1 : -1) * h * 1.2, y: last.y };
   out.push({ k: "polyline", points: [...pts, landing], closed: false, ...st });
-  out.push(arrowHead(pts[0], pts[1], ARROW_PAPER_MM * unit, st));
   out.push({
     k: "text",
     x: landing.x + (toRight ? 1 : -1) * h * 0.4,
@@ -340,6 +363,16 @@ export function formatLevel(rl: number): string {
   return rl >= 0 ? `+${s}` : s;
 }
 
+/** A level callout's text from its template: `{label}`, `{rl}` (3 decimals), `{rl+}` (signed). */
+export function levelText(l: Pick<LevelAnnotation, "label" | "format" | "style">, rl: number): string {
+  const fmt = l.format ?? (l.style === "gad" ? "{label} = {rl}M." : "{label} {rl+}");
+  return fmt
+    .replace(/\{label\}/g, l.label ?? "")
+    .replace(/\{rl\+\}/g, formatLevel(rl))
+    .replace(/\{rl\}/g, rl.toFixed(3))
+    .trim();
+}
+
 function levelPrims(l: LevelAnnotation, ctx: PrimContext): DrawPrim[] {
   const at = resolveAnchor(l.at, ctx.shapes);
   if (!at) return [];
@@ -349,24 +382,62 @@ function levelPrims(l: LevelAnnotation, ctx: PrimContext): DrawPrim[] {
   const s = h * 1.1;
   const rl = levelAt(at.y, ctx.settings);
   const dir = l.side === "left" ? -1 : 1;
-  const label = `${l.label ? l.label + " " : ""}${formatLevel(rl)}`;
-  const w = textWidth(label, h) + h;
+  const label = levelText(l, rl);
+  const tw = textWidth(label, h);
+  const warn = l.declaredValue !== undefined && Math.abs(l.declaredValue - rl) > 0.0005 ? "#f59e0b" : undefined;
   const out: DrawPrim[] = [];
-  // Triangle standing on the level, tip down.
-  out.push({ k: "fill", points: [at, { x: at.x - s * 0.6, y: at.y - s }, { x: at.x + s * 0.6, y: at.y - s }], ...st });
-  out.push({ k: "line", x1: at.x, y1: at.y - s, x2: at.x + dir * w, y2: at.y - s, ...st });
-  out.push({
-    k: "text",
-    x: at.x + dir * h * 0.5,
-    y: at.y - s - h * 0.3,
-    text: label,
-    height: h,
-    rotation: 0,
-    align: dir > 0 ? "left" : "right",
-    baseline: "bottom",
-    ...st,
-    color: l.declaredValue !== undefined && Math.abs(l.declaredValue - rl) > 0.0005 ? "#f59e0b" : undefined,
-  });
+  let symbolX: number;
+  if (l.style === "gad") {
+    // Written on the level line, starting at the anchored end.
+    out.push({
+      k: "text",
+      x: at.x + dir * h * 0.2,
+      y: at.y - h * 0.35,
+      text: label,
+      height: h,
+      rotation: 0,
+      align: dir > 0 ? "left" : "right",
+      baseline: "bottom",
+      ...st,
+      color: warn,
+    });
+    symbolX = at.x + dir * (tw + h * 1.6);
+  } else {
+    const w = tw + h;
+    // Triangle standing on the level, tip down.
+    out.push({ k: "fill", points: [at, { x: at.x - s * 0.6, y: at.y - s }, { x: at.x + s * 0.6, y: at.y - s }], ...st });
+    out.push({ k: "line", x1: at.x, y1: at.y - s, x2: at.x + dir * w, y2: at.y - s, ...st });
+    out.push({
+      k: "text",
+      x: at.x + dir * h * 0.5,
+      y: at.y - s - h * 0.3,
+      text: label,
+      height: h,
+      rotation: 0,
+      align: dir > 0 ? "left" : "right",
+      baseline: "bottom",
+      ...st,
+      color: warn,
+    });
+    symbolX = at.x + dir * (w + h * 1.2);
+  }
+  if (l.symbol === "water") {
+    // Inverted triangle on the water line, and the receding surface lines under it.
+    const t = h * 0.9;
+    out.push({ k: "fill", points: [{ x: symbolX, y: at.y }, { x: symbolX - t * 0.6, y: at.y - t }, { x: symbolX + t * 0.6, y: at.y - t }], ...st });
+    for (let i = 1; i <= 3; i++) {
+      const half = t * (0.9 - i * 0.22);
+      const y = at.y + i * t * 0.32;
+      out.push({ k: "line", x1: symbolX - half, y1: y, x2: symbolX + half, y2: y, ...st });
+    }
+  } else if (l.symbol === "ground") {
+    // Three small inverted Vs under the bed line.
+    const t = h * 0.35;
+    for (let i = -1; i <= 1; i++) {
+      const cx = symbolX + i * t * 1.4;
+      out.push({ k: "polyline", points: [{ x: cx - t * 0.5, y: at.y + t * 1.3 }, { x: cx, y: at.y }, { x: cx + t * 0.5, y: at.y + t * 1.3 }], closed: false, ...st });
+    }
+  }
   return out;
 }
 

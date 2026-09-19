@@ -9,8 +9,9 @@ import type { ComponentDefinition } from "../types";
 import { makeRegistry } from "../instantiate";
 import { STRUCTURE_COMPONENTS } from "./structures";
 import { ASSEMBLIES } from "./assemblies";
+import { CULVERT_VIEWS } from "./culverts";
 
-export const COMPONENT_LIBRARY: ComponentDefinition[] = [...ASSEMBLIES, ...STRUCTURE_COMPONENTS];
+export const COMPONENT_LIBRARY: ComponentDefinition[] = [...CULVERT_VIEWS, ...ASSEMBLIES, ...STRUCTURE_COMPONENTS];
 
 export const componentRegistry = makeRegistry(COMPONENT_LIBRARY);
 
@@ -18,4 +19,4 @@ export function findDefinition(id: string): ComponentDefinition | undefined {
   return componentRegistry.get(id);
 }
 
-export { STRUCTURE_COMPONENTS, ASSEMBLIES };
+export { STRUCTURE_COMPONENTS, ASSEMBLIES, CULVERT_VIEWS };

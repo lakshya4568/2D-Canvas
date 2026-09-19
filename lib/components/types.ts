@@ -71,6 +71,12 @@ export interface ComponentParameter {
    * Template defaults are drafting aids only (railway guide §1.3).
    */
   sourceRequired?: boolean;
+  /**
+   * An "auto" value: until someone types a number, the parameter follows this
+   * expression (e.g. rail level = formation level + 0.762). Typing a value
+   * takes it over; clearing the value hands it back to the expression.
+   */
+  defaultExpr?: Expr;
 }
 
 export interface ComponentFormula {
@@ -82,12 +88,45 @@ export interface ComponentFormula {
   group?: string;
   /** Shown in the Run form as a read-only derived value. */
   report?: boolean;
+  /** Formula ids in the bridge knowledge base this implements (e.g. "RCR-LVL-002"). */
+  cites?: string[];
 }
 
-/** Repeats a primitive or child: the index variable is visible to every expression inside. */
-export interface RepeatSpec {
-  count: Expr;
-  index: string;
+/**
+ * Repeats a primitive or child: the index variable is visible to every
+ * expression inside. A table repeat runs once per row, and each row's columns
+ * are visible as `<Table>_<column>` (plus `<Table>_before_<column>`, the sum
+ * over the rows above — a stack of layers is placed with it).
+ */
+export type RepeatSpec = { count: Expr; index: string; table?: undefined } | { table: string; index: string; count?: undefined };
+
+/** A column of a table value. */
+export interface TableColumn {
+  name: string;
+  label?: string;
+  kind: "number" | "text" | "choice";
+  unit?: "mm" | "m" | "-";
+  default: number | string;
+  options?: { value: number; label: string }[];
+}
+
+export type TableRow = Record<string, number | string>;
+
+/**
+ * A list-valued parameter: rows of named columns (foundation layers, span
+ * arrangement, strata). Numeric columns are summed into `<Table>_sum_<column>`
+ * and the row count is `<Table>_count`; a repeat with `table` walks the rows.
+ */
+export interface TableDef {
+  name: string;
+  label?: string;
+  group?: string;
+  description?: string;
+  columns: TableColumn[];
+  /** Default rows. */
+  rows: TableRow[];
+  minRows?: number;
+  maxRows?: number;
 }
 
 interface PrimitiveBase {
@@ -139,6 +178,13 @@ export interface AnchorDef {
 export interface DimensionDef {
   id: string;
   kind: "horizontal" | "vertical" | "aligned" | "radius" | "diameter";
+  /** Text before / after the measured number, e.g. "V.C. " (the number is still measured). */
+  prefix?: string;
+  suffix?: string;
+  /** Draw the line without the number (the value is written in a note beside it). */
+  hideValue?: boolean;
+  /** Layer category; default "dimension". */
+  layer?: LayerCategory;
   from: XY;
   to: XY;
   /**
@@ -157,8 +203,16 @@ export interface LevelDef {
   id: string;
   /** The marked point; its Y is the level (reduced level = Y/1000 + datum). */
   at: XY;
+  /** Words of the callout; `{Name}` placeholders are filled from values. */
   label: string;
   side?: "left" | "right";
+  /** `marker` (triangle) or `gad` (text written on the level line). */
+  style?: "marker" | "gad";
+  /** `{label}`, `{rl}`, `{rl+}` — see LevelAnnotation.format. */
+  format?: string;
+  symbol?: "none" | "water" | "ground";
+  /** Layer category; default "level". */
+  layer?: LayerCategory;
   repeat?: RepeatSpec;
   when?: Expr;
 }
@@ -169,20 +223,55 @@ export interface HatchDef {
   boundary: string;
   /** Loop primitive ids cut out of the fill (every instance). */
   holes?: string[];
-  material: HatchMaterial;
+  /**
+   * The material, or a pick from a list by an expression evaluated for each
+   * boundary instance (e.g. a table row's hatch column); `null` = not hatched.
+   */
+  material: HatchMaterial | { pick: Expr; from: (HatchMaterial | null)[] };
+  /** Pattern angle in degrees (paper, counter-clockwise), e.g. along a slope. */
+  angle?: Expr;
+  /** Pattern spacing multiplier. */
+  scale?: Expr;
+  /** Evaluated for each boundary instance, with that instance's repeat index. */
   when?: Expr;
 }
 
 export interface TextDef {
   id: string;
   at: XY;
-  /** `{Name}` is replaced by the value; `{Name:m}` shows mm as metres, `{Name:rl}` a level. */
+  /**
+   * `{Name}` is replaced by the value; `{Name:m}` shows mm as metres,
+   * `{Name:rl}` a signed level, `{Name:3}` fixed decimals, `{Name:label}` a
+   * choice's label. `\n` starts a new line.
+   */
   text: string;
+  /** Paper millimetres. */
   height?: number;
   align?: "left" | "center" | "right";
+  valign?: "top" | "middle" | "bottom";
+  bold?: boolean;
+  /** Degrees, counter-clockwise, in the component frame. */
+  rotate?: Expr;
+  /** Write along this direction (reading angle of from→to); overrides `rotate`. */
+  along?: [XY, XY];
   repeat?: RepeatSpec;
   when?: Expr;
   layer?: LayerCategory;
+}
+
+/** A callout: arrow at the first point, elbows, text at (or on) the last segment. */
+export interface LeaderDef {
+  id: string;
+  points: XY[];
+  text: string;
+  /** Paper millimetres. */
+  height?: number;
+  placement?: "end" | "above";
+  arrow?: "arrow" | "dot" | "none";
+  /** Layer category; default "leader". */
+  layer?: LayerCategory;
+  repeat?: RepeatSpec;
+  when?: Expr;
 }
 
 export type InvariantOp = ">" | ">=" | "<" | "<=";
@@ -230,6 +319,8 @@ export interface ChildDef {
   component: string;
   /** Child parameter name → expression in the PARENT scope. */
   values?: Record<string, Expr>;
+  /** Child table name → the parent table whose rows it takes. */
+  tables?: Record<string, string>;
   place?: Placement;
   attach?: Attachment;
   repeat?: RepeatSpec;
@@ -251,6 +342,12 @@ export interface ComponentDefinition {
   semanticType: string;
   /** Which drawing view the geometry belongs to. */
   view: "section" | "elevation" | "plan" | "detail";
+  /**
+   * The scale this view is conventionally drawn at (100 = 1:100). The first
+   * assembly placed on an empty drawing sets the annotation scale from it, so
+   * text and arrows come out the size the drawing was designed for.
+   */
+  drawingScale?: number;
   description: string;
   version: string;
   tags?: string[];
@@ -264,9 +361,39 @@ export interface ComponentDefinition {
   levels?: LevelDef[];
   hatches?: HatchDef[];
   texts?: TextDef[];
+  leaders?: LeaderDef[];
+  tables?: TableDef[];
   invariants?: InvariantDef[];
   children?: ChildDef[];
   facts?: FactDef[];
+  /**
+   * Where a drawing's own component came from. `drawn`: made parametric from
+   * free geometry; the relationships written on its last instance are kept
+   * here when it is turned back into geometry, so re-making it keeps them.
+   */
+  origin?: { kind: "drawn"; relations?: Relationship[]; customValues?: CustomValue[] };
+}
+
+export type ValueUnit = "mm" | "m" | "deg" | "-" | "m2";
+
+/** A value someone added to a placed component: a new input their relationships can use. */
+export interface CustomValue {
+  name: string;
+  value: number;
+  unit: ValueUnit;
+  label?: string;
+}
+
+/**
+ * A relationship someone wrote: `name = expr`. If `name` is one of the
+ * component's values, that value stops being typed and follows the expression;
+ * otherwise it is a new worked-out value, reported beside the others.
+ */
+export interface Relationship {
+  name: string;
+  expr: string;
+  unit?: ValueUnit;
+  label?: string;
 }
 
 /** A component placed in a drawing. */
@@ -288,4 +415,10 @@ export interface ComponentInstance {
    */
   absoluteElevation?: boolean;
   locked?: boolean;
+  /** Relationships added to this instance (Author mode). */
+  relations?: Relationship[];
+  /** Inputs added to this instance for its relationships. */
+  customValues?: CustomValue[];
+  /** Rows of the definition's tables; a table not listed uses its default rows. */
+  tables?: Record<string, TableRow[]>;
 }

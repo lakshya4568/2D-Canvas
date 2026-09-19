@@ -16,7 +16,7 @@
 import type { Point } from "@/lib/geometry/types";
 import type { DrawPrim, PrimStyle } from "./drawList";
 import type { HatchMaterial } from "./types";
-import { clipLineToRegion, pointInRegion, polygonBounds } from "./geometry";
+import { clipLineToRegion, clipSegmentToRegion, pointInRegion, polygonBounds } from "./geometry";
 
 interface PatternSpec {
   /** Paper mm between pattern rows. */
@@ -37,6 +37,10 @@ export const HATCH_MATERIALS: Record<HatchMaterial, PatternSpec> = {
   rock: { spacing: 3, label: "Rock" },
   sand: { spacing: 1.2, label: "Sand" },
   ballast: { spacing: 2.4, label: "Ballast" },
+  boulder: { spacing: 1.6, label: "Boulder / dry rubble (honeycomb)" },
+  gravel: { spacing: 2.2, label: "Gravel / granular filling" },
+  pitching: { spacing: 1.4, label: "Stone pitching (ovals along the slope)" },
+  granular: { spacing: 1.8, label: "Granular layer (vertical dashes)" },
   solid: { spacing: 1, label: "Solid fill" },
 };
 
@@ -116,6 +120,68 @@ function stipple(outer: Point[], holes: Point[][], spacing: number, seed: string
   return pts;
 }
 
+/** Honeycomb cells clipped to the region — boulder / dry rubble fill. */
+function honeycomb(outer: Point[], holes: Point[][], spacing: number): number[] {
+  const rings = [outer, ...holes];
+  const b = polygonBounds(outer);
+  const w = spacing;
+  const r = w / Math.sqrt(3);
+  const rowH = r * 1.5;
+  const segs: number[] = [];
+  let row = 0;
+  for (let y = b.minY - r; y <= b.maxY + r; y += rowH, row++) {
+    const shift = row % 2 === 0 ? 0 : w / 2;
+    for (let x = b.minX - w + shift; x <= b.maxX + w; x += w) {
+      for (let k = 0; k < 6; k++) {
+        const a0 = (Math.PI / 3) * k - Math.PI / 6;
+        const a1 = a0 + Math.PI / 3;
+        const p = { x: x + r * Math.cos(a0), y: y + r * Math.sin(a0) };
+        const q = { x: x + r * Math.cos(a1), y: y + r * Math.sin(a1) };
+        for (const [c, e] of clipSegmentToRegion(p, q, rings)) segs.push(c.x, c.y, e.x, e.y);
+      }
+      if (segs.length > MAX_PATTERN_ITEMS * 4) return segs;
+    }
+  }
+  return segs;
+}
+
+/**
+ * Stone pitching: staggered rows of ovals laid along `angleDeg` (the slope), each
+ * kept only when it sits wholly inside the region.
+ */
+function pitchingOvals(outer: Point[], holes: Point[][], spacing: number, angleDeg: number): Point[][] {
+  const b = polygonBounds(outer);
+  const a = (angleDeg * Math.PI) / 180;
+  // Canvas y is down: a paper angle turns the other way.
+  const u = { x: Math.cos(a), y: -Math.sin(a) };
+  const v = { x: -u.y, y: u.x };
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  const half = Math.hypot(b.maxX - b.minX, b.maxY - b.minY) / 2;
+  const rx = spacing * 0.9;
+  const ry = spacing * 0.42;
+  const stepU = rx * 2.3;
+  const stepV = ry * 2.6;
+  const out: Point[][] = [];
+  let row = 0;
+  for (let t = -half; t <= half; t += stepV, row++) {
+    const shift = row % 2 === 0 ? 0 : stepU / 2;
+    for (let s = -half + shift; s <= half; s += stepU) {
+      const c = { x: cx + u.x * s + v.x * t, y: cy + u.y * s + v.y * t };
+      const ring: Point[] = [];
+      for (let k = 0; k < 14; k++) {
+        const th = (k / 14) * Math.PI * 2;
+        const lx = rx * Math.cos(th);
+        const ly = ry * Math.sin(th);
+        ring.push({ x: c.x + u.x * lx + v.x * ly, y: c.y + u.y * lx + v.y * ly });
+      }
+      if (ring.every((p) => pointInRegion(p, outer, holes))) out.push(ring);
+      if (out.length > MAX_PATTERN_ITEMS / 14) return out;
+    }
+  }
+  return out;
+}
+
 /**
  * The primitives that draw one hatch.
  *
@@ -187,6 +253,27 @@ export function hatchPrims(
       for (const p of pts) out.push({ k: "circle", cx: p.x, cy: p.y, r: 0.35 * unit, ...style });
       break;
     }
+    case "boulder":
+      out.push({ k: "segments", segs: honeycomb(outer, holes, s), ...style });
+      break;
+    case "gravel": {
+      // Pebbles of a few sizes with fine grit between them.
+      const r = rng(seed + "#gravel");
+      for (const p of stipple(outer, holes, s * 1.4, seed)) {
+        const rad = (0.25 + r() * 0.3) * unit;
+        if (pointInRegion({ x: p.x + rad, y: p.y }, outer, holes) && pointInRegion({ x: p.x - rad, y: p.y }, outer, holes)) {
+          out.push({ k: "circle", cx: p.x, cy: p.y, r: rad, ...style });
+        }
+      }
+      out.push({ k: "dots", points: stipple(outer, holes, s * 0.7, seed + "#grit"), r: 0.12 * unit, ...style });
+      break;
+    }
+    case "pitching":
+      for (const ring of pitchingOvals(outer, holes, s, angle)) out.push({ k: "polyline", points: ring, closed: true, ...style });
+      break;
+    case "granular":
+      out.push({ k: "segments", segs: hatchLines(outer, holes, 90 + angle, s, [s * 1.6, s * 1.0]), ...style });
+      break;
     case "masonry":
     case "brick": {
       out.push({ k: "segments", segs: hatchLines(outer, holes, angle, s), ...style });
