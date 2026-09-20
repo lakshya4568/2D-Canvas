@@ -1,0 +1,136 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge System: Seismic Design, Bearings, Restrainers & Seating Widths
+Standard References: RDSO Report BS-118 (Version 1.0, Nov 2015), IS:1893, IRC:6, IRS Bridge Rules
+Module: lib/bridge (cites: SEI-COE-*, SEI-SEAT-*, SEI-REST-*, SEI-SEP-*, SEI-BEAR-*, SEI-HYD-*, SEI-EAR-*)
+================================================================================
+
+PURPOSE
+-------
+Earthquake ground vibrations induce horizontal and vertical dynamic inertia forces on
+railway bridge superstructures, bearings, piers, abutments, and foundations. This document
+formalises the design equations, seismic zone factors, soil spectrum coefficients,
+minimum bearing seating widths (shelf dimensions), and restraint detailing prescribed
+by RDSO Guidelines on Seismic Design of Railway Bridges (BS-118, 2015).
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter                  Unit    Description
+---------                  ----    -----------
+seismic.zone               enum    "II" | "III" | "IV" | "V"
+seismic.importance_class   enum    "category_1" (I=1.5) | "category_2" (I=1.25) | "other" (I=1.0)
+seismic.soil_type          enum    "type_1" (Rock/Hard) | "type_2" (Medium) | "type_3" (Soft)
+bridge.superstructure_L    m       Length of superstructure span to adjacent expansion joint
+pier.height_Hp             m       Height of pier/column from base of foundation or pile cap (m)
+hydraulics.hfl             m       High flood level (elevation)
+bearing.type               enum    "elastomeric" | "pot_ptfe" | "sliding" | "roller_rocker"
+bridge.is_culvert          boolean True for box culverts and pipe culverts
+
+
+SECTION 2: SEISMIC COEFFICIENTS & SCOPE EXEMPTIONS
+----------------------------------------------------
+
+--- FORMULA SEI-COE-001 ---
+Name:         Elastic Seismic Acceleration Coefficient (BS-118 Clause 7.1)
+Formula:      A_h = (Z / 2) * I * (Sa_g)
+Parameters:
+  Z (Zone factor, Table 3):
+    Zone II = 0.10, Zone III = 0.16, Zone IV = 0.24, Zone V = 0.36
+    Near fault (< 10 km from active fault): Z_effective = 1.20 * Z
+  I (Importance factor, Table 4):
+    Category I = 1.5  (Important bridges irrespective of route; Major bridges on Group A, B, C)
+    Category II = 1.25 (Major bridges on other routes; Other bridges on Group A, B, C)
+    Other bridges = 1.0
+  Sa_g (Response Spectrum Acceleration Coefficient, 5% damping):
+    Type I (Rock, N > 30):
+      Sa_g = 2.50 (T < 0.40s), 1.00 / T (0.40 <= T <= 3.00s), 0.33 (T > 3.00s)
+    Type II (Medium, 10 <= N <= 30):
+      Sa_g = 2.50 (T < 0.55s), 1.36 / T (0.55 <= T <= 3.00s), 0.45 (T > 3.00s)
+    Type III (Soft, N < 10):
+      Sa_g = 2.50 (T < 0.67s), 1.67 / T (0.67 <= T <= 3.00s), 0.56 (T > 3.00s)
+Output:       A_h [-]  Horizontal seismic design acceleration coefficient
+
+--- FORMULA SEI-COE-002 ---
+Name:         Culvert & Small Bridge Seismic Analysis Exemption (BS-118 Clauses 4.4, 4.5)
+Rule:
+  1. Box culverts and pipe culverts NEED NOT be analysed for seismic forces (Clause 4.4).
+  2. In Zones II & III, bridges with overall length < 60 m or spans < 15 m need not be analysed (Clause 4.5(a)).
+  3. Single span bridges up to 30 m span need not be analysed (Clause 4.5(b)).
+  CRITICAL: Even when analysis is exempted, bridges MUST provide:
+    (i) Minimum seating width W (Clause 14.3)
+    (ii) Connections designed for elastic seismic force from superstructure.
+
+
+SECTION 3: MINIMUM SEATING WIDTH AT SUPPORTS
+----------------------------------------------
+
+--- FORMULA SEI-SEAT-001 ---
+Name:         Minimum Seating Width at Supports (BS-118 Clause 14.3)
+Formula:      Zones II and III:
+                W_min = 300 + 1.5 * L + 6.0 * Hp   (mm)
+              Zones IV and V:
+                W_min = 500 + 2.5 * L + 10.0 * Hp  (mm)
+Parameters:
+  L  = Length in metres of superstructure to the adjacent expansion joint
+  Hp = Height in metres of column or pier.
+       For abutments: Hp is average height of all columns to next joint;
+       for single span bridges: Hp = 0.
+Output:       W_min [mm]  Minimum bearing shelf seating dimension normal to face of support
+Explanation:
+  Prevents span unseating and catastrophic span loss during severe earthquake ground shaking.
+  Measured from the closest end of the girder to the edge of the pier cap/abutment seat.
+
+
+SECTION 4: BEARINGS, RESTRAINERS & EXPANSION GAPS
+---------------------------------------------------
+
+--- FORMULA SEI-REST-001 ---
+Name:         Seismic Restrainers & Reaction Blocks (BS-118 Clause 11.3.2.4)
+Formula:      F_restrainer = 1.5 * A_h * W_trib
+Parameters:
+  W_trib = Tributary weight of superstructure supported at that pier/abutment
+  A_h    = Elastic horizontal seismic coefficient
+Output:       F_restrainer [kN]  Design horizontal capacity of concrete seismic stopper / shear key
+Rule:         Reaction blocks restrain lateral and longitudinal dislodgement of girders if
+              bearings shear or walk under extreme dynamic cyclic displacement.
+
+--- FORMULA SEI-SEP-001 ---
+Name:         Separation Clearance at Expansion Joints (BS-118 Clause 14.2.1)
+Formula:      clearance_joint >= sqrt(Delta_1^2 + Delta_2^2)
+Parameters:
+  Delta_1, Delta_2 = Elastic lateral/longitudinal displacements of the two adjacent units
+Output:       clearance_joint [mm]
+Explanation:
+  Prevents adjacent bridge decks from pounding against one another during out-of-phase shaking.
+
+--- FORMULA SEI-BEAR-001 ---
+Name:         Elastomeric Bearing Seismic Shear Strain Limits (BS-118 Clause 17.7.2)
+Formula:      gamma_c <= 2.5                   (compression strain)
+              gamma_c + gamma_ss + gamma_r <= 5.0 (non-seismic combination)
+              gamma_c + gamma_seq + 0.5 * gamma_r <= 5.5 (seismic combination)
+Parameters:
+  gamma_c   = 3 * S1 * P / (2 * Ar * G * (1 + 2 * k * S1^2))
+  gamma_seq = d_i / Tr  (seismic lateral displacement divided by total elastomer thickness)
+  gamma_r   = B^2 * theta / (2 * t_i * Tr)  (rotation strain)
+
+
+SECTION 5: HYDRODYNAMIC & DYNAMIC EARTH PRESSURE
+--------------------------------------------------
+
+--- FORMULA SEI-HYD-001 ---
+Name:         Hydrodynamic Force on Submerged Pier (BS-118 Clause 12.2)
+Formula:      F_hydro = Ce * A_h * W_e
+Parameters:
+  Ce  = Submergence coefficient (Table 8, 0.39 to 0.73 based on H / radius)
+  W_e = Weight of water in a hypothetical enveloping cylinder circumscribing the pier
+Output:       F_hydro [kN]  Horizontal force applied at 3/7 of submerged depth from river bed
+
+--- FORMULA SEI-EAR-001 ---
+Name:         Dynamic Earth Pressure on Abutments (Mononobe-Okabe, BS-118 Appendix F)
+Formula:      E_AE = 0.5 * gamma * H^2 * (1 +- A_v) * K_AE
+              theta = atan(A_h / (1 +- A_v))
+              A_v = (2 / 3) * A_h
+Rule:         Dynamic earth pressure increment is applied at mid-height (0.5 H) of the
+              abutment wall, while static active earth pressure is applied at H / 3.

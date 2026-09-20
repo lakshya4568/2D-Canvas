@@ -1,0 +1,159 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge System: Substructures — Piers, Abutments, Bed Blocks & Weep Holes
+Standard References: IRBM-2024 (Paras 207, 221, 601–606, Annexures 6/1, 6/2, 6/3), IRS Substructure Code
+Module: lib/bridge (cites: SUB-BAT-*, SUB-ABT-*, SUB-WNG-*, SUB-RET-*, SUB-DRN-*, SUB-BCK-*, SUB-BLK-*)
+================================================================================
+
+PURPOSE
+-------
+Substructures transmit vertical and lateral loads (dead load, train live load,
+braking/tractive force, wind, seismic, centrifugal force, hydrodynamic flow, and
+earth pressure) from the bridge superstructure to the foundation. This document
+formalises the geometry, batter ratios, clearances, drainage, and backfill rules
+governing piers, abutments, wing walls, return walls, and bed blocks according
+to the Indian Railways Bridge Manual (IRBM-2024).
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter                  Unit    Description
+---------                  ----    -----------
+pier.height                mm      Total height of pier shaft from foundation/well cap to pier cap
+pier.top_width             mm      Width of pier top along bridge transverse axis
+pier.top_thickness         mm      Thickness of pier top along bridge longitudinal axis
+pier.batter_ratio          ratio   Transverse batter ratio (1 in 12 to 1 in 24)
+abutment.height            mm      Height of abutment stem from foundation top to bed block
+abutment.front_batter      ratio   Front face batter ratio (1 in 10 to 1 in 16)
+abutment.ballast_wall_h    mm      Height of ballast wall above bed block
+abutment.ballast_wall_t    mm      Thickness of ballast wall (typically 450–600 mm)
+wing.splay_angle           deg     Splay angle of wing walls relative to track axis (typically 30° to 45°)
+wing.embankment_slope      ratio   Slope of approach embankment (typically 1.5:1 or 2:1, H:V)
+backfill.boulder_thickness mm      Thickness of hand-packed boulder backing behind wall (min 600 mm)
+bed_block.thickness        mm      Depth of in-situ RCC through bed block (min 300–450 mm)
+bearing.pedestal_spacing   mm      Centre-to-centre distance between girder bearings
+
+
+SECTION 2: PIER GEOMETRY & BATTER FORMULAS
+--------------------------------------------
+
+--- FORMULA SUB-BAT-001 ---
+Name:         Masonry / Mass Concrete Pier Batter
+Formula:      batter_H = 1
+              batter_V in [12, 24]   (i.e. 1 in 12 to 1 in 24, IRBM Para 604(1)(b))
+              pier_base_thickness = pier_top_thickness + 2 * (pier_height / batter_V)
+Output:       pier_base_thickness [mm]  Longitudinal thickness at bottom of pier shaft
+Explanation:
+  Piers taper upwards to reduce self-weight and material while widening at the base
+  for flexural moment capacity. The transverse batter is symmetric about the pier
+  vertical axis.
+
+--- FORMULA SUB-BAT-002 ---
+Name:         Pier Top Width along Transverse Axis
+Formula:      pier_top_width = bearing_spacing + 2 * bearing_width + 2 * edge_clearance
+Output:       pier_top_width [mm]
+Constraint:   edge_clearance >= 250 mm to resist diagonal shear under bearing reaction
+              (IRBM Para 604(1)(b), BS-118 Clause 14.3).
+
+--- FORMULA SUB-BAT-003 ---
+Name:         Pier Types (Annexure 6/1)
+Description:
+  1. Mass Concrete Pier: Solid rectangular or rounded ends, battered 1:12 to 1:24.
+  2. RCC Framed Type Pier: Two or more columns with tie beams and top capping beam.
+  3. Hammerhead Pier: Slender vertical shaft with cantilevered pier cap supporting bearings.
+  4. Cellular Type Pier: Hollow concrete box sections with diaphragms for tall viaducts (>30 m).
+
+
+SECTION 3: ABUTMENT GEOMETRY FORMULAS
+---------------------------------------
+
+--- FORMULA SUB-ABT-001 ---
+Name:         Abutment Front Batter & Base Width
+Formula:      front_batter_V in [10, 16]   (1 in 10 to 1 in 16, IRBM Para 604(1)(c))
+              front_spread = abutment_height / front_batter_V
+              base_width >= 0.4 * abutment_height   (Gravity stability rule)
+              rear_profile = stepped or battered to keep resultant within middle third/three-fourths
+Output:       abutment_base_width [mm]
+
+--- FORMULA SUB-ABT-002 ---
+Name:         Ballast Wall (Back Wall) Dimensions
+Formula:      ballast_wall_top_y = formation_level * 1000 - sleeper_thickness
+              ballast_wall_height = ballast_wall_top_y - bed_block_top_y
+              ballast_wall_thickness in [450, 600] mm
+Output:       ballast_wall_height [mm], ballast_wall_thickness [mm]
+Explanation:
+  The ballast wall retains approach embankment ballast and prevents it from falling
+  onto the bearing shelf and bridge seats.
+
+--- FORMULA SUB-ABT-003 ---
+Name:         Abutment Types (Annexure 6/2)
+Description:
+  1. Mass Concrete / Gravity Abutment: Front batter with stepped rear face.
+  2. Buried / Spill-Through Abutment: Earth slope spills forward around columns where
+     waterway is non-critical.
+  3. Box Return (U-Abutment): Monolithic return walls extending straight back.
+  4. Counterfort Abutment: Thin reinforced wall slab with vertical triangular ribs.
+
+
+SECTION 4: WING WALLS & RETURN WALLS FORMULAS
+-----------------------------------------------
+
+--- FORMULA SUB-WNG-001 ---
+Name:         Splayed Wing Wall Geometry & Length
+Formula:      delta_H = formation_level - bed_level    (in metres)
+              embankment_run = delta_H * embankment_slope_H
+              wing_length = embankment_run / cos(splay_angle)
+Output:       wing_length [mm]
+Explanation:
+  Splayed wing walls guide river flow smoothly into the bridge opening while
+  retaining the 1.5:1 or 2:1 approach bank slopes. The top coping follows the slope
+  down to the natural ground level or bed level.
+
+--- FORMULA SUB-RET-001 ---
+Name:         Parallel Return Wall Length & Stepping
+Formula:      return_length = delta_H * embankment_slope_H
+              coping_slope = 1 / embankment_slope_H
+              stepped_footing_levels = stepped at 1 m to 1.5 m intervals to suit rock/soil strata
+Output:       return_length [mm]
+Explanation:
+  Return walls run parallel to the railway track. They are preferred on high banks
+  or where right-of-way is restricted (IRBM Para 604(2)(b)). Butt joints must be
+  provided between wing walls and abutments to accommodate differential settlement.
+
+
+SECTION 5: DRAINAGE, WEEP HOLES & BACKFILL
+--------------------------------------------
+
+--- FORMULA SUB-DRN-001 ---
+Name:         Weep Hole Grid Layout (IRBM Paras 207, 605)
+Formula:      weep_pitch_x = 1000 mm   (horizontal spacing)
+              weep_pitch_y = 1000 mm   (vertical spacing, staggered)
+              weep_dia     = 100 mm (or 75 mm min)
+              weep_min_y   = max(bed_level * 1000 + 250, lwl * 1000, fsl * 1000)
+Output:       Weep hole array coordinates
+Rule:         The lowest row of weep holes must be at least 250 mm above normal bed
+              level, above low water level (LWL) in streams, and above full supply level (FSL) in canals.
+
+--- FORMULA SUB-BCK-001 ---
+Name:         Hand-Packed Boulder Backing (IRBM Para 605(3), Annexure 6/3)
+Formula:      boulder_thickness >= 600 mm for the full height of abutments and wing walls.
+              backfill_filter = granular material of GW, GP, SW groups (IS:1498), free of clay.
+Output:       boulder_thickness [mm]
+Rule:         Weep holes must be backed with hand-packed boulders to prevent fine backfill
+              particles from washing through and choking drainage paths.
+
+
+SECTION 6: BED BLOCKS & BEARINGS
+----------------------------------
+
+--- FORMULA SUB-BLK-001 ---
+Name:         Through RCC Bed Block Dimensions (IRBM Paras 221, 514)
+Formula:      bed_block_thickness in [300, 600] mm (typically 450 mm for BG bridges)
+              bed_block_width = pier_top_width
+              bed_block_length = pier_top_thickness
+              concrete_grade >= M-25
+Output:       bed_block_thickness [mm]
+Rule:         Independent isolated bed blocks are prone to shaking under dynamic train
+              impact. Indian Railways requires continuous through RCC bed blocks under all
+              bearings to prevent cracking and distribute reaction evenly into the substructure.

@@ -146,6 +146,38 @@ export const BUILTIN_SOURCES: SourceRecord[] = [
     projectApplicability: "unknown",
     summary: "Moving and fixed dimensions; required for any clearance claim. Not encoded — must be supplied per project.",
   },
+  {
+    id: "irbm-605",
+    ...IRBM,
+    clause: "Para 605",
+    summary: "Weep holes at 1 m x 1 m staggered; hand-packed boulder backing >= 600 mm thick with granular backfill (GW, GP, SW).",
+  },
+  {
+    id: "irbm-810",
+    ...IRBM,
+    clause: "Para 810",
+    summary: "Guide bunds: upstream shank 1.0-1.5L, downstream 0.25-0.4L, curved mole head radius 0.45L, launching apron width 1.5 * scour depth.",
+  },
+  {
+    id: "rdso-bs-118",
+    kind: "rdso_standard" as const,
+    title: "RDSO Guidelines on Seismic Design of Railway Bridges",
+    documentNumber: "Report No. BS - 118 (Version 1.0, Nov 2015)",
+    issuingAuthority: "RDSO Bridge & Structures Directorate",
+    clause: "Cl. 4.4 (culverts exempt), Cl. 7.1 (Ah), Cl. 11.3 (restrainers), Cl. 14.3 (minimum seating width W)",
+    projectApplicability: "pending_review" as const,
+    summary: "Seismic acceleration, zone factors, elastomeric bearings, restrainer forces, and minimum seating widths.",
+  },
+  {
+    id: "rdso-b-11778",
+    kind: "rdso_standard" as const,
+    title: "RDSO 36 m Span Composite Welded ROB Girders Skew Details",
+    documentNumber: "RDSO/B-11778/14 & RDSO/B-11778/15",
+    issuingAuthority: "RDSO Bridge & Structures Directorate",
+    clause: "Notes 1-15, Tables 1-3, Fig 1-5",
+    projectApplicability: "pending_review" as const,
+    summary: "Skew ROB girders, longitudinal shift S_shift = W_g * tan(theta), end diaphragms along skew, intermediate diaphragms normal to girders.",
+  },
   // The team's own formula documentation (docs/bridge-formulas). It restates
   // IRS/RDSO practice as formulas and checks; it is a working reference, not a
   // code, so every rule citing it still says "requires review".
@@ -158,6 +190,12 @@ export const BUILTIN_SOURCES: SourceRecord[] = [
       ["aagento-cg", "05-composite-girder.txt", "Composite girder bridge", "RDSO, IS:1343, IS:800"],
       ["aagento-owg", "06-open-web-girder.txt", "Open web girder", "RDSO/B-10022"],
       ["aagento-tpe", "07-parametric-template-engine.txt", "Parametric template engine", "—"],
+      ["aagento-sub", "12-substructure-piers-abutments.txt", "Substructures (piers, abutments, wing walls)", "IRBM-2024, IRS Substructure Code"],
+      ["aagento-fdn", "13-foundations-well-pile-open.txt", "Foundations (well, pile, open)", "IRBM-2024, IS:2911"],
+      ["aagento-sei", "14-seismic-design-bearings-restrainers.txt", "Seismic design, bearings & restrainers", "RDSO BS-118, IS:1893, IRC:6"],
+      ["aagento-rtw", "15-river-training-protection-works.txt", "River training & protection works", "IRBM-2024, IS:10751, IRC:89"],
+      ["aagento-skw", "16-skew-bridges-composite-girders.txt", "Skew bridges & composite ROB girders", "RDSO/B-11778/14 & 15, IRS SBC"],
+      ["aagento-gad", "17-gad-drafting-composition-checklists.txt", "GAD drafting composition & checklists", "IRBM-2024, IRCM Table 4.03"],
     ] as const
   ).map(([id, file, title, refs]) => ({
     id,

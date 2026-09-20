@@ -1,0 +1,127 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge System: River Training, Guide Bunds & Scour Protection Works
+Standard References: IRBM-2024 (Paras 801–818, Annexures 8/1–8/6), IS:10751, IRC:89
+Module: lib/bridge (cites: RTW-GB-*, RTW-APR-*, RTW-SPUR-*, RTW-CRT-*, RTW-FLR-*)
+================================================================================
+
+PURPOSE
+-------
+River training and protective works confine and guide alluvial stream flows smoothly
+through the bridge waterway opening, prevent outflanking of approach banks, and protect
+piers, abutments, and guide bunds from deep local scour holes. This document formalises
+the geometric parameters, curved mole head dimensions, launching apron rules, and spur
+layouts per the Indian Railways Bridge Manual (IRBM-2024, Chapter VIII).
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter                  Unit    Description
+---------                  ----    -----------
+hydraulics.discharge_Q     cumecs  Design flood discharge Q (50-year recurrence)
+hydraulics.waterway_width  m       Regime linear waterway width L = 4.75 * sqrt(Q) (Lacey)
+hydraulics.max_scour_depth m       Maximum anticipated scour depth D_scour below HFL
+hydraulics.low_water_level m       Low water level (dry season bed level)
+pitching.slope_thickness   m       Thickness of stone pitching on bank/bund slope (T, typ 0.3 m)
+spur.length                m       Projection length of spur / groyne into channel
+
+
+SECTION 2: GUIDE BUND (BELL'S BUND) GEOMETRY
+----------------------------------------------
+
+--- FORMULA RTW-GB-001 ---
+Name:         Guide Bund Shank Lengths (IRBM Para 810(2)(b))
+Formula:      upstream_shank_length   = 1.0 * L to 1.5 * L
+              downstream_tail_length  = 0.25 * L to 0.4 * L
+Parameters:
+  L = Linear waterway width of bridge between abutments (m)
+Output:       L_us [m], L_ds [m]
+Explanation:
+  The upstream shank guides flood waters into a uniform parallel flow without
+  excessive obliquity or eddy formation. The downstream shank provides a gentle exit
+  without vertical whirlpools.
+
+--- FORMULA RTW-GB-002 ---
+Name:         Curved Upstream Mole Head Geometry (IRBM Para 810(2)(e))
+Formula:      R_up = clamp(0.45 * L, 150 m, 600 m)
+              sweep_angle_up in [120°, 145°]
+              R_down = clamp(0.35 * R_up, 50 m, 300 m)
+              sweep_angle_down in [45°, 60°]
+Output:       R_up [m], sweep_angle_up [deg]
+Explanation:
+  The mole head bears the brunt of flood attack. The continuous circular curve
+  prevents flow separation and stagnation shoals along the outer flank.
+
+--- FORMULA RTW-GB-003 ---
+Name:         Guide Bund Cross-Section (IRBM Para 810(2)(f), 810(2)(g))
+Formula:      top_width in [6.0, 9.0] m   (permits maintenance trucks and boulder stacking)
+              side_slope = 2:1             (2 horizontal to 1 vertical)
+              free_board >= 1.0 m          (above design HFL including afflux and wave head)
+              stone_pitching_thickness = 250 to 300 mm (man-size boulders 35–55 kg)
+              filter_layer_thickness   = 200 to 300 mm (graded gravel/sand filter below stone)
+
+
+SECTION 3: LAUNCHING APRONS
+-----------------------------
+
+--- FORMULA RTW-APR-001 ---
+Name:         Launching Apron Thickness & Width (IRBM Para 810(3))
+Formula:      apron_width = 1.5 * (D_scour - low_water_level)
+              apron_thickness_straight = 1.5 * T
+              apron_thickness_curved_inner = 1.5 * T
+              apron_thickness_curved_outer = 2.25 * T
+Parameters:
+  T = Pitching thickness on slope (typically 0.30 m)
+  D_scour = Deepest anticipated scour level below low water level
+Output:       apron_width [m], apron_thickness [m]
+Rule:         Aprons are laid flat on the dry bed at the lowest feasible level. When flood
+              scour undermines the riverbed, the stone apron launches automatically down the
+              scoured slope at the natural angle of repose (1.5:1 to 2:1), self-armouring the bank.
+
+
+SECTION 4: SPURS (GROYNES)
+----------------------------
+
+--- FORMULA RTW-SPUR-001 ---
+Name:         Spur Orientation, Types & Spacing (IRBM Para 811)
+Classification:
+  1. Repelling (Deflecting) Spurs: Incline UPSTREAM at 60° to 70° to flow. Deflects current
+     away from bank; forms a still-water silting pocket on the upstream flank.
+  2. Attracting Spurs: Incline downstream; pulls flow toward nose.
+  3. Normal (Sedimenting) Spurs: Set perpendicular (90°) to bank; promotes silting between spurs.
+Formula:      spur_spacing = 2.0 * spur_length to 2.5 * spur_length
+              spur_projection = 0.11 * channel_width to 0.15 * channel_width
+              mole_head_apron_scour = 2.5 * D_lacey to 2.75 * D_lacey
+              free_board = 1.0 m above HFL
+
+
+SECTION 5: BOULDER CRATES & SAUSAGE CRATES
+--------------------------------------------
+
+--- FORMULA RTW-CRT-001 ---
+Name:         Boulder Size for Water Velocity (IRC:89, IRBM Para 815)
+Formula:      V = 4.893 * sqrt(d)  ==>  d_min = (V / 4.893)^2
+Parameters:
+  V     = Mean design flood velocity in m/s
+  d_min = Equivalent diameter of stone in metres (assumed spherical, specific gravity 2.65)
+Output:       d_min [m]  Minimum boulder diameter to resist washing away
+Rule:         Where water velocity demands stone larger than can be handled manually (>55 kg),
+              GI wire crates (4 SWG or 6 SWG wire) filled with smaller stones are used.
+
+--- FORMULA RTW-CRT-002 ---
+Name:         Sausage Crates (IRBM Para 816)
+Formula:      sausage_diameter in [600, 900] mm (flexible cylindrical wire netting filled with stones)
+Output:       Cylindrical flexible slope protection units.
+
+
+SECTION 6: FLOORING & DROP WALLS (MINOR BRIDGES)
+--------------------------------------------------
+
+--- FORMULA RTW-FLR-001 ---
+Name:         Flooring, Curtain & Drop Wall Depth (IRBM Paras 204, 818)
+Formula:      drop_wall_depth_ds = 1.25 * D_lacey   (downstream drop wall)
+              curtain_wall_depth_us = 1.0 * D_lacey (upstream curtain wall)
+              flooring_slope = bed_slope             (matches natural stream gradient)
+Rule:         Floor must cover the entire width and length of abutments including wing walls.
+              Top of drop wall matches stream bed slope to prevent waterfall plunge scour.

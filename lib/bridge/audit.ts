@@ -321,6 +321,158 @@ export function runAudit(shapes: Shape[], doc: CadDocState): AuditReport {
     const mismatch = (ft.includes("pile") && !drawnPile) || (ft.includes("well") && !drawnWell) || (ft.includes("open") && !drawnOpen && (drawnPile || drawnWell));
     if (mismatch) push({ ruleId: "RLY-FOUNDATION-TYPE", gate: "consistency", severity: "warning", status: "fail", message: `Design basis says "${P.dbr.foundationType.value}" foundation, but the drawing shows ${[drawnOpen && "open", drawnPile && "pile", drawnWell && "well"].filter(Boolean).join(", ") || "no"} foundations.`, sourceIds: ["irbm-316"] });
   }
+
+  // Seismic minimum seating width (RDSO BS-118 Cl. 14.3, Cl. 4.4)
+  if (isCulvert) {
+    push({
+      ruleId: "SEISMIC-MIN-SEATING",
+      gate: "railway",
+      severity: "info",
+      status: "pass",
+      message: "Box and pipe culverts are completely soil-embedded and exempt from seismic force analysis and seating checks (RDSO BS-118 Cl. 4.4).",
+      sourceIds: ["rdso-bs-118"],
+    });
+  } else {
+    const zone = String(P.dbr.seismicZone.value ?? "").toUpperCase().trim();
+    if (!zone || P.dbr.seismicZone.status === "NOT_AVAILABLE") {
+      push({
+        ruleId: "SEISMIC-MIN-SEATING",
+        gate: "railway",
+        severity: "warning",
+        status: "not_evaluated",
+        message: "Cannot check minimum seismic seating width without seismic zone in design basis.",
+        sourceIds: ["rdso-bs-118"],
+        hint: "Enter seismic zone in Bridge › Design basis.",
+      });
+    } else {
+      const isZoneHigh = zone.includes("IV") || zone.includes("V") || zone === "4" || zone === "5";
+      const maxSpanMm = fact(facts, "max_clear_opening_mm") ?? fact(facts, "clear_opening_mm") ?? 30000;
+      const spanL = maxSpanMm / 1000;
+      const hp = fact(facts, "pier_height_m") ?? 0;
+      const reqW = isZoneHigh ? 500 + 2.5 * spanL + 10.0 * hp : 300 + 1.5 * spanL + 6.0 * hp;
+      const seat = fact(facts, "seating_width_mm");
+      if (seat !== undefined) {
+        if (seat >= reqW) {
+          push({
+            ruleId: "SEISMIC-MIN-SEATING",
+            gate: "railway",
+            severity: "info",
+            status: "pass",
+            message: `Seismic seating width ${seat.toFixed(0)} mm ≥ minimum ${reqW.toFixed(0)} mm for Zone ${zone} (RDSO BS-118 Cl. 14.3).`,
+            sourceIds: ["rdso-bs-118"],
+          });
+        } else {
+          push({
+            ruleId: "SEISMIC-MIN-SEATING",
+            gate: "railway",
+            severity: "error",
+            status: "fail",
+            message: `Seismic seating width ${seat.toFixed(0)} mm is less than required ${reqW.toFixed(0)} mm for Zone ${zone} (RDSO BS-118 Cl. 14.3).`,
+            sourceIds: ["rdso-bs-118"],
+            hint: "Increase pier cap or abutment shelf width.",
+          });
+        }
+      } else {
+        push({
+          ruleId: "SEISMIC-MIN-SEATING",
+          gate: "railway",
+          severity: "info",
+          status: "requires_review",
+          message: `Minimum seismic seating width required is ${reqW.toFixed(0)} mm for Zone ${zone} (L=${spanL.toFixed(1)}m, Hp=${hp.toFixed(1)}m; RDSO BS-118 Cl. 14.3). Confirm pier cap/abutment seating dimension.`,
+          sourceIds: ["rdso-bs-118"],
+        });
+      }
+    }
+  }
+
+  // Retaining structure boulder backing & weep holes (IRBM Para 605, IRS Substructure Cl. 7.5)
+  const hasRetaining = isCulvert || shapes.some((s) => /abutment|wing|return/.test(s.semanticRole ?? "")) || doc.components.some((c) => /abutment|wing|return|box/i.test(c.definitionId));
+  if (hasRetaining) {
+    const bFact = fact(facts, "boulder_backing_mm");
+    const noteText = P.notes.join(" ").toLowerCase();
+    const annText = doc.annotations.filter((a) => a.type === "text" || a.type === "leader").map((a) => ((a as { text?: string }).text ?? "")).join(" ").toLowerCase();
+    const mentionsBoulder = /boulder/.test(noteText) || /boulder/.test(annText);
+    if (bFact !== undefined) {
+      if (bFact < 600) {
+        push({
+          ruleId: "IRBM-BOULDER-BACKING",
+          gate: "railway",
+          severity: "error",
+          status: "fail",
+          message: `Boulder backing thickness ${bFact.toFixed(0)} mm is less than the 600 mm minimum required behind retaining structures (IRBM Para 605).`,
+          sourceIds: ["irbm-605", "irs-substructure"],
+        });
+      } else {
+        push({
+          ruleId: "IRBM-BOULDER-BACKING",
+          gate: "railway",
+          severity: "info",
+          status: "pass",
+          message: `Hand-packed boulder backing ${bFact.toFixed(0)} mm ≥ 600 mm (IRBM Para 605).`,
+          sourceIds: ["irbm-605", "irs-substructure"],
+        });
+      }
+    } else if (mentionsBoulder) {
+      push({
+        ruleId: "IRBM-BOULDER-BACKING",
+        gate: "railway",
+        severity: "info",
+        status: "pass",
+        message: "Hand-packed stone boulder backing (≥ 600 mm) specified behind retaining structure (IRBM Para 605).",
+        sourceIds: ["irbm-605", "irs-substructure"],
+      });
+    } else {
+      push({
+        ruleId: "IRBM-BOULDER-BACKING",
+        gate: "annotation",
+        severity: "warning",
+        status: "requires_review",
+        message: "Hand-packed stone boulder backing (≥ 600 mm) behind abutment/wing walls is not shown or noted (IRBM Para 605).",
+        sourceIds: ["irbm-605", "irs-substructure"],
+        hint: "Add a note or callout for 600 mm hand-packed boulder backing.",
+      });
+    }
+  }
+
+  // Skew bridge diaphragm orientation (RDSO/B-11778/14 & 15 Note 4)
+  const compSkew = doc.components.map((c) => c.values.SkewAngle).find((v) => typeof v === "number" && v > 0);
+  const skewDeg = fact(facts, "skew_angle_deg") ?? compSkew;
+  if (skewDeg !== undefined && skewDeg > 0) {
+    if (skewDeg > 20) {
+      const isGirder = P.structureType === "rob" || P.structureType === "girder_bridge" || P.structureType === "steel_girder_bridge" || shapes.some((s) => /girder/i.test(s.semanticRole ?? "")) || doc.components.some((c) => /girder/i.test(c.definitionId));
+      if (isGirder) {
+        const skewedIntermediate = allFacts(facts, "intermediate_diaphragm_skewed").some((f) => f.value > 0);
+        if (skewedIntermediate) {
+          push({
+            ruleId: "SKEW-ROB-DIAPHRAGM",
+            gate: "railway",
+            severity: "error",
+            status: "fail",
+            message: `Skew angle is ${skewDeg}° (> 20°). Intermediate diaphragms must be placed strictly perpendicular (90°) to main girders to avoid torsional distress; only end diaphragms follow the skew line (RDSO/B-11778/14 Note 4).`,
+            sourceIds: ["rdso-b-11778"],
+          });
+        } else {
+          push({
+            ruleId: "SKEW-ROB-DIAPHRAGM",
+            gate: "railway",
+            severity: "info",
+            status: "requires_review",
+            message: `Skew angle is ${skewDeg}° (> 20°). Verify intermediate cross-frames are strictly perpendicular to girders with end diaphragms along the skew support line (RDSO/B-11778/14 Note 4).`,
+            sourceIds: ["rdso-b-11778"],
+          });
+        }
+      }
+    } else {
+      push({
+        ruleId: "SKEW-ROB-DIAPHRAGM",
+        gate: "railway",
+        severity: "info",
+        status: "pass",
+        message: `Skew angle is ${skewDeg}° (≤ 20°). Diaphragms may be placed along skew or perpendicular per RDSO/B-11778.`,
+        sourceIds: ["rdso-b-11778"],
+      });
+    }
+  }
   push({
     ruleId: "RLY-APPROVAL-AUTHORITY",
     gate: "approval",

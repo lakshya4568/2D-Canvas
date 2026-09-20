@@ -59,6 +59,10 @@ export function drawnFacts(shapes: Shape[], settings: Pick<DrawingSettings, "dat
       const l = o.members[0] as LineShape;
       push(term.fact, levelAt((l.y1 + l.y2) / 2, settings), id, o.role);
     }
+    if (o.role === "bearing_shelf" && o.members[0].type === "line") {
+      const l = o.members[0] as LineShape;
+      push("seating_width_mm", Math.hypot(l.x2 - l.x1, l.y2 - l.y1), id, o.role);
+    }
     const outline = outlineOf(o.members);
     if (!outline) continue;
     const b = polygonBounds(outline);
@@ -79,6 +83,12 @@ export function drawnFacts(shapes: Shape[], settings: Pick<DrawingSettings, "dat
         break;
       case "concrete_section":
         push("culvert_exempt_clearance", 1, id, o.role);
+        break;
+      case "boulder_backing":
+        push("boulder_backing_mm", Math.min(w, h), id, o.role);
+        break;
+      case "bearing_shelf":
+        push("seating_width_mm", w, id, o.role);
         break;
       case "open_footing":
         push("foundation_open", 1, id, o.role);

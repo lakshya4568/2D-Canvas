@@ -25,7 +25,14 @@ docs/bridge-formulas/
   07-parametric-template-engine.txt  <- DAG Solver / Template Engine — 8 formula sections
   08-glossary.txt                 <- Master Glossary of all variables
   09-cross-reference.txt          <- Cross-reference of shared formulas
+  10-lora-training-pairs.txt      <- LoRA training examples
   11-railway-drafting-sequence.txt <- How a draftsman builds a railway GAD: sequence, rules, checklist (DRF-*)
+  12-substructure-piers-abutments.txt <- Piers, abutments, bed blocks, weep holes, boulder backing (SUB-*)
+  13-foundations-well-pile-open.txt   <- Well foundations, bored pile groups, open footings (FDN-*)
+  14-seismic-design-bearings-restrainers.txt <- RDSO BS-118 seismic design, seating widths, restrainers (SEI-*)
+  15-river-training-protection-works.txt     <- Guide bunds, launching aprons, spurs, boulder crates (RTW-*)
+  16-skew-bridges-composite-girders.txt      <- RDSO/B-11778/14 & 15 skew composite welded ROB girders (SKW-*)
+  17-gad-drafting-composition-checklists.txt <- IRBM GAD composition, numbering, plaques, flood markers (GAD-*)
 
 
 FORMULA INVENTORY BY BRIDGE TYPE
@@ -201,12 +208,96 @@ FORMULA INVENTORY BY BRIDGE TYPE
        TPE-REP-002  Repeat Instance Coordinate
      Total: 15 formulas
 
+08. SUBSTRUCTURES (PIERS, ABUTMENTS & WING WALLS)
+     Source: 12-substructure-piers-abutments.txt
+     Design Standard: IRBM-2024 Paras 207, 221, 601-606, Annexures 6/1, 6/2, 6/3, IRS Substructure Code
+     Formulas:
+       SUB-BAT-001  Masonry / Mass Concrete Pier Batter
+       SUB-BAT-002  Pier Top Width along Transverse Axis
+       SUB-BAT-003  Pier Types (Mass, Framed, Hammerhead, Cellular)
+       SUB-ABT-001  Abutment Front Batter & Base Width
+       SUB-ABT-002  Ballast Wall (Back Wall) Dimensions
+       SUB-ABT-003  Abutment Types (Gravity, Spill-Through, Box Return, Counterfort)
+       SUB-WNG-001  Splayed Wing Wall Geometry & Length
+       SUB-RET-001  Parallel Return Wall Length & Stepping
+       SUB-DRN-001  Weep Hole Grid Layout (1m x 1m staggered)
+       SUB-BCK-001  Hand-Packed Boulder Backing (>= 600 mm)
+       SUB-BLK-001  Through RCC Bed Block Dimensions
+     Total: 11 formulas / rules
+
+09. FOUNDATIONS (WELL, PILE & OPEN FOOTINGS)
+     Source: 13-foundations-well-pile-open.txt
+     Design Standard: IRBM-2024 Paras 316, 401-432, Annexures 4/3, 4/4, 4/11, 4/12, 4/18, 4/20, IS:2911
+     Formulas:
+       FDN-OPN-001  Open Foundation Depth Below Scour Level (1.75m soil, 0.3m hard rock, 1.5m soft rock)
+       FDN-SHL-001  Shallow Foundation Protection (Drop Wall 1.25 D_lacey & Flooring)
+       FDN-WEL-001  Well Curb & Cutting Edge Geometry (30°-45°)
+       FDN-WEL-002  Well Steining Thickness (>= 1000 mm) & Reinforcement
+       FDN-WEL-003  Well Hearting, Plugs & Cap Vertical Levels
+       FDN-WEL-004  Permissible Tilt (1:100) and Shift (D/40 <= 150 mm) Limits
+       FDN-WEL-005  Double-D Well Geometry (Length <= 2 * Width)
+       FDN-PIL-001  Pile Diameter (>= 1000 mm) & Minimum Spacing (2.5d end-bearing, 3d friction)
+       FDN-PIL-002  Pile Cap Embedment & Edge Distance
+     Total: 9 formulas / rules
+
+10. SEISMIC DESIGN & BEARINGS (RDSO BS-118)
+     Source: 14-seismic-design-bearings-restrainers.txt
+     Design Standard: RDSO Report BS-118 (Version 1.0, 2015), IS:1893, IRC:6
+     Formulas:
+       SEI-COE-001  Elastic Seismic Acceleration Coefficient Ah = (Z/2) * I * (Sa/g)
+       SEI-COE-002  Culvert & Small Bridge Seismic Analysis Exemption (Cl. 4.4, 4.5)
+       SEI-SEAT-001 Minimum Seating Width at Supports (W = 300+1.5L+6Hp or 500+2.5L+10Hp)
+       SEI-REST-001 Seismic Restrainers & Reaction Blocks (1.5 * Ah * W_trib)
+       SEI-SEP-001  Separation Clearance at Expansion Joints (sqrt(Delta1^2 + Delta2^2))
+       SEI-BEAR-001 Elastomeric Bearing Seismic Shear Strain Limits
+       SEI-HYD-001  Hydrodynamic Force on Submerged Pier (Ce * Ah * We)
+       SEI-EAR-001  Dynamic Earth Pressure on Abutments (Mononobe-Okabe)
+     Total: 8 formulas / rules
+
+11. RIVER TRAINING & PROTECTION WORKS (IRBM VIII)
+     Source: 15-river-training-protection-works.txt
+     Design Standard: IRBM-2024 Paras 801-818, Annexures 8/1-8/6, IS:10751, IRC:89
+     Formulas:
+       RTW-GB-001   Guide Bund Shank Lengths (US 1.0-1.5L, DS 0.25-0.4L)
+       RTW-GB-002   Curved Upstream Mole Head Geometry (R = 0.45L, sweep 120°-145°)
+       RTW-GB-003   Guide Bund Cross-Section (Width 6-9m, slope 2:1, freeboard >= 1m)
+       RTW-APR-001  Launching Apron Thickness (1.5T to 2.25T) & Width (1.5 * scour)
+       RTW-SPUR-001 Spur Orientation, Types & Spacing (2.0-2.5 * length)
+       RTW-CRT-001  Boulder Size for Water Velocity (V = 4.893 * sqrt(d))
+       RTW-CRT-002  Sausage Crates (600-900 mm dia)
+       RTW-FLR-001  Flooring, Curtain & Drop Wall Depth (1.25 D_lacey)
+     Total: 8 formulas / rules
+
+12. SKEW BRIDGES & COMPOSITE GIRDERS (RDSO/B-11778)
+     Source: 16-skew-bridges-composite-girders.txt
+     Design Standard: RDSO/B-11778/14 & 15 (IRC-6 Loading 2017), IRS Steel Bridge Code
+     Formulas:
+       SKW-GEO-001  Skew Span along Track / Road Centre Line (L_sq / cos(theta))
+       SKW-SFT-001  Longitudinal Girder Shift (S_shift = W_g * tan(theta))
+       SKW-DPH-001  End Diaphragm Skew Length vs Intermediate Diaphragm Normal
+       SKW-BRC-001  Bottom Lateral Bracing Geometry & Asymmetric Panels
+       SKW-STF-001  End Bearing Stiffeners & Brackets
+       SKW-SLB-001  Skew Deck Slab Detailing & Acute Corner Fan Reinforcement
+     Total: 6 formulas / rules
+
+13. GAD COMPOSITION & DRAFTING CHECKLISTS (IRBM XI)
+     Source: 17-gad-drafting-composition-checklists.txt
+     Design Standard: IRBM-2024 Paras 203, 312, 313, 703, 1103.4, Annexures 2/1, 11/5, 11/7, IRCM Table 4.03
+     Formulas:
+       GAD-NUM-001  Pier and Abutment Numbering Convention (Increasing KM)
+       GAD-GRD-001  Girder Numbering Convention (Left to Right 1 to n)
+       GAD-PLQ-001  Foundation Inscription Plaque (WL, ON, CP; RL-BF, RL-TF)
+       GAD-HFL-001  Highest Flood Level (HFL) & Danger Level Marking
+       GAD-VCL-001  Vertical Clearance above Design Discharge Q (Table 312)
+       GAD-FBD-001  Free Board to Formation Level (>= 1.0 m)
+     Total: 6 formulas / rules
+
 
 SUMMARY STATISTICS
 -------------------
 
-Bridge Type                        Formula Count   Design Standard
------------                        -------------   ---------------
+Bridge Type / Domain Subsystem      Formula Count   Design Standard
+------------------------------      -------------   ---------------
 RCC Box Culvert (Railway)                    34    IRS / RDSO 10152
 RCC Box Culvert (Highway)                    20    IRC / IRC:SP:13
 Hume Pipe Culvert                            25    IRS / IS:458
@@ -214,8 +305,14 @@ PSC Slab Bridge                              34    IRS T-39 / IRS BRules / RDSO
 Composite Girder Bridge                      17    RDSO / IS:1343 / IS:800
 Open Web Girder Truss                         9    RDSO/B-10022
 Parametric Template Engine (DAG)             15    N/A (computational method)
-                                       --------
-TOTAL                                       154    formulas and validation checks
+Substructures (Piers & Abutments)            11    IRBM-2024 / IRS Substructure Code
+Foundations (Well, Pile, Open)                9    IRBM-2024 / IS:2911
+Seismic Design & Bearings                     8    RDSO BS-118 / IS:1893 / IRC:6
+River Training & Protection Works             8    IRBM-2024 / IS:10751 / IRC:89
+Skew Bridges & Composite ROB Girders          6    RDSO/B-11778/14 & 15 / IRS SBC
+GAD Composition & Inscriptions                6    IRBM-2024 / IRCM Table 4.03
+                                        --------
+TOTAL                                       202    formulas, rules and validation checks
 
 
 KEY ENGINEERING CONSTANTS SUMMARY
@@ -226,19 +323,23 @@ Constant                Value    Unit    Bridge Type / Standard
 BG Track Gauge          1.676    m       IRS (all railway types)
 Min Ballast Depth       0.300    m       IRS BRules Cl.4
 Min HFL Clearance       0.600    m       IRS BRules Cl.6
+Free Board (minimum)    1.000    m       IRBM Para 313
 Free Board (preferred)  1.500    m       IRS BRules
 Min Slab Thickness      L/25     m       IRS T-39
 Max Slab Thickness      L/12     m       RDSO
 Min Pier Shaft Width    1.200    m       RDSO
-Min Bearing Seat        0.300    m       IRS
+Min Bearing Seat (W)    0.300+   m       RDSO BS-118 Clause 14.3
 Inspection Path Width   0.608    m       RDSO
 Rail-Formation Offset   0.762    m       IRS (BG standard)
 Min Earth Cushion       0.075    m       IRS (RCC Railway box)
 OHE Wire Height         5.500    m       RDSO
 OWG Bearing Gap         1.060    m       RDSO/B-10022
-Founding Depth (Hume)   1.750    m       IRS default
+Founding Depth (Open)   1.750    m       IRBM Para 403 (below scour)
+Drop Wall Depth         1.25*D_L m       IRBM Para 818 (D_L = Lacey scour)
+Well Steining Thickness 1.000    m       IRBM Para 418 (minimum)
+Boulder Backing Width   0.600    m       IRBM Para 605
+Weep Hole Spacing       1.000    m       IRBM Para 605 (staggered)
 PCC Sub-base Thickness  0.150    m       Standard practice
-Boulder Backing Width   0.600    m       Railway standard
 Parapet Gap             0.225    m       IRS Railway
 
 ================================================================================

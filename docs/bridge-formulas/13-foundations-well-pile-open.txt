@@ -1,0 +1,125 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge System: Foundations — Well Foundations, Pile Foundations & Open Footings
+Standard References: IRBM-2024 (Paras 316, 401–432, Annexures 4/3, 4/4, 4/11, 4/12, 4/18, 4/20), IS:2911
+Module: lib/bridge (cites: FDN-OPN-*, FDN-SHL-*, FDN-WEL-*, FDN-PIL-*)
+================================================================================
+
+PURPOSE
+-------
+Bridge foundations transfer structural dead, live, braking, and hydrodynamic loads
+safely into deep load-bearing strata while resisting flood scour, tilt, and lateral
+displacements. This document formalises the dimensional relationships, rules,
+and parametric formulas for Open Foundations, Well Foundations (Caissons),
+and Bored Pile Foundations according to Indian Railways standards.
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter                  Unit    Description
+---------                  ----    -----------
+foundations.type           kind    "open" | "well" | "pile" | "raft"
+hydraulics.max_scour_level m       Maximum design scour level (RL)
+hydraulics.low_water_level m       Lowest recorded dry-season water level (LWL)
+hydraulics.bed_level       m       Normal river bed level
+hydraulics.lacey_scour_d   m       Lacey's regime scour depth D_lacey = 0.473 * (Q / f)^(1/3)
+soil.strata_type           kind    "ordinary_soil" | "hard_rock" | "soft_rock" | "sand" | "clay"
+well.shape                 kind    "circular" | "double_d"
+well.outer_diameter        mm      External diameter of well steining (D_well)
+well.steining_thickness    mm      Thickness of well wall (min 1000 mm)
+pile.diameter              mm      Nominal pile diameter (d >= 1000 mm for railway bridges)
+pile.count                 count   Number of piles in group under pier/abutment cap
+
+
+SECTION 2: OPEN FOUNDATIONS (SHALLOW & DEEP)
+----------------------------------------------
+
+--- FORMULA FDN-OPN-001 ---
+Name:         Open Foundation Depth Below Scour Level (IRBM Para 403)
+Formula:      founding_depth_soil >= 1.75 m below lowest anticipated scoured bed level
+              founding_depth_hard_rock >= 0.3 m key into sound rock
+              founding_depth_soft_rock >= 1.5 m key into soft rock (with horizontal benching)
+Output:       foundation_bottom_level [m] = max_scour_level - founding_depth
+Rule:         Open foundations must rest on competent strata with adequate safe bearing capacity.
+              Sloping rock must be benched horizontally to prevent slip (Annexure 4/4).
+
+--- FORMULA FDN-SHL-001 ---
+Name:         Shallow Foundation Protection — Drop Walls & Flooring (IRBM Paras 204, 818)
+Formula:      drop_wall_depth = 1.25 * D_lacey  (downstream drop wall, m)
+              curtain_wall_depth in [1.5, 2.0] m (upstream cutoff wall)
+              flooring_thickness = 300 mm (cement concrete M-20 or stone masonry)
+              flooring_extent = full span width between abutments + wing wall protection
+Rule:         Shallow foundations (depth < 1.2 m below bed for bridges, < 2.0 m for arches)
+              must be protected with full CC/stone flooring and drop walls to prevent undermining.
+
+
+SECTION 3: WELL FOUNDATIONS (CIRCULAR & DOUBLE-D)
+---------------------------------------------------
+
+--- FORMULA FDN-WEL-001 ---
+Name:         Well Curb & Cutting Edge Geometry (IRBM Para 418(2), Annexure 4/12)
+Formula:      curb_inner_angle = 30°  (up to 45° in sandy strata)
+              curb_reinforcement >= 72 kg/m³ (excluding bond rods)
+              cutting_edge_material = rolled steel rails / structural angles
+              cutting_edge_thickness = fabricated from steel plate 10–20 mm thick
+Output:       well_curb_geometry
+Explanation:
+  The conical curb facilitates displacement of soil into the central dredge hole
+  during grabbing.
+
+--- FORMULA FDN-WEL-002 ---
+Name:         Well Steining Thickness & Reinforcement (IRBM Para 418(3))
+Formula:      steining_thickness >= 1000 mm
+              bond_rods_density >= 9 kg/m³ (vertical steel distributed on both faces)
+              hoop_reinforcement_density >= 9 kg/m³ (horizontal ring ties)
+              cover_to_rods >= 75 mm
+Output:       steining_thickness [mm]
+Constraint:   Steining must provide sufficient self-weight for sinking without excessive
+              kentledge, and resist bursting pressures during sand blows or sudden drops.
+
+--- FORMULA FDN-WEL-003 ---
+Name:         Well Hearting, Plugs & Cap Vertical Levels (IRBM Paras 418(4)-(6), 432)
+Formula:      bottom_plug_top_y = curb_top_y + 300 mm   (M-15 concrete under water)
+              sand_hearting_top_y = steining_top_y - 1750 mm (clean consolidated sand)
+              top_plug_thickness = 300 mm               (M-10 concrete)
+              well_cap_bottom_y = lwl * 1000 + 300 mm   (300 mm above Low Water Level)
+Output:       Z-levels of all well constituent zones
+Rule:         The well cap centre is adjusted during casting to match the true pier centre line,
+              accommodating any construction shift incurred during sinking.
+
+--- FORMULA FDN-WEL-004 ---
+Name:         Permissible Tilt and Shift Limits (IRBM Para 424)
+Formula:      max_tilt = 1 in 100   (1.0% of vertical height)
+              max_shift = min(D_well / 40, 150 mm)
+Rule:         Any shift beyond D/40 or 150 mm requires structural redesign of the well cap
+              and foundation bearing pressures before pier construction begins.
+
+--- FORMULA FDN-WEL-005 ---
+Name:         Double-D Well Geometry (IRBM Para 417(1))
+Formula:      double_d_length <= 2 * double_d_width
+              dredge_holes = 2 independent circular/semi-circular openings
+              intermediate_cutting_edge_y = outer_cutting_edge_y + 300 mm (prevents rocking)
+Output:       Double-D well outline
+
+
+SECTION 4: BORED PILE FOUNDATIONS
+-----------------------------------
+
+--- FORMULA FDN-PIL-001 ---
+Name:         Pile Diameter & Minimum Spacing (IRBM Paras 407, 409)
+Formula:      pile_diameter d >= 1000 mm  (large diameter bored cast-in-situ piles for railway loads)
+              min_spacing_end_bearing = 2.5 * d
+              min_spacing_friction    = 3.0 * d
+              max_spacing_nominal     = 4.0 * d
+Output:       centre-to-centre pile pitch [mm]
+Constraint:   Piles deriving capacity from skin friction must maintain >= 3d spacing to avoid
+              overlapping stress bulbs and reduced group efficiency.
+
+--- FORMULA FDN-PIL-002 ---
+Name:         Pile Cap Embedment & Edge Distance (IRBM Paras 412, 415(12))
+Formula:      pile_embedment_in_cap >= 75 mm  (with rebar anchored full development length)
+              cap_edge_distance >= d / 2 + 150 mm  (clearance from pile outer face to cap edge)
+              concrete_mix >= M-20 (tremie high slump concrete 150–180 mm)
+              tremie_pipe_diameter >= 200 mm
+Output:       pile_cap_thickness [mm] (typically 1200–2500 mm depending on span reactions)

@@ -1,0 +1,101 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge System: Skew Bridges & Composite Welded ROB Girders
+Standard References: RDSO Standard Drawings RDSO/B-11778/14 & 15 (IRC-6 Loading 2017), IS:800, IRS Steel Bridge Code
+Module: lib/bridge (cites: SKW-GEO-*, SKW-SFT-*, SKW-DPH-*, SKW-BRC-*, SKW-STF-*, SKW-SLB-*)
+================================================================================
+
+PURPOSE
+-------
+Road Over Bridges (ROBs) and river/railway crossings frequently intersect the alignment
+at an oblique skew angle theta. This document formalises the geometric transformations,
+longitudinal girder shifts, diaphragm orientations, bottom lateral bracing layouts,
+and end bearing stiffener details from the RDSO 36 m span composite welded girder
+standard drawings (RDSO/B-11778/14 for theta <= 20°, RDSO/B-11778/15 for 20° < theta <= 30°).
+
+
+SECTION 1: PRIMARY INPUT PARAMETERS
+-------------------------------------
+
+Parameter                  Unit    Description
+---------                  ----    -----------
+skew.angle_theta           deg     Skew angle between bridge centre line and normal to pier/abutment
+girder.square_span         mm      Square span perpendicular to supports (L_sq)
+girder.spacing             mm      Centre-to-centre lateral spacing between steel I-girders (W_g)
+girder.count               count   Number of parallel longitudinal steel girders (typically 2 to 4)
+girder.depth               mm      Overall depth of steel I-girder web + flanges
+bearing.seat_type          enum    "square_to_girder" | "along_skew"
+
+
+SECTION 2: SKEW SPAN & LONGITUDINAL GIRDER SHIFT
+--------------------------------------------------
+
+--- FORMULA SKW-GEO-001 ---
+Name:         Skew Span along Track / Road Centre Line
+Formula:      L_skew = L_sq / cos(theta)
+Parameters:
+  L_sq  = Square span measured perpendicular to pier/abutment faces
+  theta = Skew angle in degrees
+Output:       L_skew [mm]  Longitudinal span distance between support centre lines
+
+--- FORMULA SKW-SFT-001 ---
+Name:         Longitudinal Girder Shift (RDSO/B-11778/14 Note 5)
+Formula:      S_shift = W_g * tan(theta)
+Parameters:
+  W_g   = Transverse centre-to-centre spacing between adjacent girders
+  theta = Skew angle
+Output:       S_shift [mm]  Longitudinal displacement between ends of adjacent girders
+Explanation:
+  Because supports lie along a line skewed at theta, adjacent girders supported on the
+  same abutment cap have their bearing centre lines shifted longitudinally by S_shift.
+  The total bridge footprint forms a parallelogram in plan.
+
+
+SECTION 3: DIAPHRAGM ORIENTATIONS (CRITICAL CODE DISTINCTION)
+--------------------------------------------------------------
+
+--- FORMULA SKW-DPH-001 ---
+Name:         End Diaphragm vs Intermediate Diaphragm Orientation (RDSO/B-11778/14 Note 4)
+Rule:
+  1. END DIAPHRAGMS are detailed ALONG THE SKEW line over bearing supports:
+       L_end_diaphragm = W_g / cos(theta)
+  2. INTERMEDIATE DIAPHRAGMS are strictly PERPENDICULAR (90°) to the longitudinal girders:
+       L_int_diaphragm = W_g
+Explanation:
+  Orienting intermediate cross-frames square to girders eliminates severe torsional warping
+  and out-of-plane web bending under heavy live wheel loads.
+  Only the end diaphragm at the support face spans along the skew.
+
+
+SECTION 4: BOTTOM LATERAL BRACING & GUSSET PLATES
+---------------------------------------------------
+
+--- FORMULA SKW-BRC-001 ---
+Name:         Bottom Lateral Bracing Geometry (RDSO/B-11778/14 Note 5)
+Rule:
+  - Lateral bracing intersection points on each girder remain at the same panel
+    locations as in a square span.
+  - Because one girder is shifted longitudinally by S_shift = W_g * tan(theta),
+    the cross-panel diagonal bracing lengths become asymmetric:
+      L_brace_1 = sqrt(panel_length - S_shift)^2 + W_g^2)
+      L_brace_2 = sqrt(panel_length + S_shift)^2 + W_g^2)
+  - Gusset plates at the acute and obtuse girder ends are BENT for theta > 20°
+    (RDSO/B-11778/15) to accommodate the oblique angle without edge prying.
+
+--- FORMULA SKW-STF-001 ---
+Name:         End Bearing Stiffeners & Brackets
+Formula:      X_width = (30 * Card * theta) / Sn + (theta / 2)  [mm]
+              L1_outer = outer edge distance to end stiffeners
+Output:       End stiffener plate bevel and weld bevel geometry.
+
+
+SECTION 5: SKEW DECK SLAB REINFORCEMENT & ACUTE CORNERS
+---------------------------------------------------------
+
+--- FORMULA SKW-SLB-001 ---
+Name:         Skew Deck Slab Detailing (RDSO/B-11778/14 Fig. 5)
+Rule:
+  - For theta <= 20°: Main transverse slab reinforcement runs parallel to skew supports.
+  - For theta > 20°: Main transverse slab reinforcement runs PERPENDICULAR to main girders;
+    the acute triangular corner slabs at both ends receive extra fan-shaped top and bottom
+    reinforcement grids to resist high torsional and uplifting moments.

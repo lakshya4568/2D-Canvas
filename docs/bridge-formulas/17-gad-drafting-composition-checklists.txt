@@ -1,0 +1,121 @@
+================================================================================
+AAGENTO BRIDGE PLATFORM — FORMULA DOCUMENTATION
+Bridge System: General Arrangement Drawing (GAD) Composition, Numbering & Inscriptions
+Standard References: IRBM-2024 (Paras 203, 312, 313, 703, 1103.4, Annexures 2/1, 11/5, 11/6, 11/7), IRCM Table 4.03
+Module: lib/bridge (cites: GAD-NUM-*, GAD-GRD-*, GAD-PLQ-*, GAD-HFL-*, GAD-VCL-*, GAD-FBD-*)
+================================================================================
+
+PURPOSE
+-------
+A railway General Arrangement Drawing (GAD) is the definitive legal, contractual, and
+engineering record submitted for Chief Bridge Engineer (CBE) / Commissioner of Railway
+Safety (CRS) approval. This document formalises sheet composition, pier and girder
+numbering conventions, inscription plaques, level markers, flood gauges, and clearance
+verification checklists per IRBM-2024 and IRCM Table 4.03.
+
+
+SECTION 1: SHEET COMPOSITION & COORDINATED VIEWS
+--------------------------------------------------
+
+A complete railway bridge GAD comprises coordinated views sharing identical parametric values:
+  1. Key Plan / Site Plan: Showing railway alignment, river meander, flow direction arrow,
+     approach banks, and nearest railway stations.
+  2. General Elevation: Overall longitudinal view showing all spans, piers, abutments,
+     rail level, formation, HFL, danger level, bed level, and founding levels.
+  3. Longitudinal Section: Cut along the track centre line showing structural depths,
+     bed block levels, ballast walls, and approach slabs.
+  4. Cross Section(s): Through mid-span and over piers, showing deck slab, ballast cushion,
+     girder spacings, diaphragms, bearings, and pier caps.
+  5. Foundation Plan: Detailed plan of well curbs, pile caps, or open footings with
+     scour envelopes and soil strata logs.
+  6. Technical Notes & Title Block: Standards cited, loading class, steel/concrete grades,
+     RDSO standard drawing numbers, and approval signature blocks.
+
+
+SECTION 2: NUMBERING CONVENTIONS (IRBM ANNEXURE 11/5)
+------------------------------------------------------
+
+--- FORMULA GAD-NUM-001 ---
+Name:         Pier and Abutment Numbering Convention
+Rule:         All substructure elements are numbered strictly in the DIRECTION OF
+              INCREASING KILOMETRAGE (chainage):
+                Abutment 1 (A1)  = Beginning of bridge (lowest chainage)
+                Pier 1 (P1)      = First intermediate pier
+                Pier 2 (P2)      = Second intermediate pier
+                ...
+                Abutment 2 (A2)  = Ending of bridge (highest chainage)
+              Span 1 is between A1 and P1; Span n is between P(n-1) and A2.
+
+--- FORMULA GAD-GRD-001 ---
+Name:         Girder Numbering Convention
+Rule:         Facing the direction of increasing kilometrage:
+                Girder No. 1 = Left-hand girder
+                Girder No. 2 = Second girder from left
+                ...
+                Girder No. n = Extreme right-hand girder
+
+
+SECTION 3: INSCRIPTION PLAQUES (IRBM ANNEXURE 11/7)
+-----------------------------------------------------
+
+--- FORMULA GAD-PLQ-001 ---
+Name:         Foundation Inscription Plaque
+Rule:         Every pier and abutment on bridges of span >= 3.0 m must bear an inscription
+              plaque (CC or stone slab) recording:
+                WL   = Well Foundation
+                ON   = Open Foundation
+                CP   = Concrete Pile Foundation
+                RL-BF = Depth from Rail Level to Bottom of Foundation (m)
+                RL-TF = Depth from Rail Level to Top of Foundation (m)
+                Strata symbols: S (Sand), C (Clay), R (Rock), M (Moorum)
+              Example on pier cap:
+                WL
+                RL-BF 24.5 m
+                RL-TF 8.2 m
+                S 12 m, C 6 m, R 6.5 m
+
+
+SECTION 4: FLOOD GAUGES & DANGER LEVEL MARKINGS (IRBM PARAS 203, 703)
+----------------------------------------------------------------------
+
+--- FORMULA GAD-HFL-001 ---
+Name:         Highest Flood Level (HFL) & Danger Level Marking
+Rule:
+  1. HFL Line: Distinct 25 mm broad white line with the year of occurrence painted in
+     figures 100 mm deep on the downstream side of abutments/piers.
+  2. Danger Level Band: Bright red band 5 cm (50 mm) wide, painted centrally over a white band
+     10 cm (100 mm) wide, total length 60 cm (600 mm) on the upstream side.
+  3. Danger Level Criteria (IRBM Para 703(4)):
+     Danger level is the lowest of:
+       (a) Level providing adequate vertical clearance below girder soffit (Table 703(5)(a):
+           clearance 150–300 mm for span < 6.1 m, 450 mm for 6.1–12.2 m, 600 mm for 12.2–30.5 m,
+           750 mm for 30.5–61 m, 1200 mm for > 61 m).
+       (b) Level providing minimum 1.0 m free board to approach banks / guide bunds.
+       (c) Level causing afflux > 0.5 m or excessive bed scour.
+       (d) For Box Culverts: Danger level = bottom of top slab (soffit).
+       (e) For Pipe Culverts: Danger level = top inside of pipe (crown).
+
+
+SECTION 5: VERTICAL CLEARANCES & FREEBOARD
+--------------------------------------------
+
+--- FORMULA GAD-VCL-001 ---
+Name:         Vertical Clearance above Design Discharge Q (IRBM Para 312)
+Table:
+  Discharge Q (cumecs)      Minimum Vertical Clearance (mm)
+  --------------------      -------------------------------
+  0 to 30                   600 mm
+  31 to 300                 600 to 1200 mm (pro-rata)
+  301 to 3000               1500 mm
+  Above 3000                1800 mm
+Exemption:
+  Pipe culverts, box culverts, and syphons are designed as pressure conduits;
+  no vertical clearance is required (IRBM Para 312(3)).
+
+--- FORMULA GAD-FBD-001 ---
+Name:         Free Board to Formation Level (IRBM Para 313)
+Formula:      Free Board = FormationLevel - (HFL + Afflux) >= 1.0 m (1000 mm)
+              Relaxation (PCE/CBE only):
+                Q < 3 cumecs:   min 600 mm
+                Q = 3–30 cumecs: min 750 mm
+                Q > 30 cumecs:  NO relaxation permitted.

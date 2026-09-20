@@ -311,6 +311,220 @@ const HIGHWAY_BOX = `# RCC box culvert (highway)
 Same geometry as railway (HWB-GEO-001…003) but levels differ: bottom of box = bed − bottom slab (no wearing course inside) (HWB-GEO-004); top = bed + cH + top slab (HWB-GEO-005); cushion = road − top − wearing coat (HWB-LVL-002); drawing extent = width + 2 × cushion (HWB-LVL-003). Minimum haunch 150 mm (HWB-VAL-007); road level ≥ top of box (HWB-VAL-008). Standards: IRC:SP:13.
 Construct it as in rcc-box-half-section with these level relations and "road level" in place of formation.`;
 
+const SUBSTRUCTURE_PIERS_ABUTMENTS = `# Substructure — piers, abutments, wing walls, return walls and bed blocks
+
+Drafting substructure elements from geometric primitives, engineering batters and Indian Railways standards (IRBM Para 605, IRS Substructure Code). Load draftsman-method and geometric-reasoning first. Formula ids: bridge_reference id=SUB-BAT-001 etc.
+
+## 1. Controlling axes and datums (stage datum)
+- Elevation & Section: Pier/abutment center line (x = 0 locally or at station chainage along alignment), bed level line, HFL, low water level (LWL), cap top level, bed block top level.
+- Plan: Track center line, bridge transverse axis (square or skewed by SkewAngle), pier transverse axis, abutment face line.
+
+## 2. Piers (mass concrete, hammerhead, framed/cellular)
+- Batter: Pier shafts feature symmetrical face batters between 1:12 and 1:24 (typically 1:20 or 1:24; front and rear vertical or rounded cutwaters). Derive bottom width from top width, height, and batter ratio (SUB-BAT-001): BottomWidth = TopWidth + 2 * (Height * BatterSlope).
+- Cutwaters / Starlings: Semi-circular (radius = HalfWidth) or triangular (included angle 60° to 90°) on upstream face to minimize afflux and hydrodynamic drag; downstream semi-circular or square (SUB-BAT-002).
+- Pier Cap & Inspection Shelf: Sized to accommodate bearing assemblies, jacks for bearing replacement (SUB-BAT-003), and inspection walkways (minimum 600 mm clear on all sides, IRS Substructure Code). Cap depth tapered at ends or horizontal cantilever.
+
+## 3. Abutments (gravity, spill-through, counterfort)
+- Water face battered at 1:10 to 1:16 (SUB-ABT-001); rear (earth face) vertical or stepped. Front face offset from bridge center line by half clear opening.
+- Ballast Wall (Dirt Wall): Sits at back of abutment cap up to formation level; minimum thickness 450 mm (SUB-ABT-002). Sized to retain track ballast and cushion while preventing soil spillage onto bearings.
+- Inspection Shelf: Horizontal bench on cap front of ballast wall >= 600 mm wide for bearing maintenance (SUB-ABT-003).
+
+## 4. Wing walls and return walls
+- Splayed Wing Walls: Oriented at 30° to 45° to the track alignment to funnel stream discharge smoothly (SUB-WNG-001). Top follows embankment slope (typically 2:1 or 1.5:1) down to bed/ground level with a stepped or horizontal concrete coping.
+- Return Walls: Parallel to track alignment; used where embankment height is high or site boundaries are constrained (SUB-RET-001).
+- Movement Joints: 18 mm to 25 mm expansion joints with bitumen/polyethylene filler provided between abutment stem and wing walls.
+
+## 5. Drainage and backing
+- Boulder Backing: Continuous layer of hand-packed stone boulders, thickness >= 600 mm, placed along the entire rear face of abutment and wing walls (SUB-BCK-001; IRBM Para 605, IRS Substructure Cl. 7.5). Geotextile filter layer placed behind boulders.
+- Weep Holes: 100 mm to 150 mm diameter PVC/AC pipes spaced at 1.0 m to 1.5 m staggered horizontal and vertical centers (SUB-DRN-001). Lowest row placed >= 250 mm above bed level / HFL with outward slope 1:20 for self-drainage.
+
+## 6. Bed blocks (pedestals)
+- Cast monolithic or doweled into cap under each bearing using high-strength concrete (M30/M35 minimum).
+- Thickness 250 mm to 400 mm; horizontal edge distance from bearing base plate to bed block edge >= 150 mm on all 4 sides (SUB-BLK-001).
+
+## 7. Construction sequence from primitives
+1. datum: Pier/abutment center line, top of pier cap level line, bed level line, ground line.
+2. primary: Pier/abutment shaft outline as closed loop from batter relations (derive corner points via point_at_slope); cap outline as loop with cantilevers; ballast wall rect on abutment.
+3. detail: Bed blocks on cap; bearings (rects); weep holes (circles or dashed lines in section); 600 mm boulder backing band (loop) behind earth face.
+4. context: Embankment slope ending at abutment/wings; stone pitching on wings.
+5. annotation: Levels (cap, bed block, bed, ground), batter ratio text ("1:24"), member thicknesses, weep hole notes.`;
+
+const FOUNDATIONS_WELL_PILE_OPEN = `# Foundations — open footings, well foundations (caissons) and pile groups
+
+Drafting railway bridge substructure foundations from geometric primitives, scour depths and Indian Railways standards (IRBM Paras 316, 409, 417-432, IRS Foundation Code). Load draftsman-method first. Formula ids: bridge_reference id=FDN-OPN-001 etc.
+
+## 1. Controlling axes and datums (stage datum)
+- Foundation center line (aligned with pier/abutment axis).
+- Level lines: Natural Ground Level (NGL), Bed Level, Low Water Level (LWL), Maximum Scour Level (MSL), Founding Level (bottom of foundation), Top of Well Cap / Pile Cap.
+
+## 2. Open foundations (spread footings)
+- Founding Depth: Must be taken >= 1.75 m below maximum scour level in erodible soil (FDN-OPN-001; IRBM Para 316(2)). In solid rock, founding depth >= 0.3 m into sound hard rock, or >= 1.5 m in soft/fissured rock.
+- Footing Steps: Stepped concrete spread footing; offset between successive steps <= 1.5 * step thickness (typical 45° load spread). Sized to ensure base pressure <= Safe Bearing Capacity (SBC).
+- Bed Protection: Where scour is prevented by flooring, drop/curtain walls provided upstream and downstream to depth = 1.25 * D_Lacey below bed (FDN-SHL-001).
+
+## 3. Well foundations (caissons)
+- Shapes: Circular (single dredge hole), Double-D (two dredge holes with intermediate web), or dumb-bell (FDN-WEL-001).
+- Cutting Edge & Curb: Steel cutting edge angle (150x150x16 mm) anchored to RCC well curb. Curb inner angle 30° to 45° with vertical (FDN-WEL-002).
+- Steining: Concrete shaft wall thickness t >= 1000 mm for railway bridges; empirical relation t = k * D_outer * sqrt(H) (FDN-WEL-003). Outer face vertical; inner face stepped or vertical.
+- Bottom Plug: Mass concrete (M15) poured underwater via tremie pipe; thickness 0.5 to 0.75 * inner well diameter (FDN-WEL-004).
+- Sand Hearting & Top Plug: Clean sand filled above bottom plug; top plug 300 mm to 500 mm thick M15 concrete at top of steining.
+- Well Cap: Heavy RCC slab (thickness >= 1000 mm to 1500 mm) spanning across steining; bottom placed >= 300 mm above LWL (FDN-WEL-005). Sinking tolerances: tilt <= 1:100 (1%), shift <= D/40 or 150 mm.
+
+## 4. Pile foundations
+- Piles: Bored cast-in-situ RCC piles (standard diameters 1000 mm, 1200 mm, 1500 mm; FDN-PIL-001).
+- Spacing (IRBM Para 409): Minimum center-to-center spacing 2.5 * d for end-bearing piles, 3.0 * d for friction piles, 2.0 * d for driven piles in loose soil (FDN-PIL-002). Maximum spacing <= 4.0 * d.
+- Pile Cap: Monolithic RCC block connecting pile tops; minimum thickness >= 1.5 * d or governed by shear/punching calculations. Clear overhang from outer pile face to cap edge >= 150 mm to 250 mm. Pile embedment into cap >= 75 mm to 100 mm.
+
+## 5. Construction sequence from primitives
+1. datum: Structure vertical center line, founding level line, scour level line, ground/bed line.
+2. primary: Footing or well/pile cap outline as closed rectangle or stepped loop; piles as vertical paired lines (shafts) with semi-circular tips; well steining as vertical outer and inner boundaries with triangular curb.
+3. detail: Well plugs (bottom plug, sand hearting stipple, top plug); pile cap reinforcement embedment; drop walls and apron flooring.
+4. context: Ground and bed hatching, scour line (dashed), boulder backing / riprap.
+5. annotation: Founding level RL, scour level RL, pile diameter & spacing dimension chains, steining thickness callouts, title.`;
+
+const SEISMIC_DETAILING_BEARINGS = `# Seismic detailing, elastomeric/POT bearings and restrainers (RDSO BS-118)
+
+Seismic analysis parameters, minimum seating shelf widths, bearing details, and unseating prevention rules in accordance with RDSO Comprehensive Guidelines for Seismic Design of Railway Bridges (BS-118). Load draftsman-method and bridge-levels first. Formula ids: bridge_reference id=SEI-COE-001 etc.
+
+## 1. Seismic parameters & zone factors (RDSO BS-118)
+- Design Horizontal Seismic Coefficient: A_h = (Z / 2) * I * (Sa_g) (SEI-COE-001).
+- Seismic Zone Factor Z: Zone II = 0.10, Zone III = 0.16, Zone IV = 0.24, Zone V = 0.36.
+- Importance Factor I: 1.5 for Category I (Important / Major bridges); 1.25 for Category II; 1.0 for others.
+- Exemption: Under RDSO BS-118 Clause 4.4, buried culverts and pipe culverts are completely soil-embedded and exempt from seismic force calculations (SEI-COE-002).
+
+## 2. Minimum bridge seat width (unseating prevention)
+To prevent span dislodgement during strong earthquake ground motion, pier and abutment caps must provide minimum seating shelf width W_seat measured normal to face of support (RDSO BS-118 Clause 14.3; SEI-SEAT-001):
+- Zones II and III: W_seat >= 300 + 1.5 * L + 6.0 * H_p (mm)
+- Zones IV and V:   W_seat >= 500 + 2.5 * L + 10.0 * H_p (mm)
+where:
+  L = span length in meters (average of adjacent spans for continuous/skew bridges)
+  H_p = height of pier in meters from base of column/stem to cap top (H_p = 0 for abutments).
+
+## 3. Bearings and pedestals
+- Types: Elastomeric bearings (shore hardness 60 IRHD) for spans up to 25-30 m; POT-PTFE / spherical bearings for longer spans or high seismic rotations (SEI-BEAR-001).
+- Bed Block / Pedestal Clearance: Pedestal plan size must extend at least 150 mm beyond outer edge of bearing base plate in all directions (SUB-BLK-001).
+- Jacking Clearances: Clear gap >= 150 mm to 200 mm maintained between bearing pedestal and edge of cap to permit placement of hydraulic lifting jacks during maintenance (SUB-BAT-003).
+
+## 4. Seismic restrainers & shear keys
+- Lateral Restrainers (Shear Keys): Concrete upstands or structural steel shear keys cast on the cap between girders (gap 20 mm to 25 mm with rubber bumper pads) to prevent transverse walk-off under cross-track seismic acceleration. Design force: F_restrainer = 1.5 * A_h * W_trib (SEI-REST-001).
+- Separation Clearance: Expansion joint clearance clearance_joint >= sqrt(Delta_1^2 + Delta_2^2) to prevent pounding (SEI-SEP-001).
+
+## 5. Construction and drafting sequence
+1. datum: Pier/abutment axis, cap top level line, bearing center lines.
+2. primary: Pier cap outline with extended seating shelf meeting minimum W_seat requirement; bed block pedestals on cap.
+3. detail: Bearings drawn as layered rectangular pads (steel plates + elastomer); shear keys / stoppers on cap; jacking pedestal positions.
+4. annotation: Seating width dimension W_seat, bearing center-to-edge clearances, seismic zone notation ("SEISMIC ZONE IV, Z=0.24, I=1.5"), restrainer details.`;
+
+const RIVER_TRAINING_PROTECTION = `# River training and protection works — guide bunds, aprons, spurs and pitching (IRBM Chapter VIII)
+
+Drafting river training, guide bunds, launching aprons, boulder pitching, and scour protection works in accordance with IRBM-2024 Chapter VIII and IRS Substructure Code. Load draftsman-method and geometric-reasoning first. Formula ids: bridge_reference id=RTW-GB-001 etc.
+
+## 1. Controlling axes and datums (stage datum)
+- River flow direction arrow, bridge center line, high flood level (HFL), low water level (LWL), bed level, maximum scour level (MSL).
+- Guide bund setting-out lines: bridge axis, straight shank alignment, curved mole head centers and radii.
+
+## 2. Guide bunds (Bell's bunds)
+- Geometry (IRBM Para 810; RTW-GB-001):
+  * Upstream shank length: L_u = 1.0 * L to 1.5 * L (where L is the linear waterway between abutments).
+  * Downstream shank length: L_d = 0.20 * L to 0.40 * L.
+  * Upstream curved mole head: Radius R_u = 0.40 * L to 0.50 * L (typical 0.45 * L); sweep angle 120° to 145° (RTW-GB-002).
+  * Downstream curved mole head: Radius R_d = 0.20 * L to 0.30 * L; sweep angle 60° to 90°.
+- Embankment Cross-Section (RTW-GB-003):
+  * Top width >= 6.0 m to allow vehicular/inspection access.
+  * Freeboard >= 1.5 m to 2.0 m above design HFL including afflux and wave wash.
+  * Water-side slope 2:1 (H:V); rear-side slope 2:1 to 1.5:1.
+
+## 3. Launching aprons
+- Design Principle: Horizontal bed of stone boulders laid at low water level along the toe of the bund or abutment. When scour deepens during high floods, the apron launches down the scour hole to form a continuous pitched protective crust at slope 2:1 to 1.5:1 (RTW-APR-001).
+- Dimensions:
+  * Apron width: W_apron = 1.5 * D_scour (where D_scour = MSL scour depth below low water level/bed).
+  * Thickness: Trapeze or rectangular section; laid thickness t_apron = 1.5 * T_pitched to 2.25 * T_pitched (typical 0.9 m to 1.5 m at toe, tapering inward).
+  * Toe trench: Excavated 0.5 m to 1.0 m below bed level at outer end to prevent stone displacement.
+
+## 4. Stone pitching and filter media
+- Pitching Thickness: Quarry stone or precast concrete blocks, thickness 300 mm to 600 mm on slope face (RTW-FLR-001).
+- Filter Layer: Graded gravel/sand filter or non-woven geotextile membrane placed under stone pitching (thickness 150 mm to 200 mm) to prevent soil suction by wave wash.
+- Boulder Crates: Wire netting crates (galvanized iron wire 4.0 mm dia, mesh 100x100 mm) filled with boulders where flow velocity V > 3.0 m/s (RTW-CRT-001, RTW-CRT-002).
+
+## 5. Spurs and groynes
+- Orientation: Repelling spurs (inclined upstream 60° to 70° to flow), deflecting spurs (perpendicular 90°), or attracting spurs (inclined downstream 60°); RTW-SPUR-001.
+- Spacing: Longitudinal spacing along bank = 2.0 to 2.5 times spur length.
+
+## 6. Construction and drafting sequence
+1. datum: Center line, HFL line, bed level line, guide bund alignment.
+2. primary: Guide bund embankment trapezoid; curved mole head arcs (derive centers from sweep angle and radius).
+3. detail: Launching apron rectangle at toe; filter layer band; stone pitching layer along slope.
+4. annotation: Flow direction arrow, HFL/LWL/bed level callouts, apron width and thickness dimensions, mole head radii notes.`;
+
+const SKEW_BRIDGE_DRAFTING = `# Skew bridge drafting — composite girders, diaphragms, square vs skew geometry (RDSO/B-11778/14 & 15)
+
+Drafting skew railway bridges and composite girder Road Over Bridges (ROBs) from geometry, RDSO standard drawings (RDSO/B-11778/14 & 15), and Indian Railways specifications. Load draftsman-method and geometric-reasoning first. Formula ids: bridge_reference id=SKW-GEO-001 etc.
+
+## 1. Controlling axes and datums (stage datum)
+- Alignment Axis: Railway track center line (for underbridges) or road center line (for ROBs).
+- Support Line: Pier / abutment center line inclined at skew angle SkewAngle (theta) relative to square normal.
+- Skew Angle Convention: Skew angle theta is the deviation from square (0° = square bridge, 30° = 30° skew). IRBM limits skew to 30° generally; angles > 30° require special RDSO sanction (SKW-GEO-001).
+
+## 2. Square vs. skew span relationships
+- Longitudinal Span: L_skew = L_square / cos(theta) (SKW-GEO-001).
+- Girder Longitudinal Shift (Stagger): Adjacent girders spaced at distance W_spacing are shifted longitudinally by S_shift = W_spacing * tan(theta) (SKW-SFT-001).
+- Total End Stagger: Across n girders, total longitudinal stagger between first and last girder is (n - 1) * W_spacing * tan(theta).
+
+## 3. RDSO/B-11778 Diaphragm & cross-frame orientation rule
+- Intermediate Diaphragms:
+  * When skew angle theta > 20°: Intermediate diaphragms and cross-frames MUST be oriented strictly PERPENDICULAR (90°) to the main girder webs (SKW-DPH-001; RDSO/B-11778/14 Note 4). This eliminates destructive out-of-plane torsional warping and transverse slab bending.
+  * When theta <= 20°: Intermediate diaphragms may follow the skew alignment or be perpendicular.
+- End Diaphragms: End diaphragms / cross frames at supports MUST be placed along the skew support line directly above bearings to transfer lateral earthquake and wind reactions into the bed blocks (SKW-DPH-001).
+
+## 4. Lateral bracing & deck detailing
+- Bottom Lateral Bracing: Triangulated K-bracing or X-bracing between bottom flanges of girders, placed perpendicular to girders in bays between intermediate diaphragms (SKW-BRC-001).
+- Acute Corner Detailing: At acute corners of skew slabs, high negative moments and upward bearing lift occur. The slab corner is stiffened with heavy edge beam kerbs and fan-shaped reinforcement (SKW-STF-001).
+- Skew Slab Detailing: Transverse reinforcement placed parallel to skew support lines or perpendicular to girders (SKW-SLB-001).
+- Girder Numbering: Girders numbered G1, G2, ... Gn from left to right looking in the direction of increasing chainage (GAD-GRD-001).
+
+## 5. Construction and drafting sequence
+1. datum: Road/track center line, skew support lines (derive via rotate_point or point_at_angle with SkewAngle).
+2. primary: Main girders drawn as parallel lines at spacing W_spacing, each shifted by S_shift along its axis; pier and abutment caps aligned with skew support lines.
+3. detail: End diaphragms along skew lines; intermediate cross-frames strictly square (90°) to girder webs; bottom bracing triangulation; elastomeric/POT bearings at girder-support intersections.
+4. context: Skew deck slab outline with cantilever overhanging outer girders; acute corner chamfers/kerbs.
+5. annotation: Skew angle dimension (arc), square span dimension, skew span dimension, girder spacing chain, girder stagger dimensions, and RDSO B-11778 notes.`;
+
+const GAD_ASSEMBLY_WORKFLOW = `# GAD assembly workflow — multi-view arrangement, sheet composition, checklists & approval (IRBM / RDSO)
+
+Assembling complete Indian Railways General Arrangement Drawings (GADs) with multi-view layout, standard numbering, levels, plaques, notes and codal compliance checks. Load draftsman-method and gad-drafting-style first. Formula ids: bridge_reference id=GAD-NUM-001 etc.
+
+## 1. Standard sheet composition and views (IRBM Para 402, RDSO Checklist)
+A complete railway bridge GAD sheet (standard A0 or A1, 20 mm binding margin on left, 10 mm on other edges) organizes views coherently:
+1. Elevation / Longitudinal Section (top left to center): Overall elevation showing all spans, piers, abutments, ground line, HFL, rail level, formation level, and clearance dimensions (V.C., F.B.; GAD-VCL-001, GAD-FBD-001).
+2. General Plan (bottom left to center): Alignment, span lengths, skew angle, pier/abutment shapes, wing walls, river flow direction, north arrow, and track center lines.
+3. Cross Section(s) (top or middle right): Transverse section through deck, girders, bearings, pier cap, ballast, and track structure.
+4. Foundation Details & Soil Bore Log (bottom center to right): Subsurface strata profiles, standard penetration test (SPT) values, founding levels, and scour levels.
+5. Technical Data Table & General Notes (above title block): Hydraulic data, loading standards, materials, seismic zone, allowable bearing pressures.
+6. Title Block (bottom right corner, 185 mm x 65 mm min per IS:962): Railway zone, division, bridge number, chainage, sanctioned work name, drawing number, signature blocks.
+
+## 2. Numbering convention (increasing kilometrage)
+- Numbering follows the direction of increasing chainage (kilometrage; GAD-NUM-001):
+  * Abutments: A1 at starting (lower) km; A2 at ending (higher) km.
+  * Piers: Numbered sequentially P1, P2, P3 ... from A1 towards A2.
+  * Spans: Span 1 (between A1 and P1), Span 2 (between P1 and P2), etc.
+  * Girders: Numbered G1, G2, ... Gn from left to right looking in the direction of increasing km (GAD-GRD-001).
+  * Tracks: Up Line / Down Line designated per railway timetable convention with direction arrows.
+
+## 3. Essential markings, levels and inscription plaques
+- High Flood Level (HFL): Marked on pier/abutment water face by a 50 mm wide white band with "H.F.L." and RL inscribed.
+- Danger Level (DL): Marked on pier face with a 50 mm wide red band on a 100 mm white background, 600 mm long, with "D.L." inscribed in red (IRBM Para 703; GAD-HFL-001).
+- Inscription Plaques (IRBM Para 704; GAD-PLQ-001):
+  * Name Plaque: Bridge No., Year of Construction, Span Configuration (e.g. "BR. NO. 42 / 2 x 18.3m + 1 x 30.5m / 2026").
+  * Foundation Plaque: Placed on each pier/abutment showing Founding RL, Scour RL, and Date of sinking/founding.
+
+## 4. Codal checklists & approval gates (RDSO GAD Checklist B-12 / C-11)
+- Hydraulic Verification: Linear waterway >= Lacey's Regime Waterway (W = 4.8 * sqrt(Q)); vertical clearance meets IRBM Table 312 for design discharge Q (GAD-VCL-001); freeboard >= 1000 mm (IRBM Para 313; GAD-FBD-001).
+- Seismic Verification: Minimum seating shelf width verified against RDSO BS-118 Clause 14.3 (SEI-SEAT-001).
+- Approval Authorities (IRBM Para 317):
+  * Open Line: Approved by Chief Bridge Engineer (CBE) of the Zonal Railway.
+  * Construction / Doubling: Approved by CE/Construction; where vertical clearance is inadequate or existing waterways are affected, CBE approval is mandatory.
+- Drawing Status: DRAFT -> PENDING_CONFIRMATION -> APPROVED. Unsigned signature boxes or open blocker findings prevent issue.`;
+
 export const DRAFTING_SKILLS: DraftingSkill[] = [
   { name: "draftsman-method", title: "The draftsman's method — geometry first, annotation last (any structure)", when: "always, before planning any drawing: what to build, how a draftsman builds it, which tools, what not to invent", body: DRAFTSMAN_METHOD },
   { name: "geometric-reasoning", title: "Geometric reasoning — slopes, ratios, angles, rotations and the relationships between them", when: "anything sloped, splayed, skewed, rotated, tangent or set out at an angle: wing and return walls, batters, aprons, bracing, girder profiles — and whenever a position follows from a relationship rather than from a written coordinate", body: GEOMETRIC_REASONING },
@@ -326,6 +540,12 @@ export const DRAFTING_SKILLS: DraftingSkill[] = [
   { name: "psc-slab-bridge", title: "PSC slab bridge", when: "PSC / prestressed slab spans, RDSO standard slab spans", body: PSC_SLAB },
   { name: "composite-girder", title: "Composite girder bridge", when: "steel girders with an RCC deck", body: COMPOSITE },
   { name: "open-web-girder", title: "Open web girder (through truss)", when: "OWG, truss bridge, long spans", body: OWG },
+  { name: "substructure-piers-abutments", title: "Substructure — piers, abutments, wing walls, return walls and bed blocks", when: "piers, abutments, wing walls, return walls, bed blocks, weep holes, boulder backing, or substructure drafting", body: SUBSTRUCTURE_PIERS_ABUTMENTS },
+  { name: "foundations-well-pile-open", title: "Foundations — open footings, well foundations (caissons) and pile groups", when: "open foundations, footings, well foundations, caissons, bored cast-in-situ piles, driven piles, pile caps, drop walls, or bed protection", body: FOUNDATIONS_WELL_PILE_OPEN },
+  { name: "seismic-detailing-bearings", title: "Seismic detailing, elastomeric/POT bearings and restrainers (RDSO BS-118)", when: "seismic design, earthquake analysis, elastomeric bearings, POT-PTFE bearings, seismic restrainers, unseating prevention, Zone II/III/IV/V, or RDSO BS-118", body: SEISMIC_DETAILING_BEARINGS },
+  { name: "river-training-protection", title: "River training and protection works — guide bunds, aprons, spurs and pitching (IRBM Chapter VIII)", when: "river training, guide bunds, launching aprons, boulder pitching, spurs, groynes, scour protection, or slope pitching", body: RIVER_TRAINING_PROTECTION },
+  { name: "skew-bridge-drafting", title: "Skew bridge drafting — composite girders, diaphragms, square vs skew geometry (RDSO/B-11778/14 & 15)", when: "skew bridge, skew angle, composite girder ROB, intermediate diaphragms, cross frames, end diaphragms, RDSO B-11778, or skew layout", body: SKEW_BRIDGE_DRAFTING },
+  { name: "gad-assembly-workflow", title: "GAD assembly workflow — multi-view arrangement, sheet composition, checklists & approval (IRBM / RDSO)", when: "assembling a full General Arrangement Drawing (GAD), multi-view sheet, title block, indexing, numbering convention, RDSO GAD checklist, or drawing submission", body: GAD_ASSEMBLY_WORKFLOW },
 ];
 
 export function findSkill(name: string): DraftingSkill | undefined {
