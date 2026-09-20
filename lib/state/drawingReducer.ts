@@ -7,6 +7,7 @@ import { BUILTIN_TEMPLATES } from "../parametric/templates";
 import { solveGADAssemblyAdjustment } from "../geometry/gadAssemblyEngine";
 import { evaluateAllBoundaryLimits, BoundaryLimitEvaluation } from "../parametric/boundaryLimits";
 import { emptyCadDoc, type CadDocState } from "../cad/document";
+import { newCadDocument, type CadFileDocument } from "../io/cadFile";
 import {
   applyCadAction,
   deleteSelection,
@@ -39,6 +40,24 @@ export interface HistoryItem {
 
 /** §3 personas. */
 export type UserMode = "draftsman" | "author" | "user";
+
+/**
+ * Which file this drawing is, and whether it has changed since it was written.
+ *
+ * `revision` counts changes to what a save would write — geometry and the CAD
+ * document. When it equals `savedRevision` there is nothing unsaved, which is
+ * the one question every save prompt, close warning and autosave timer needs
+ * answered, and the only honest way to answer it is to count the changes rather
+ * than to set a flag in the twenty-odd places that make them.
+ */
+export interface DocumentFile {
+  /** The drawing's name — the file's stem, or "Untitled" until it is saved. */
+  name: string;
+  revision: number;
+  savedRevision: number;
+  /** When it was last written to a file, not to the recovery copy. */
+  savedAt: number | null;
+}
 
 export interface DrawingState {
   shapes: Shape[];
@@ -99,6 +118,8 @@ export interface DrawingState {
    * sheets. One object so one history snapshot captures all of it.
    */
   cad: CadDocState;
+  /** The drawing's identity as a file, and its unsaved-change count. */
+  file: DocumentFile;
 }
 
 export type DrawingAction =
@@ -157,6 +178,25 @@ export type DrawingAction =
    * undoable change: shapes removed, added and replaced together.
    */
   | { type: "EDIT_SHAPES"; remove?: ID[]; add?: Shape[]; update?: Shape[]; description: string; select?: ID[] }
+  // File actions — the native document (lib/io/cadFile.ts)
+  /** Replace the whole drawing with one read from a file or the recovery copy. */
+  | { type: "DOC_LOAD"; document: CadFileDocument; name: string; savedAt?: number | null; unsaved?: boolean }
+  /** Start an empty drawing. */
+  | { type: "DOC_NEW"; name?: string }
+  /** The drawing has just been written to a file: nothing is unsaved any more. */
+  | { type: "DOC_SAVED"; name?: string; at?: number }
+  /**
+   * There is nothing here the draftsman made — the demonstration profile the
+   * editor opens with. It counts as no unsaved work, so closing the tab on it
+   * is not worth a warning.
+   */
+  | { type: "DOC_MARK_CLEAN" }
+  /**
+   * Something outside the drawing reducer changed what a save would write —
+   * the authoring session's constraints and named values live in their own
+   * context, and a rule accepted there must still count as an unsaved change.
+   */
+  | { type: "DOC_TOUCH" }
   | CadAction;
 
 export const initialDrawingState: DrawingState = {
@@ -190,6 +230,7 @@ export const initialDrawingState: DrawingState = {
   userMode: "draftsman",
   geometryRevision: 0,
   cad: emptyCadDoc(),
+  file: { name: "Untitled", revision: 0, savedRevision: 0, savedAt: null },
 };
 
 /**
@@ -1101,6 +1142,89 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
       };
     }
 
+    /**
+     * Open: the drawing in the file replaces the one on screen, whole.
+     *
+     * The undo history is not carried across, and deliberately so — it belongs
+     * to the editing session that produced it, and offering to undo past the
+     * moment a file was opened would mean undoing into another drawing. What is
+     * carried is everything the file holds: geometry, the CAD document with its
+     * definitions and formulas, and the view it was left in.
+     */
+    case "DOC_LOAD": {
+      const d = action.document;
+      return {
+        ...state,
+        shapes: d.shapes,
+        cad: d.cad,
+        viewport: d.view.viewport,
+        showGrid: d.view.showGrid,
+        showDimensions: d.view.showDimensions,
+        gridSnapEnabled: d.view.gridSnapEnabled,
+        objectSnapEnabled: d.view.objectSnapEnabled,
+        orthoEnabled: d.view.orthoEnabled,
+        polarTrackingEnabled: d.view.polarTrackingEnabled,
+        dynamicInputEnabled: d.view.dynamicInputEnabled,
+        themeMode: d.view.themeMode,
+        userMode: d.view.userMode,
+        currentStyle: d.view.currentStyle,
+        boundaryEvaluations: evaluateAllBoundaryLimits(d.shapes),
+        selectedId: null,
+        selectedIds: [],
+        draft: null,
+        activeSnap: null,
+        history: { past: [], future: [] },
+        geometryRevision: state.geometryRevision + 1,
+        file: {
+          name: action.name,
+          // A drawing recovered from an interrupted session still has the
+          // changes its file never received; saying otherwise would invite
+          // closing the tab on them.
+          revision: action.unsaved ? state.file.revision + 1 : state.file.revision,
+          savedRevision: state.file.revision,
+          savedAt: action.savedAt ?? null,
+        },
+      };
+    }
+
+    case "DOC_NEW": {
+      const d = newCadDocument();
+      return {
+        ...state,
+        shapes: [],
+        cad: d.cad,
+        viewport: d.view.viewport,
+        boundaryEvaluations: [],
+        selectedId: null,
+        selectedIds: [],
+        draft: null,
+        activeSnap: null,
+        history: { past: [], future: [] },
+        geometryRevision: state.geometryRevision + 1,
+        file: { name: action.name ?? "Untitled", revision: state.file.revision, savedRevision: state.file.revision, savedAt: null },
+      };
+    }
+
+    case "DOC_SAVED": {
+      return {
+        ...state,
+        file: {
+          ...state.file,
+          name: action.name ?? state.file.name,
+          savedRevision: state.file.revision,
+          savedAt: action.at ?? Date.now(),
+        },
+      };
+    }
+
+    case "DOC_MARK_CLEAN": {
+      return { ...state, file: { ...state.file, savedRevision: state.file.revision } };
+    }
+
+    case "DOC_TOUCH": {
+      return { ...state, file: { ...state.file, revision: state.file.revision + 1 } };
+    }
+
     case "SET_CURRENT_STYLE": {
       return {
         ...state,
@@ -1271,9 +1395,24 @@ function reduce(state: DrawingState, action: DrawingAction): DrawingState {
  * geometry as a side effect of something else.
  */
 export function drawingReducer(state: DrawingState, action: DrawingAction): DrawingState {
-  const next = reduce(state, action);
+  let next = reduce(state, action);
   if (next.shapes !== state.shapes && action.type !== "APPLY_SOLVED_SHAPES") {
-    return { ...next, geometryRevision: state.geometryRevision + 1 };
+    next = { ...next, geometryRevision: state.geometryRevision + 1 };
+  }
+  /**
+   * And the same argument for unsaved changes: anything that alters what a save
+   * would write is an unsaved change, whichever case produced it. The file
+   * actions set `file` themselves — opening a drawing is not an edit to it.
+   *
+   * The solver's write-back is the one other exception. It is never the first
+   * mover: a drag, a typed value or an accepted rule always precedes it and has
+   * already been counted (a rule through its own sketch, which the file layer
+   * watches). Counting it as well would mean a drawing just opened, and rebuilt
+   * from its own rules on arrival, announced itself as unsaved work before the
+   * draftsman had touched it.
+   */
+  if (next.file === state.file && action.type !== "APPLY_SOLVED_SHAPES" && (next.shapes !== state.shapes || next.cad !== state.cad)) {
+    next = { ...next, file: { ...next.file, revision: next.file.revision + 1 } };
   }
   return next;
 }

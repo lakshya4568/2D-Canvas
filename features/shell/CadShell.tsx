@@ -16,6 +16,8 @@ import { importDxfToShapes } from "@/lib/io/dxfImporter";
 import { ComponentCatalog } from "../bridge/ComponentCatalog";
 import { SheetPreview } from "../bridge/SheetPreview";
 import { MakeParametricDialog } from "../bridge/MakeParametric";
+import { useDocumentFile } from "../file/documentFile";
+import { FileDialogs } from "../file/FileDialogs";
 import type { DockTab } from "./PersonaDock";
 
 /**
@@ -43,6 +45,7 @@ export function CadShell() {
     toggleDynamicInput,
   } = useDrawing();
   const agentPreview = useAgentPreview();
+  const file = useDocumentFile();
   const stateRef = React.useRef(state);
   stateRef.current = state;
   const [cursorPos, setCursorPos] = React.useState<Point | null>(null);
@@ -63,6 +66,9 @@ export function CadShell() {
   const seeded = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  const fileRef = React.useRef(file);
+  fileRef.current = file;
+
   // Command-line verbs that open a surface rather than a tool.
   React.useEffect(() => {
     const onOpen = (e: Event) => {
@@ -80,6 +86,10 @@ export function CadShell() {
         if (inst) dispatch({ type: "CAD_EXPLODE_COMPONENT", instanceId: inst });
       }
       else if (what === "DXFOUT") window.dispatchEvent(new CustomEvent("cad:export", { detail: "dxf" }));
+      else if (what === "SAVE" || what === "QSAVE") void fileRef.current.save();
+      else if (what === "SAVEAS") void fileRef.current.saveAs();
+      else if (what === "OPEN") fileRef.current.openFile();
+      else if (what === "NEW") fileRef.current.newDocument();
     };
     window.addEventListener("cad:open", onOpen);
     return () => window.removeEventListener("cad:open", onOpen);
@@ -126,18 +136,23 @@ export function CadShell() {
   );
 
   // A drafting tool should open showing what it does, not an empty sheet. Seed a
-  // real parametric profile once, on first mount only, so the first look has
-  // geometry, dimensions and a constraint state to read. Clearing the drawing
-  // does not re-seed it.
+  // real parametric profile once, so the first look has geometry, dimensions and
+  // a constraint state to read. Clearing the drawing does not re-seed it.
+  //
+  // It waits for the file layer first: the drawing the draftsman was working on
+  // when the tab closed outranks the demonstration, and seeding over a restored
+  // drawing — or before it arrives — would be exactly the data loss this is
+  // meant to end.
   React.useEffect(() => {
-    if (seeded.current) return;
+    if (seeded.current || file.restoring) return;
     seeded.current = true;
-    if (state.shapes.length === 0) {
+    if (state.shapes.length === 0 && state.cad.annotations.length === 0) {
       dispatch({ type: "INSTANTIATE_TEMPLATE", templateId: "parametric_frame_cutout" });
+      dispatch({ type: "DOC_MARK_CLEAN" });
     }
-    // Intentionally first-mount only.
+    // Runs once, as soon as the restore has settled.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [file.restoring]);
 
   // Theme is applied at the document root so the CSS token blocks resolve.
   React.useEffect(() => {
@@ -253,6 +268,7 @@ export function CadShell() {
       <ComponentCatalog open={catalogOpen} onClose={() => setCatalogOpen(false)} />
       <SheetPreview open={sheetsOpen} onClose={() => setSheetsOpen(false)} />
       <MakeParametricDialog open={parametricOpen} onClose={() => setParametricOpen(false)} />
+      <FileDialogs />
     </div>
   );
 }

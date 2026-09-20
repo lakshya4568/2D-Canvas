@@ -85,7 +85,11 @@ export const COMMAND_ALIASES: CommandAlias[] = [
   { alias: "SELECT", commandName: "SELECT", description: "Select objects mode", category: "utility" },
   { alias: "DXFIN", commandName: "IMPORTDXF", description: "Imports geometry from an AutoCAD DXF file", category: "utility" },
   { alias: "IMPORTDXF", commandName: "IMPORTDXF", description: "Imports geometry from an AutoCAD DXF file", category: "utility" },
-  { alias: "OPEN", commandName: "IMPORTDXF", description: "Opens/Imports an AutoCAD DXF file", category: "utility" },
+  { alias: "OPEN", commandName: "OPEN", description: "Opens a saved drawing (.mycad) with its parameters and rules", category: "utility" },
+  { alias: "NEW", commandName: "NEW", description: "Starts a new drawing", category: "utility" },
+  { alias: "SAVE", commandName: "SAVE", description: "Saves the drawing to its native file", category: "utility" },
+  { alias: "QSAVE", commandName: "SAVE", description: "Saves the drawing to its native file", category: "utility" },
+  { alias: "SAVEAS", commandName: "SAVEAS", description: "Saves the drawing to a new file", category: "utility" },
 
   // Drafting mode toggles
   { alias: "ORTHO", commandName: "ORTHO", description: "Toggles orthogonal lock (F8)", category: "utility" },
@@ -397,6 +401,10 @@ export class CadCommandRegistry {
       case "PLOT":
       case "PARAMETRIZE":
       case "BEDIT":
+      case "OPEN":
+      case "NEW":
+      case "SAVE":
+      case "SAVEAS":
       case "DXFOUT": {
         if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("cad:open", { detail: matched.commandName }));
         return { success: true, message: matched.description };

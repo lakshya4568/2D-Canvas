@@ -33,6 +33,7 @@ import {
   Hand,
   Slash,
   FolderUp,
+  FileDown,
   Boxes,
   Ungroup,
   Bot,
@@ -49,6 +50,7 @@ import { exportDxf } from "@/lib/io/dxfExporter";
 import { exportPdfSheet } from "@/lib/io/pdfSheetExporter";
 import { importDxfToShapes } from "@/lib/io/dxfImporter";
 import { shapesToParametricSketch } from "@/lib/serialization/shapesToSketch";
+import { useDocumentFile } from "@/features/file/documentFile";
 
 interface CadHeaderProps {
   onOpenTemplates: () => void;
@@ -96,6 +98,7 @@ export function CadHeader({
 
   const upce = useUpce();
   const cadOps = useCad();
+  const file = useDocumentFile();
   const agentPreview = useAgentPreview();
   const agentRunning = Boolean(agentPreview?.running);
 
@@ -179,14 +182,46 @@ export function CadHeader({
               </div>
               <button
                 onClick={() => {
-                  clearAll();
+                  file.newDocument();
                   setAppMenuOpen(false);
                 }}
                 className="w-full px-3 py-1.5 text-left hover:bg-(--pen-soft) flex items-center gap-2 text-(--fg-primary)"
               >
                 <FilePlus className="w-3.5 h-3.5 text-(--pen)" />
-                <span>New Drawing (Ctrl+N)</span>
+                <span>New drawing (Ctrl+N)</span>
               </button>
+              <button
+                onClick={() => {
+                  file.openFile();
+                  setAppMenuOpen(false);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-(--pen-soft) flex items-center gap-2 text-(--fg-primary)"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
+                <span>Open drawing... (Ctrl+O)</span>
+              </button>
+              <button
+                onClick={() => {
+                  void file.save();
+                  setAppMenuOpen(false);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-(--pen-soft) flex items-center gap-2 text-(--fg-primary)"
+              >
+                <Save className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Save (Ctrl+S)</span>
+              </button>
+              <button
+                onClick={() => {
+                  void file.saveAs();
+                  setAppMenuOpen(false);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-(--pen-soft) flex items-center gap-2 text-(--fg-primary)"
+              >
+                <FileDown className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Save as... (Ctrl+Shift+S)</span>
+              </button>
+              <div className="my-1 border-t border-(--rule)" />
+              <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-(--fg-muted)">Interchange</div>
               <button
                 onClick={() => {
                   onImportDxf?.();
@@ -204,10 +239,9 @@ export function CadHeader({
                 }}
                 className="w-full px-3 py-1.5 text-left hover:bg-(--pen-soft) flex items-center gap-2 text-(--fg-primary)"
               >
-                <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
+                <LayoutTemplate className="w-3.5 h-3.5 text-amber-500" />
                 <span>Open Template Catalog</span>
               </button>
-              <div className="my-1 border-t border-(--rule)" />
               <button
                 onClick={() => {
                   handleExportDxf();
@@ -246,32 +280,34 @@ export function CadHeader({
         {/* Quick Access Toolbar */}
         <div className="flex items-center gap-0.5 pr-2 border-r border-(--rule)">
           <button
-            onClick={clearAll}
-            title="New Drawing (Ctrl+N)"
+            onClick={file.newDocument}
+            title="New drawing (Ctrl+N)"
             className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
           >
             <FilePlus className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={onImportDxf}
-            title="Open / Import DXF Drawing (DXFIN / OPEN)"
-            className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
-          >
-            <FolderUp className="w-3.5 h-3.5 text-blue-500" />
-          </button>
-          <button
-            onClick={onOpenTemplates}
-            title="Open Template Catalog"
+            onClick={file.openFile}
+            title="Open a saved drawing (Ctrl+O)"
             className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
           >
             <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
           </button>
           <button
-            onClick={handleExportDxf}
-            title="Save / Export DXF (DXFOUT / QSAVE)"
-            className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
+            onClick={() => void file.save()}
+            disabled={file.busy}
+            title={file.dirty ? "Save — this drawing has unsaved changes (Ctrl+S)" : "Save (Ctrl+S)"}
+            className="relative w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary) disabled:opacity-40"
           >
             <Save className="w-3.5 h-3.5" />
+            {file.dirty && <span className="absolute top-[3px] right-[3px] w-[5px] h-[5px] rounded-full bg-amber-500" />}
+          </button>
+          <button
+            onClick={onImportDxf}
+            title="Import a DXF drawing (DXFIN)"
+            className="w-[24px] h-[22px] rounded hover:bg-(--ink-raised) grid place-items-center text-(--fg-muted) hover:text-(--fg-primary)"
+          >
+            <FolderUp className="w-3.5 h-3.5 text-blue-500" />
           </button>
           <button
             onClick={undo}
@@ -297,9 +333,10 @@ export function CadHeader({
           <ChevronDown className="w-3 h-3 text-(--fg-muted)" />
         </div>
 
-        {/* Document Title */}
-        <div className="flex-1 text-center font-mono text-[11px] text-(--fg-muted) hidden md:block">
-          AutoCAD Web Studio · <span className="text-(--fg-primary) font-semibold">Drawing1.dwg*</span>
+        {/* Document Title — the file, and whether it holds everything on screen. */}
+        <div className="flex-1 text-center font-mono text-[11px] text-(--fg-muted) hidden md:block truncate" title={file.dirty ? "This drawing has changes that are not in its file" : "Saved"}>
+          <span className="text-(--fg-primary) font-semibold">{file.fileName}</span>
+          {file.dirty && <span className="text-amber-500" aria-label="unsaved changes"> •</span>}
         </div>
 
         {/* Quick Command Search Bar */}

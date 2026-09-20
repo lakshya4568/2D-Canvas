@@ -5,6 +5,7 @@ import { Point } from "@/lib/geometry/types";
 import { useDrawing } from "@/lib/state/drawingContext";
 import { ConstraintChip } from "./ConstraintStatus";
 import { DEFAULT_TOLERANCE_POLICY } from "@/lib/geometry/tolerance";
+import { useDocumentFile } from "@/features/file/documentFile";
 
 /**
  * The status strip.
@@ -30,6 +31,19 @@ export function StatusStrip({ cursorPos }: { cursorPos: Point | null }) {
   const rawPct = state.viewport.scale * 100;
   const scalePct = rawPct >= 10 ? Math.round(rawPct) : Number(rawPct.toPrecision(2));
   const shapeCount = state.shapes.filter((s) => s.isVisible !== false).length;
+  const file = useDocumentFile();
+
+  /**
+   * Whether the work is safe is a status-bar question if anything is: it has to
+   * be answerable without opening a menu, and it has two halves — what is in the
+   * file the draftsman owns, and what is in the recovery copy that survives a
+   * reload. Saying "unsaved" without the second half would read as "lost".
+   */
+  const saveState = file.dirty
+    ? { text: file.autosavedAt ? "Unsaved changes · kept for reload" : "Unsaved changes", tone: "text-amber-500" }
+    : file.savedAt
+      ? { text: `Saved ${new Date(file.savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, tone: "text-(--fg-secondary)" }
+      : { text: "Not saved to a file yet", tone: "text-(--fg-muted)" };
 
   return (
     <footer className="h-[26px] shrink-0 bg-(--ink-panel) border-t border-(--rule) px-3 flex items-center gap-3 text-[10.5px] text-(--fg-muted) z-30 select-none">
@@ -135,6 +149,19 @@ export function StatusStrip({ cursorPos }: { cursorPos: Point | null }) {
       <span>
         <span className="num text-(--fg-secondary)">{shapeCount}</span> entities
       </span>
+
+      <div className="w-px h-[13px] bg-(--rule)" aria-hidden="true" />
+
+      <button
+        type="button"
+        onClick={() => void file.save()}
+        disabled={file.busy}
+        title={file.dirty ? `Save "${file.fileName}" (Ctrl+S)` : `${file.fileName} — saved`}
+        className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-(--ink-raised) disabled:opacity-50 ${saveState.tone}`}
+      >
+        <span className={`w-[5px] h-[5px] rounded-full ${file.dirty ? "bg-amber-500" : "bg-emerald-500"}`} aria-hidden="true" />
+        <span className="text-[10.5px]">{saveState.text}</span>
+      </button>
 
       <div className="flex-1" />
 

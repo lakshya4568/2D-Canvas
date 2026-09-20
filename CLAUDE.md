@@ -123,6 +123,15 @@ Degrees-of-freedom bookkeeping (§30) is the right gate for a **free-hand sketch
   - The plan and part tags travel in `origin.construction`, so the construction can be edited again from the drawing alone.
 - The **sketch route** (`route: "sketch"`) stays for one small profile held by rules (DOF, `flex_test`, `make_parametric`).
 
+### 2.14 The Native File — the Model, Saved (decision, 2026-09-20)
+- A drawing is a parametric model, so the file is the model: `lib/io/cadFile.ts` writes `.mycad` — one JSON envelope (`format`, `version`, `savedAt`, `units`, `checksum`) around one document: **shapes**, the whole **CAD document** (layers, annotations, component instances AND the drawing's own definitions with their values, formulas and invariants, project, sheets, settings, revisions), the **authoring sketch** (constraints, named parameters, repeat rules) and the **view**. DXF, SVG and PDF stay what they were: exports. They never become the way a drawing is kept.
+- What is NOT written is everything the application derives on load: undo history, selection, the live draft, boundary evaluations, snaps, canvas size. A file records the model, not the session around it.
+- **Refused whole, or opened and reported.** `readCadFile` refuses a file that is not parseable, not this format, from a newer version, or structurally damaged (no shapes, no layers, duplicate entity ids) — with the reason, over an untouched drawing. Everything else is a *repair* or a *warning* the UI shows: a current layer that is missing, entities on a layer the file does not hold, a component whose definition this build lacks. A checksum that disagrees opens with a warning rather than a refusal — it catches storage damage, but it also fires on a deliberate hand edit.
+- Older files come forward through the `MIGRATIONS` chain in `cadFile.ts`, one step per version; an unknown step is a refusal, never a guess at the shape of the data.
+- **Nothing is lost on a reload.** `lib/io/fileStore.ts` keeps the working drawing in IndexedDB as native file text (a real drawing runs to megabytes, past localStorage's ceiling, and an IndexedDB write is a transaction). `features/file/documentFile.tsx` writes it a second after the drawing stops changing, restores it on startup — before the demonstration profile is seeded — and says whether what came back was saved or recovered.
+- **Unsaved changes are counted, not flagged**: `DrawingState.file` holds `revision` / `savedRevision`, and the reducer's outer wrapper bumps `revision` whenever an action changed `shapes` or `cad`. The file actions (`DOC_LOAD`, `DOC_NEW`, `DOC_SAVED`, `DOC_MARK_CLEAN`) set `file` themselves and so are excluded, and so is the solver's `APPLY_SOLVED_SHAPES` — it is never the first mover, and counting its post-load rebuild would mark an untouched drawing as edited. A rule accepted in the authoring session, which lives outside this reducer, is counted through `DOC_TOUCH`.
+- `lib/io/fileAccess.ts` writes back to the file that was opened where the browser allows it (File System Access, handle kept in IndexedDB across reloads, permission re-asked on the click), and falls back to a download and a file input where it does not — saying which one it did. New and Open ask before discarding unsaved work; leaving the page warns.
+
 ---
 
 ## 3. Key Engine Subsystems & Mathematical Models
@@ -182,6 +191,7 @@ UPCE maintains two complementary representations:
 │   │   ├── CanvasOverlay.tsx   # Constraints, DOF status, and grip rendering
 │   │   └── Viewport.tsx        # Pan/zoom camera transform
 │   ├── bridge/                 # Component catalog, values form (auto/related/tables), Author relationships, Make parametric dialog, sheet preview, "What is this?" UI
+│   ├── file/                   # New / Open / Save / Save As, autosave and recovery (documentFile.tsx), unsaved-changes prompt
 │   ├── canvas/tools/           # Interactive annotation + modify tools (TEXT, DIM*, LEVEL, HATCH, OFFSET, TRIM…)
 │   ├── panels/                 # Persona panels and docks (+ BridgePanel, LayerPanel)
 │   │   ├── DraftPanel.tsx      # Draftsman Mode (zero formulas, nominal inputs)
@@ -202,6 +212,7 @@ UPCE maintains two complementary representations:
 │   ├── cad/                    # CAD document: layers, annotations, draw list, hatch, modify ops, sheets, DXF/SVG/PDF
 │   ├── components/             # Constructive component engine + library (library/*.ts are DATA); fromDrawing.ts = Make parametric
 │   ├── bridge/                 # Railway domain: glossary, recognition, drawn facts, project/DBR, sources, audit; knowledge/ = formula docs search
+│   ├── io/                     # Files: cadFile.ts (native .mycad format), fileStore.ts (IndexedDB recovery copy), fileAccess.ts (disk), DXF/PDF/SVG exporters
 │   └── state/cadActions.ts     # Reducer logic for the CAD document (shared by editor and agent)
 ├── tests/                      # Verification test suites
 │   ├── unit/                   # Unit tests (cell repeat, formulas tab, predicates)
@@ -269,3 +280,4 @@ bun run scripts/dev/svg-to-png.ts /tmp/v.svg /tmp/v.png 1800
 11. [ ] **Formulas never reach Run mode**: relationships and auto values show results and the names they follow, not expressions.
 12. [ ] **Make parametric stays generic**: no structure-specific branches in `fromDrawing.ts`; the self-check (every vertex reproduced) still passes.
 13. [ ] **Knowledge in sync**: after editing `docs/bridge-formulas`, `bun run knowledge:build`; formula `cites` ids exist.
+14. [ ] **The file keeps the model**: new state that a drawing owns is written by `documentToSave` and comes back through `DOC_LOAD`; a damaged file is refused whole, never half-loaded. Round-trip covered by a test.

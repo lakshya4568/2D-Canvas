@@ -235,6 +235,16 @@ interface UpceContextValue extends UpceState {
    * exactly as they were verified.
    */
   adoptDrawing: (shapes: Shape[], sketch: AuthoringSketch) => boolean;
+  /**
+   * Put back the authoring session a file was saved with.
+   *
+   * Nothing is re-solved here, unlike `adoptDrawing`: the shapes came out of
+   * the same file, already solved, and re-solving on open would let the kernel
+   * move coordinates the drawing was saved with. The settle pass that follows
+   * the load re-lowers the geometry against this sketch and recomputes the
+   * degrees of freedom, so the rules arrive checked without being re-imposed.
+   */
+  restoreSketch: (sketch: AuthoringSketch) => void;
   dependentsFor: (name: string) => string[];
   undoIntent: () => void;
   canUndoIntent: boolean;
@@ -1412,6 +1422,19 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     [dispatch]
   );
 
+  const restoreSketch = React.useCallback(
+    (sketch: AuthoringSketch) => {
+      const hasIntent = sketch.constraints.length > 0 || Object.keys(sketch.parameters).length > 0;
+      setS(() => ({
+        ...initial,
+        sketch,
+        started: hasIntent,
+        stage: sketch.meta.publishedAt ? "published" : hasIntent ? "constraining" : "drawing",
+      }));
+    },
+    []
+  );
+
   const undoIntent = React.useCallback(() => {
     const previous = s.past[s.past.length - 1];
     if (!previous) return;
@@ -1491,6 +1514,7 @@ export function UpceProvider({ children }: { children: React.ReactNode }) {
     checkReadiness,
     publishTemplate,
     adoptDrawing,
+    restoreSketch,
     dependentsFor: (name: string) => dependentsOf(name, s.sketch.parameters),
     undoIntent,
     canUndoIntent: s.past.length > 0,
