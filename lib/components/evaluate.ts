@@ -34,6 +34,7 @@ import {
   type Scope,
   type Strings,
 } from "./expr";
+import { namesIn, parseEquation, solveNumeric } from "@/lib/geometry/symbolicAlgebra";
 import type {
   ComponentDefinition,
   CustomValue,
@@ -355,6 +356,16 @@ export interface BuiltScope {
   tables: Map<string, ResolvedTable>;
 }
 
+/** The names a solved value's relationship reads, for ordering it. */
+function solveInputs(equation: string): string[] {
+  try {
+    const eq = parseEquation(equation);
+    return [...namesIn(eq.lhs, namesIn(eq.rhs))];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * A definition's scope: typed values and defaults, the tables' counts and
  * sums, the instance's own inputs, then everything computed — auto values,
@@ -397,7 +408,7 @@ export function buildScopeFull(
   }
 
   const rel = new Map((inputs.relations ?? []).map((r) => [r.name, r]));
-  type Computed = { name: string; expr: Expr; kind: "auto" | "related" | "relation" | "formula" };
+  type Computed = { name: string; expr: Expr; kind: "auto" | "related" | "relation" | "formula"; solve?: { equation: string; min: Expr; max: Expr } };
   const computed: Computed[] = [];
   const countParams = new Set<string>();
   for (const p of def.parameters) {
@@ -446,7 +457,17 @@ export function buildScopeFull(
     }
     computed.push({ name: r.name, expr: r.expr, kind: "relation" });
   }
-  for (const f of def.formulas ?? []) if (!rewritten.has(f.name)) computed.push({ name: f.name, expr: f.expr, kind: "formula" });
+  for (const f of def.formulas ?? []) {
+    if (rewritten.has(f.name)) continue;
+    if (!f.solve) {
+      computed.push({ name: f.name, expr: f.expr, kind: "formula" });
+      continue;
+    }
+    // A solved value is ordered by what its relationship READS — itself
+    // excluded, or it would look like a value that depends on itself.
+    const reads = [...solveInputs(f.solve.equation), ...exprDependencies(f.solve.min), ...exprDependencies(f.solve.max)].filter((n) => n !== f.name);
+    computed.push({ name: f.name, expr: reads.length ? reads.join(" + ") : "0", kind: "formula", solve: f.solve });
+  }
 
   const { order, cyclic } = orderByDependencies(computed);
   const byName = new Map(computed.map((c) => [c.name, c]));
@@ -463,6 +484,15 @@ export function buildScopeFull(
   }
   for (const n of order) {
     const c = byName.get(n)!;
+    if (c.solve) {
+      const r = solveNumeric(c.solve.equation, n, { scope, min: evalExpr(c.solve.min, scope), max: evalExpr(c.solve.max, scope) });
+      if (r.ok) scope[n] = countParams.has(n) ? Math.round(r.value) : r.value;
+      else {
+        scope[n] = NaN;
+        issue(issues, "error", "solve-failed", path, `${n} is worked out by solving ${c.solve.equation}, which has no answer here: ${r.reason}`);
+      }
+      continue;
+    }
     try {
       let v = evalExpr(c.expr, scope);
       if (countParams.has(n)) v = Math.round(v);

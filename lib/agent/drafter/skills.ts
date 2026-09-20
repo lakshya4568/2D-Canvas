@@ -22,6 +22,50 @@ export interface DraftingSkill {
   body: string;
 }
 
+const GEOMETRIC_REASONING = `# Geometric reasoning — slopes, angles, ratios, rotations
+
+A position that follows from an angle, a slope, a ratio or a rotation is never a coordinate you worked out. Say what the relationship IS and let the engine write the coordinates: then the relationship is what the drawing holds, and changing the angle moves everything built on it.
+
+## The relationships, and their inverses
+    slope  = rise / run                 rise = run * slope
+    angle  = atan2(rise, run)           run  = rise / tan(angle)
+    rise   = length * sin(angle)        length = rise / sin(angle)
+    run    = length * cos(angle)        length = hypot(rise, run)
+    ratio  = part / whole               part = whole * ratio
+Angles are DEGREES, counter-clockwise from +x, everywhere: sin, cos, tan, asin, acos, atan, atan2 all work in degrees. Also available: sqrt, hypot, pow, abs, min, max, round, floor, ceil, sign, if/gt/ge/lt/le, PI.
+
+Gradients on drawings are written as ratios ("1 in 4", "2:1", "1V:1.5H") and must stay written that way: the value is the ratio the design gave, and the slope in an expression is "1 / BatterRun" or "Rise / Run" — never the decimal it happens to equal.
+
+## Ask the engine, with derive
+- point_at_angle (from, angle, distance) — the far end of a member of that length at that inclination. This is rise = L sin θ / run = L cos θ, written for you.
+- point_at_slope (from, run, slope) — a batter or a fall stated as a ratio.
+- along_line (a, b, distance or fraction, offset) — a point part-way along something, or parallel to it.
+- intersection (a, b, c, d) — where two faces or two lines meet: a sloping wall against a footing, a batter against the ground line.
+- perpendicular_foot / offset_point / offset_from_line — square to a face: the thickness of an inclined member, a point set out normal to a skewed axis.
+- bisector (vertex, arm_a, arm_b, length) — a mitre where two faces meet at an angle.
+- tangent_point, line_circle, circle_circle — where a straight runs into a curve, and where two curves meet.
+- to_global / to_local (origin, angle, u, v) — set out in the structure's own axes ("1200 along the wall, 300 out from it") and get global coordinates. This is how skewed and splayed work is built: one frame, ordinary local sizes.
+- mirror_point, rotate_point — symmetry and rotation of a single point (whole entities: transform mirror / rotate).
+- distance, angle_of, slope_of, angle_between — read a relationship back OUT of the geometry, as an expression.
+Two-answer constructions (a line cutting a circle) report both; say pick: first or second.
+
+A "name" keeps the answer as a value of the drawing (a point becomes <Name>X and <Name>Y), so the relationship is visible in Author mode, can drive a dimension, and regenerates with everything else.
+
+## Turn a relationship round, with solve
+"What angle gives this rise over this length?" is the same relationship read backwards. solve rearranges it and keeps the REARRANGEMENT:
+    solve for WingAngle, equations ["Rise = WingLength * sin(WingAngle)"]  ->  WingAngle = asin(Rise / WingLength)
+Several equations with several unknowns are solved together by substitution. When no rearrangement exists — the unknown appears twice, or under a function with no inverse — give min and max and it is solved numerically; named, the equation itself is stored and the engine solves it again on every regeneration.
+
+## The method, for any sloped or rotated geometry
+1. Say the intent in words: "the return wall leaves the abutment face at the splay angle the design gives and runs until it meets the embankment slope".
+2. Name what the design gave, with its source: the angle or the ratio is a value (given if the brief writes it, required if nobody gave it — never a number you liked the look of). Do not hardcode an angle, a splay or a batter in the geometry.
+3. Choose the relationship that fixes each end: one end is usually a point you already built; the other is an angle plus a length, a slope plus a run, or an intersection with something else.
+4. derive the point(s), name them, and construct from the names.
+5. Check it: measure the edge (it reports length, direction and slope), and let check_geometry's ±5% sweep prove the dependent geometry really follows the angle. An end that does not move when the angle changes was typed, not derived.
+
+## What this is not
+It is not a wing-wall tool, a skew tool or a batter tool. A slope is a slope whether it belongs to a wing wall, a bracing member, an apron or a roof; the structure's own rules come from the brief, the design data or the reference — never from this skill.`
+
 const DRAFTSMAN_METHOD = `# The draftsman's method — any structure
 
 Do not make the drawing look correct first. Make the geometry correct first; then make the drawing look complete. The tools enforce this order.
@@ -263,6 +307,7 @@ Construct it as in rcc-box-half-section with these level relations and "road lev
 
 export const DRAFTING_SKILLS: DraftingSkill[] = [
   { name: "draftsman-method", title: "The draftsman's method — geometry first, annotation last (any structure)", when: "always, before planning any drawing: what to build, how a draftsman builds it, which tools, what not to invent", body: DRAFTSMAN_METHOD },
+  { name: "geometric-reasoning", title: "Geometric reasoning — slopes, ratios, angles, rotations and the relationships between them", when: "anything sloped, splayed, skewed, rotated, tangent or set out at an angle: wing and return walls, batters, aprons, bracing, girder profiles — and whenever a position follows from a relationship rather than from a written coordinate", body: GEOMETRIC_REASONING },
   { name: "rcc-box-culvert", title: "RCC box culvert (railway) — built from its geometry: single, multi-cell, skew, wings", when: "an RCC box culvert from a brief or design data (section, plan, elevation), or learning the box grammar", body: RCC_BOX_CULVERT },
   { name: "rcc-bridge-sequence", title: "RCC slab / T-beam / multi-span bridge — drawing sequence", when: "slab culverts, slab bridges, T-beam and multi-span RCC bridges", body: RCC_BRIDGE_SEQUENCE },
   { name: "reference-reconstruction", title: "Reconstruct any GAD from a reference image, from scratch", when: "a reference drawing is attached, or the brief is to reproduce a GAD — any structure type", body: RECONSTRUCTION },

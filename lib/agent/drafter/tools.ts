@@ -47,6 +47,9 @@ import {
   FEATURE_STAGES,
   VALUE_SOURCES,
   briefNumbers,
+  derive,
+  solveRelationship,
+  DERIVE_OPS,
 } from "./construction";
 import { decodePng, deviations, distanceMap, inkMask, refineRegistration, registrationFromPairs, samplePolyline, toImage, type Registration } from "./reference";
 import { renderOverlay } from "./render";
@@ -281,6 +284,69 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
         keep_sources: B("Keep a and b as well"),
       },
       ["op", "a", "b"]
+    ),
+  },
+  {
+    name: "derive",
+    description:
+      "Work out WHERE something goes from the geometric relationship that puts it there, as an expression of your values — never as a coordinate you calculated. " +
+      "Give points as [x, y], expressions, or references to what you built (Toe.p3, Wall.e2.mid); angles in degrees counter-clockwise from +x; slopes as rise / run (a 1 in 4 batter is \"1 / 4\", or \"Rise / Run\" in your own values). " +
+      "ops — point_at_angle (from, angle, distance: the end of a member of that length at that angle), point_at_slope (from, run, slope), along_line (a, b, distance or fraction, optional offset square to it), intersection (a, b, c, d: where line a→b meets line c→d), perpendicular_foot (p, a, b), offset_point (p, a, b, distance: square to a→b), bisector (vertex, arm_a, arm_b, length), " +
+      "line_circle (a, b, center, r), circle_circle (center, r, center2, r2), tangent_point (p, center, r), mirror_point (p, a, b), rotate_point (p, center, angle), to_global (origin, angle, u, v: a point set out in a local frame — skew axes, a splayed return), to_local (origin, angle, p), " +
+      "distance (a, b), angle_of (a, b), slope_of (a, b), angle_between (a, b, c, d), offset_from_line (p, a, b). " +
+      "Constructions with two answers report both — choose with pick: first / second. `name` keeps the answer as a value (a point becomes <Name>X and <Name>Y), so the relationship is part of the drawing and everything built on it regenerates when the angle or the length changes.",
+    parameters: obj(
+      {
+        op: { type: "string", enum: [...DERIVE_OPS], description: "The relationship to work out" },
+        from: EXPR_XY("point_at_angle / point_at_slope: where the member starts"),
+        a: EXPR_XY("First point of a line (or the first point for distance / angle_of / slope_of)"),
+        b: EXPR_XY("Second point of a line"),
+        c: EXPR_XY("intersection / angle_between: first point of the second line"),
+        d: EXPR_XY("intersection / angle_between: second point of the second line"),
+        p: EXPR_XY("The point being projected, offset, mirrored, rotated or measured"),
+        center: EXPR_XY("Circle centre, or the pivot of a rotation"),
+        center2: EXPR_XY("circle_circle: the second centre"),
+        origin: EXPR_XY("to_global / to_local: where the local frame sits"),
+        vertex: EXPR_XY("bisector: the corner"),
+        arm_a: EXPR_XY("bisector: a point along one arm"),
+        arm_b: EXPR_XY("bisector: a point along the other arm"),
+        angle: EXPR("Degrees counter-clockwise from +x (a member's inclination, a skew, a frame's rotation)"),
+        distance: EXPR("Length along the direction, or the offset square to a line"),
+        slope: EXPR("Rise over run, e.g. \"1 / 4\" or \"Rise / Run\""),
+        run: EXPR("point_at_slope: the horizontal distance"),
+        fraction: EXPR("along_line: 0 at a, 1 at b"),
+        offset: EXPR("along_line: extra offset square to a→b (positive to the left)"),
+        length: EXPR("bisector: how far along the bisector"),
+        r: EXPR("Radius"),
+        r2: EXPR("circle_circle: the second radius"),
+        u: EXPR("to_global: distance along the frame's own axis"),
+        v: EXPR("to_global: distance across it"),
+        pick: { type: "string", enum: ["first", "second"], description: "Which of two answers you mean" },
+        name: S("Keep the answer as a value with this name (a point becomes <Name>X, <Name>Y)"),
+        unit: { type: "string", enum: ["mm", "m", "deg", "-"], description: "Unit of a named answer (default: the op's own)" },
+        note: S("What it is, for the person who reads the drawing"),
+      },
+      ["op"]
+    ),
+  },
+  {
+    name: "solve",
+    description:
+      "Turn a relationship round so the unknown stands alone, and keep the REARRANGEMENT, not its answer: \"Rise = WingLength * sin(WingAngle)\" solved for WingAngle gives asin(Rise / WingLength), still written in your values, so the geometry follows every later change. " +
+      "Several equations with several unknowns are solved together by substitution. When no rearrangement exists (the unknown appears twice, or under a function with no inverse), give min and max and it is solved numerically — and, if you name it, the relationship itself is stored so the engine solves it again on every regeneration. " +
+      "Use it for the inverse questions: what angle gives this rise over this length, what length reaches that face, what batter fits between those two levels.",
+    parameters: obj(
+      {
+        equations: { type: "array", items: { type: "string" }, description: "Relationships as \"left = right\", in your value names (entity references allowed)" },
+        for: { type: "array", items: { type: "string" }, description: "The unknown value name(s) to solve for" },
+        method: { type: "string", enum: ["auto", "isolate", "numeric"], description: "auto (rearrange, then numeric if asked), isolate, or numeric" },
+        min: EXPR("numeric: the bottom of the range to look in"),
+        max: EXPR("numeric: the top of the range to look in"),
+        name: S("Keep the answer as a value with this name"),
+        unit: { type: "string", enum: ["mm", "m", "deg", "-"], description: "Unit of the named answer" },
+        note: S("What it is, for the person who reads the drawing"),
+      },
+      ["equations", "for"]
     ),
   },
   {
@@ -613,7 +679,7 @@ export const BASE_TOOLS: FunctionDeclaration[] = [
 ];
 
 const STAGE: Record<string, ToolStage> = {
-  plan: "meta", construct: "draw", transform: "draw", boolean: "draw", remove: "draw", measure: "observe", check_geometry: "observe", verify: "observe", compare_reference: "observe", zoom_reference: "observe",
+  plan: "meta", construct: "draw", transform: "draw", boolean: "draw", remove: "draw", measure: "observe", derive: "observe", solve: "observe", check_geometry: "observe", verify: "observe", compare_reference: "observe", zoom_reference: "observe",
   look: "observe", view: "observe", check: "observe", flex_test: "observe", suggestions: "observe", calculate: "observe", research: "observe",
   draw_line: "draw", draw_polyline: "draw", draw_rectangle: "draw", draw_circle: "draw", chamfer: "draw", offset: "draw", trim: "draw",
   split: "draw", move: "draw", copy: "draw", mirror: "draw", rotate: "draw", delete: "draw", explode: "draw", rename: "draw",
@@ -1345,6 +1411,12 @@ async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<T
 
     case "measure":
       return { text: measure(ws, a) };
+
+    case "derive":
+      return { text: derive(ws, a) };
+
+    case "solve":
+      return { text: solveRelationship(ws, a) };
 
     case "verify":
       return { text: verifyConstruction(ws).text };

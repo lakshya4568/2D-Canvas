@@ -51,6 +51,8 @@ import { textWidth } from "../../cad/drawList";
 import { indexShapes } from "../../cad/geometry";
 import { ToolError, fmt, type DraftingWorkspace } from "./workspace";
 import * as Sy from "../../components/symbolic";
+import * as Rel from "../../geometry/relations";
+import { isolate, namesIn, parseEquation, solveNumeric, solveSystem, value } from "../../geometry/symbolicAlgebra";
 import { ILLEGIBLE_TEXT_FRACTION, readableAnnotationScale } from "../../cad/sheet";
 import { humanName, valueLabel } from "../../components/labels";
 
@@ -84,6 +86,12 @@ export interface PlanValue {
   label?: string;
   /** Typed values only (a derived value comes from its expression). */
   source?: ValueSource;
+  /**
+   * A value the engine SOLVES on every regeneration, when the relationship
+   * cannot be rearranged to put the unknown on its own. `expr` is then empty:
+   * the equation is the value's definition.
+   */
+  solve?: { equation: string; min: string; max: string };
 }
 export interface PlanCheck {
   label: string;
@@ -259,23 +267,46 @@ export function evaluatePlanValues(values: PlanValue[], globals: Scope): { scope
     names.add(v.name);
   }
   const known = new Set([...names, ...Object.keys(globals)]);
+  // What a value reads: its expression, or — for one the engine solves — the
+  // relationship and the range it looks in, minus the unknown itself.
+  const reads = (v: PlanValue): string[] =>
+    v.solve
+      ? [...equationNames(v.solve.equation), ...exprDependencies(v.solve.min), ...exprDependencies(v.solve.max)].filter((d) => d !== v.name)
+      : exprDependencies(v.expr);
   for (const v of values) {
-    const unknown = exprDependencies(v.expr).filter((d) => !known.has(d));
-    if (unknown.length) errors.push(`${v.name} = ${v.expr} uses ${unknown.join(", ")}, which the plan does not define.`);
+    const unknown = reads(v).filter((d) => !known.has(d));
+    if (unknown.length) errors.push(`${v.name} = ${v.solve ? v.solve.equation : v.expr} uses ${unknown.join(", ")}, which the plan does not define.`);
   }
-  const { order, cyclic } = orderByDependencies(values.map((v) => ({ name: v.name, expr: v.expr })));
+  const { order, cyclic } = orderByDependencies(values.map((v) => ({ name: v.name, expr: reads(v).join(" + ") || "0" })));
   if (cyclic.length) errors.push(`These values depend on each other in a circle: ${cyclic.join(", ")}.`);
   const scope: Scope = { ...globals };
   if (errors.length) return { scope, errors };
   const byName = new Map(values.map((v) => [v.name, v]));
   for (const n of order) {
+    const v = byName.get(n)!;
+    if (v.solve) {
+      const r = solveNumeric(v.solve.equation, n, { scope, min: evalExpr(v.solve.min, scope), max: evalExpr(v.solve.max, scope) });
+      if (r.ok) scope[n] = r.value;
+      else errors.push(`${n} is solved from ${v.solve.equation}: ${r.reason}`);
+      continue;
+    }
     try {
-      scope[n] = evalExpr(byName.get(n)!.expr, scope);
+      scope[n] = evalExpr(v.expr, scope);
     } catch (e) {
-      errors.push(`${n} = ${byName.get(n)!.expr}: ${(e as Error).message}.`);
+      errors.push(`${n} = ${v.expr}: ${(e as Error).message}.`);
     }
   }
   return { scope, errors };
+}
+
+/** The names an equation reads, for ordering a solved value against the rest. */
+function equationNames(equation: string): string[] {
+  try {
+    const eq = parseEquation(equation);
+    return [...namesIn(eq.lhs, namesIn(eq.rhs))];
+  } catch {
+    return [];
+  }
 }
 
 /** How close a check must come: the model tolerance, in the check's own unit. */
@@ -308,7 +339,7 @@ function parseValues(raw: unknown): PlanValue[] {
   });
 }
 
-export const isTyped = (v: PlanValue) => /^-?\d+(\.\d+)?$/.test(v.expr.trim());
+export const isTyped = (v: PlanValue) => !v.solve && /^-?\d+(\.\d+)?$/.test(v.expr.trim());
 
 /**
  * Numbers a brief writes, in the units a value may carry them in: "2000 mm",
@@ -469,7 +500,7 @@ export function currentDefinition(ws: DraftingWorkspace): ComponentDefinition | 
 }
 
 function withPlan(def: ComponentDefinition | null, plan: ConstructionPlan, id: string, title: string): ComponentDefinition {
-  const typed = (v: PlanValue) => /^-?\d+(\.\d+)?$/.test(v.expr.trim());
+  const typed = (v: PlanValue) => !v.solve && /^-?\d+(\.\d+)?$/.test(v.expr.trim());
   const kind = (u: PlanUnit): ComponentParameter["kind"] => (u === "m" ? "level" : u === "deg" ? "angle" : u === "-" ? "ratio" : "length");
   const group = (v: PlanValue) =>
     v.source === "required" ? "Required inputs (placeholders)" : v.source === "drafting" ? "Drawing layout" : v.unit === "m" ? "Levels" : v.source === "scaled" ? "Scaled from the reference" : "Values given";
@@ -487,7 +518,16 @@ function withPlan(def: ComponentDefinition | null, plan: ConstructionPlan, id: s
   }));
   const formulas: ComponentFormula[] = plan.values
     .filter((v) => !typed(v))
-    .map((v) => ({ name: v.name, expr: v.expr, label: v.label ?? humanName(v.name), description: v.note ?? "", unit: v.unit, report: true, group: "Worked out" }));
+    .map((v) => ({
+      name: v.name,
+      expr: v.expr || "0",
+      solve: v.solve,
+      label: v.label ?? humanName(v.name),
+      description: v.note ?? "",
+      unit: v.unit,
+      report: true,
+      group: "Worked out",
+    }));
   return {
     id,
     name: title,
@@ -1555,6 +1595,363 @@ export function measure(ws: DraftingWorkspace, a: Args): string {
 }
 
 // ---------------------------------------------------------------------------
+// Geometric reasoning — relationships worked out as expressions
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a piece of geometry goes is usually not a coordinate anybody knows. It
+ * is a relationship: this wall leaves that toe at the design's splay angle and
+ * runs its design length; this batter falls one in four from the top of that
+ * footing; this member meets that face square. A draftsman reads the
+ * relationship and the coordinates follow.
+ *
+ * `derive` is that step, done by the engine rather than in the model's head.
+ * Every answer comes back as an EXPRESSION of the drawing's own values — the
+ * point at an angle is `Toe.x + WingLength * cos(WingAngle)`, not 4317 — so
+ * changing the angle later moves the wall, its end, and everything built on it.
+ * A number typed in its place would be a drawing that lies the moment anything
+ * changes.
+ *
+ * Nothing here knows what a wing wall is. A slope is a slope.
+ */
+
+type Derived = { kind: "point"; p: Sy.SP } | { kind: "scalar"; s: Sy.S } | { kind: "two"; t: Rel.TwoPoints };
+
+export const DERIVE_OPS = [
+  "point_at_angle",
+  "point_at_slope",
+  "along_line",
+  "intersection",
+  "perpendicular_foot",
+  "offset_point",
+  "bisector",
+  "line_circle",
+  "circle_circle",
+  "tangent_point",
+  "mirror_point",
+  "rotate_point",
+  "to_global",
+  "to_local",
+  "distance",
+  "angle_of",
+  "slope_of",
+  "angle_between",
+  "offset_from_line",
+] as const;
+export type DeriveOp = (typeof DERIVE_OPS)[number];
+
+/** The unit an answer is in, so a named result is grouped and shown correctly. */
+const DERIVE_UNIT: Record<DeriveOp, PlanUnit> = {
+  point_at_angle: "mm",
+  point_at_slope: "mm",
+  along_line: "mm",
+  intersection: "mm",
+  perpendicular_foot: "mm",
+  offset_point: "mm",
+  bisector: "mm",
+  line_circle: "mm",
+  circle_circle: "mm",
+  tangent_point: "mm",
+  mirror_point: "mm",
+  rotate_point: "mm",
+  to_global: "mm",
+  to_local: "mm",
+  distance: "mm",
+  angle_of: "deg",
+  slope_of: "-",
+  angle_between: "deg",
+  offset_from_line: "mm",
+};
+
+function deriveOp(a: Args): DeriveOp {
+  const op = str(a, "op") as DeriveOp;
+  if (!(DERIVE_OPS as readonly string[]).includes(op)) throw new ToolError(`derive: "${op}" is not one of ${DERIVE_OPS.join(", ")}.`);
+  return op;
+}
+
+export function derive(ws: DraftingWorkspace, a: Args): string {
+  const plan = ws.construction.plan;
+  if (!plan) throw new ToolError("Plan first: derive works in the plan's values.");
+  const def = currentDefinition(ws);
+  const scope = planScope(ws);
+  const op = deriveOp(a);
+
+  const P = (k: string, what = k) => Sy.symPoint(point(a[k], `derive ${what}`, def, scope), scope);
+  const V = (k: string, what = k) => Sy.sym(scalar(a[k], `derive ${what}`, def, scope), scope);
+  const has = (k: string) => a[k] !== undefined && a[k] !== null && a[k] !== "";
+  const need = (k: string) => {
+    if (!has(k)) throw new ToolError(`derive ${op}: "${k}" is required.`);
+  };
+  const tol = ws.policy.geometry_mm;
+
+  const result = ((): Derived => {
+    switch (op) {
+      case "point_at_angle":
+        need("from");
+        need("angle");
+        need("distance");
+        return { kind: "point", p: Rel.polar(P("from"), V("angle"), V("distance")) };
+      case "point_at_slope":
+        need("from");
+        need("run");
+        need("slope");
+        return { kind: "point", p: Rel.bySlope(P("from"), V("run"), V("slope")) };
+      case "along_line": {
+        need("a");
+        need("b");
+        if (!has("distance") && !has("fraction")) throw new ToolError("derive along_line: give distance or fraction.");
+        const by = has("fraction") ? { fraction: V("fraction") } : { distance: V("distance") };
+        return { kind: "point", p: Rel.along(P("a"), P("b"), by, has("offset") ? V("offset") : undefined) };
+      }
+      case "intersection": {
+        need("a");
+        need("b");
+        need("c");
+        need("d");
+        const hit = Rel.crossing(P("a"), P("b"), P("c"), P("d"), tol);
+        if (!hit) throw new ToolError("derive intersection: those two lines are parallel at the current values, so they have no crossing to build on.");
+        return { kind: "point", p: hit };
+      }
+      case "perpendicular_foot":
+        need("p");
+        need("a");
+        need("b");
+        return { kind: "point", p: Rel.footOnLine(P("p"), P("a"), P("b")) };
+      case "offset_point":
+        need("p");
+        need("a");
+        need("b");
+        need("distance");
+        return { kind: "point", p: Rel.perpendicularFrom(P("p"), P("a"), P("b"), V("distance")) };
+      case "bisector":
+        need("vertex");
+        need("arm_a");
+        need("arm_b");
+        need("length");
+        return { kind: "point", p: Rel.bisector(P("vertex"), P("arm_a"), P("arm_b"), V("length")) };
+      case "line_circle": {
+        need("a");
+        need("b");
+        need("center");
+        need("r");
+        const t = Rel.lineCircle(P("a"), P("b"), P("center"), V("r"));
+        if (!t) throw new ToolError("derive line_circle: that line misses the circle at the current values.");
+        return { kind: "two", t };
+      }
+      case "circle_circle": {
+        need("center");
+        need("r");
+        need("center2");
+        need("r2");
+        const t = Rel.circleCircle(P("center"), V("r"), P("center2"), V("r2"));
+        if (!t) throw new ToolError("derive circle_circle: those circles do not meet at the current values.");
+        return { kind: "two", t };
+      }
+      case "tangent_point": {
+        need("p");
+        need("center");
+        need("r");
+        const t = Rel.tangentPoints(P("p"), P("center"), V("r"));
+        if (!t) throw new ToolError("derive tangent_point: the point is inside the circle at the current values, so it has no tangent.");
+        return { kind: "two", t };
+      }
+      case "mirror_point":
+        need("p");
+        need("a");
+        need("b");
+        return { kind: "point", p: Rel.mirrorPoint(P("p"), P("a"), P("b"), tol) };
+      case "rotate_point":
+        need("p");
+        need("center");
+        need("angle");
+        return { kind: "point", p: Rel.rotatePoint(P("p"), P("center"), V("angle")) };
+      case "to_global":
+        need("origin");
+        need("angle");
+        need("u");
+        need("v");
+        return { kind: "point", p: Rel.toGlobal({ origin: P("origin"), angle: V("angle") }, V("u"), V("v")) };
+      case "to_local": {
+        need("origin");
+        need("angle");
+        need("p");
+        const l = Rel.toLocal({ origin: P("origin"), angle: V("angle") }, P("p"));
+        return { kind: "point", p: Sy.pt(l.u, l.v) };
+      }
+      case "distance":
+        need("a");
+        need("b");
+        return { kind: "scalar", s: Rel.distance(P("a"), P("b")) };
+      case "angle_of":
+        need("a");
+        need("b");
+        return { kind: "scalar", s: Rel.angleOf(P("a"), P("b")) };
+      case "slope_of": {
+        need("a");
+        need("b");
+        const s = Rel.slopeOf(P("a"), P("b"), tol);
+        if (!s) throw new ToolError("derive slope_of: that line is vertical at the current values, so it has no rise over run. Use angle_of.");
+        return { kind: "scalar", s };
+      }
+      case "angle_between":
+        need("a");
+        need("b");
+        need("c");
+        need("d");
+        return { kind: "scalar", s: Rel.angleBetween(P("a"), P("b"), P("c"), P("d")) };
+      case "offset_from_line":
+        need("p");
+        need("a");
+        need("b");
+        return { kind: "scalar", s: Rel.offsetFromLine(P("p"), P("a"), P("b")) };
+    }
+  })();
+
+  const pick = optStr(a, "pick");
+  let answer: Derived = result;
+  if (result.kind === "two") {
+    if (pick === "first") answer = { kind: "point", p: result.t.first };
+    else if (pick === "second") answer = { kind: "point", p: result.t.second };
+  }
+
+  const name = optStr(a, "name");
+  const note = optStr(a, "note");
+  const unit = (optStr(a, "unit") as PlanUnit) ?? DERIVE_UNIT[op];
+
+  if (answer.kind === "two") {
+    const lines = [
+      `${op} has two answers — say which one you mean with pick: first / second.`,
+      `  first:  (${fmt(answer.t.first.x.v)}, ${fmt(answer.t.first.y.v)})`,
+      `  second: (${fmt(answer.t.second.x.v)}, ${fmt(answer.t.second.y.v)})`,
+    ];
+    return lines.join("\n");
+  }
+
+  if (answer.kind === "point") {
+    const p = answer.p;
+    // to_local answers in the frame's own axes, so its parts are named for
+    // them: calling them X and Y would invite writing them as global ones.
+    const [ax, ay] = op === "to_local" ? ["U", "V"] : ["X", "Y"];
+    const body = `${op}: ${ax.toLowerCase()} = ${p.x.e}  (${fmt(p.x.v)})\n        ${ay.toLowerCase()} = ${p.y.e}  (${fmt(p.y.v)})`;
+    if (!name) return `${body}\nUse these expressions in construct, or give a name to keep the relationship as a value.`;
+    const added = addPlanValues(
+      ws,
+      [
+        { name: `${name}${ax}`, expr: p.x.e, unit, note: note ?? `${op}, ${ax.toLowerCase()}` },
+        { name: `${name}${ay}`, expr: p.y.e, unit, note: note ?? `${op}, ${ay.toLowerCase()}` },
+      ],
+      def
+    );
+    return `${body}\n${added} Write ${name}${ax}, ${name}${ay} in construct — they follow whatever they were derived from.`;
+  }
+
+  const s = answer.s;
+  const body = `${op} = ${s.e}  (${fmt3(s.v)}${unitText(unit)})`;
+  if (!name) return `${body}\nUse this expression, or give a name to keep the relationship as a value.`;
+  const added = addPlanValues(ws, [{ name, expr: s.e, unit, note: note ?? op }], def);
+  return `${body}\n${added}`;
+}
+
+/**
+ * Adds derived values to the plan and rebuilds the definition with them.
+ *
+ * They are stored as the plan's own values — formulas, because they are written
+ * in other values — so they appear in Author mode, drive dimensions, and travel
+ * with the drawing. A relationship the agent worked out but did not store would
+ * be a relationship the drawing does not have.
+ */
+function addPlanValues(ws: DraftingWorkspace, added: PlanValue[], def: ComponentDefinition | null): string {
+  const plan = ws.construction.plan!;
+  for (const v of added) {
+    if (!NAME.test(v.name)) throw new ToolError(`"${v.name}" is not a value name (letters, digits and _, starting with a letter).`);
+    if (RESERVED.has(v.name)) throw new ToolError(`"${v.name}" is reserved.`);
+  }
+  const values = [...plan.values];
+  for (const v of added) {
+    const i = values.findIndex((x) => x.name === v.name);
+    if (i >= 0) values[i] = v;
+    else values.push(v);
+  }
+  const next: ConstructionPlan = { ...plan, values };
+  const { errors } = evaluatePlanValues(values, globalsOf(ws));
+  if (errors.length) throw new ToolError(`Refused — ${errors.join(" ")} Nothing was added.`);
+  ws.construction = { ...ws.construction, plan: next };
+  commit(ws, withPlan(def, next, definitionId(ws), def?.name ?? (next.structure ?? "Drawing")));
+  return `Kept as ${added.map((v) => v.name).join(" and ")}.`;
+}
+
+/**
+ * Rearranging a relationship so the unknown stands alone — and keeping the
+ * rearrangement, not its answer.
+ *
+ * `Rise = Length * sin(Angle)` solved for `Angle` is `asin(Rise / Length)`:
+ * still written in the drawing's values, so the geometry built on it follows
+ * every later change to the rise or the length. Where no rearrangement exists
+ * (the unknown appears twice, or under a function with no inverse) the
+ * relationship itself is stored and the engine re-solves it on every
+ * regeneration — which is slower, and still parametric.
+ */
+export function solveRelationship(ws: DraftingWorkspace, a: Args): string {
+  const plan = ws.construction.plan;
+  if (!plan) throw new ToolError("Plan first: solve works in the plan's values.");
+  const def = currentDefinition(ws);
+  const scope = planScope(ws);
+  const raw = a.equations ?? a.equation;
+  const equations = (Array.isArray(raw) ? raw : [raw]).map((e, i) => resolveRefs(exprText(e, `equation ${i + 1}`), def));
+  if (!equations.length) throw new ToolError("solve: give the relationship as an equation, e.g. \"Rise = WingLength * sin(WingAngle)\".");
+  const rawFor = a.for ?? a.unknown;
+  const unknowns = (Array.isArray(rawFor) ? rawFor : [rawFor]).map((u) => exprText(u, "unknown").trim());
+  if (!unknowns.length || unknowns.some((u) => !NAME.test(u))) throw new ToolError("solve: name the unknown(s) to solve for.");
+  const method = optStr(a, "method") ?? "auto";
+  const name = optStr(a, "name");
+  const unit = (optStr(a, "unit") as PlanUnit) ?? "mm";
+  const note = optStr(a, "note");
+
+  const report = (solutions: { name: string; expr: string }[], how: string): string => {
+    const lines = solutions.map((s) => {
+      const v = value(s.expr, { ...scope, ...Object.fromEntries(solutions.map((o) => [o.name, NaN])) });
+      const shown = Number.isFinite(v as number) ? `  (${fmt3(v as number)}${unitText(unit)})` : "";
+      return `${s.name} = ${s.expr}${shown}`;
+    });
+    if (!name) return `${how}:\n${lines.join("\n")}\nUse the expression as it stands, or give a name to keep it as a value.`;
+    const kept = addPlanValues(
+      ws,
+      solutions.map((s, i) => ({ name: solutions.length === 1 ? name : s.name, expr: s.expr, unit, note: note ?? `solved from ${equations[Math.min(i, equations.length - 1)]}` })),
+      def
+    );
+    return `${how}:\n${lines.join("\n")}\n${kept}`;
+  };
+
+  if (unknowns.length > 1 || equations.length > 1) {
+    if (method === "numeric") throw new ToolError("solve: the numeric method takes one equation and one unknown.");
+    const sys = solveSystem(equations, unknowns);
+    if (!sys.ok) throw new ToolError(`solve: ${sys.reason}`);
+    return report(sys.solutions, "Solved together, by substitution");
+  }
+
+  const unknown = unknowns[0];
+  if (method !== "numeric") {
+    const r = isolate(equations[0], unknown);
+    if (r.ok) return report([{ name: unknown, expr: r.expr }], "Rearranged");
+    if (method === "isolate") throw new ToolError(`solve: ${r.reason}`);
+    if (a.min === undefined || a.max === undefined) {
+      throw new ToolError(`solve: ${r.reason} Give min and max to solve it numerically instead (the answer is then re-solved on every regeneration).`);
+    }
+  }
+
+  // Numeric: the relationship is kept, not its answer, so a later change to
+  // anything it reads is solved again rather than silently ignored.
+  const min = scalar(a.min, "solve min", def, scope);
+  const max = scalar(a.max, "solve max", def, scope);
+  const r = solveNumeric(equations[0], unknown, { scope, min: num(min, scope), max: num(max, scope), policy: ws.policy });
+  if (!r.ok) throw new ToolError(`solve: ${r.reason}`);
+  const shown = `${unknown} = ${fmt3(r.value)}${unitText(unit)} (residual ${r.residual.toExponential(1)}, ${r.steps} steps)`;
+  if (!name) return `Solved numerically: ${shown}\nGive a name to keep the relationship, so the value is solved again whenever its inputs change.`;
+  const kept = addPlanValues(ws, [{ name, expr: "", unit, note: note ?? `solved from ${equations[0]}`, solve: { equation: equations[0], min: String(min), max: String(max) } }], def);
+  return `Solved numerically: ${shown}\n${kept} It is re-solved from ${equations[0]} on every regeneration.`;
+}
+
+// ---------------------------------------------------------------------------
 // Verify
 // ---------------------------------------------------------------------------
 
@@ -1797,7 +2194,11 @@ function unnamedSizes(ws: DraftingWorkspace, plan: ConstructionPlan, def: Compon
   if (inEntities.length) out.push(`typed into ${inEntities.map(([id, n]) => `${id} (${n.join(", ")})`).join("; ")}`);
   const inFormulas = plan.values
     .filter((v) => !isTyped(v))
-    .map((v) => ({ v, n: [...typedNumbers(v.expr), ...(v.unit === "m" ? [...v.expr.matchAll(/(?<![\w.])\d*\.\d+(?![\w.])/g)].map((m) => Number(m[0])) : [])] }))
+    .map((v) => {
+      // A solved value's numbers live in its equation, not in `expr`.
+      const src = v.solve ? v.solve.equation : v.expr;
+      return { v: { ...v, expr: src }, n: [...typedNumbers(src), ...(v.unit === "m" ? [...src.matchAll(/(?<![\w.])\d*\.\d+(?![\w.])/g)].map((m) => Number(m[0])) : [])] };
+    })
     .filter((x) => x.n.length);
   if (inFormulas.length) out.push(`inside formulas: ${inFormulas.map(({ v, n }) => `${v.name} = ${v.expr} (${[...new Set(n)].join(", ")})`).join("; ")}`);
   return out;

@@ -93,6 +93,17 @@ export interface ComponentFormula {
   unit?: "mm" | "m" | "deg" | "-" | "m2";
   description?: string;
   group?: string;
+  /**
+   * A value the engine works out by SOLVING rather than by evaluating: the
+   * relationship it must satisfy, and the range to look in.
+   *
+   * Most relationships can be rearranged so the unknown stands alone, and those
+   * are ordinary formulas. Some cannot — the unknown appears twice, or under a
+   * function with no inverse — and the honest way to keep those parametric is to
+   * store the relationship itself and re-solve it on every regeneration, rather
+   * than to freeze one answer into a coordinate. `expr` is then ignored.
+   */
+  solve?: { equation: string; min: Expr; max: Expr };
   /** Shown in the Run form as a read-only derived value. */
   report?: boolean;
   /** Formula ids in the bridge knowledge base this implements (e.g. "RCR-LVL-002"). */
