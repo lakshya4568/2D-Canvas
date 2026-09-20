@@ -59,6 +59,53 @@ export function textWidth(text: string, height: number): number {
   return longest * height * CHAR_WIDTH_RATIO;
 }
 
+/** A rectangle in draw-list coordinates. */
+export interface Box {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+const EMPTY: Box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+export const boxOf = (points: Point[]): Box =>
+  points.reduce(
+    (b, p) => ({ minX: Math.min(b.minX, p.x), minY: Math.min(b.minY, p.y), maxX: Math.max(b.maxX, p.x), maxY: Math.max(b.maxY, p.y) }),
+    EMPTY
+  );
+
+/**
+ * The box a text primitive actually inks.
+ *
+ * The draw list carries the string, its height and how it is anchored, which is
+ * everything needed to say where the letters land — width from the longest
+ * line, height from the line count, then the anchor's own offsets. A rotated
+ * text is measured by its corners, so a note written along a batter is judged
+ * by the paper it really covers rather than by an upright box that would be
+ * both too wide and too short.
+ */
+export function textBox(p: Extract<DrawPrim, { k: "text" }>): Box {
+  const lines = p.text.split("\n");
+  const w = textWidth(p.text, p.height);
+  const lineHeight = p.height * 1.35;
+  const h = p.height + (lines.length - 1) * lineHeight;
+  // Canvas text: y is the first baseline, and the draw list's y grows downward.
+  const left = p.align === "center" ? -w / 2 : p.align === "right" ? -w : 0;
+  const top = p.baseline === "top" ? 0 : p.baseline === "middle" ? -h / 2 : -h;
+  const corners: Point[] = [
+    { x: left, y: top },
+    { x: left + w, y: top },
+    { x: left + w, y: top + h },
+    { x: left, y: top + h },
+  ];
+  const a = (-(p.rotation ?? 0) * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return boxOf(corners.map((q) => ({ x: p.x + q.x * c - q.y * s, y: p.y + q.x * s + q.y * c })));
+}
+
+
 /** Bounds of a primitive list, for fitting a viewport or a sheet. */
 export function primsBounds(prims: DrawPrim[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
   let minX = Infinity;
@@ -88,10 +135,12 @@ export function primsBounds(prims: DrawPrim[]): { minX: number; minY: number; ma
         add(p.cx + p.r, p.cy + p.r);
         break;
       case "text": {
-        const w = textWidth(p.text, p.height);
-        const lines = p.text.split("\n").length;
-        add(p.x - w, p.y - p.height * lines * 1.4);
-        add(p.x + w, p.y + p.height);
+        // The real box the letters occupy — the same one the annotation layout
+        // pass judges the sheet with, so a title is never cut off by a bound
+        // that guessed its size a second way.
+        const b = textBox(p);
+        add(b.minX, b.minY);
+        add(b.maxX, b.maxY);
         break;
       }
       case "dots":

@@ -22,15 +22,11 @@
  */
 
 import type { Point } from "@/lib/geometry/types";
-import type { DrawPrim } from "./drawList";
-import { textWidth } from "./drawList";
+import type { Box, DrawPrim } from "./drawList";
+import { boxOf, textBox } from "./drawList";
 
-export interface Box {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
+export type { Box };
+export { boxOf, textBox };
 
 /** How much a thing in the way matters. Hatching is background; ink is not. */
 export type ObstacleWeight = number;
@@ -108,14 +104,6 @@ export interface LayoutResult<T = unknown> {
 // Boxes
 // ---------------------------------------------------------------------------
 
-const EMPTY: Box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-
-export const boxOf = (points: Point[]): Box =>
-  points.reduce(
-    (b, p) => ({ minX: Math.min(b.minX, p.x), minY: Math.min(b.minY, p.y), maxX: Math.max(b.maxX, p.x), maxY: Math.max(b.maxY, p.y) }),
-    EMPTY
-  );
-
 export const translateBox = (b: Box, dx: number, dy: number): Box => ({ minX: b.minX + dx, minY: b.minY + dy, maxX: b.maxX + dx, maxY: b.maxY + dy });
 
 export const boxArea = (b: Box) => Math.max(0, b.maxX - b.minX) * Math.max(0, b.maxY - b.minY);
@@ -134,36 +122,6 @@ export function boxGap(a: Box, b: Box): number {
   const dx = Math.max(0, Math.max(a.minX - b.maxX, b.minX - a.maxX));
   const dy = Math.max(0, Math.max(a.minY - b.maxY, b.minY - a.maxY));
   return Math.hypot(dx, dy);
-}
-
-/**
- * The box a text primitive actually inks.
- *
- * The draw list carries the string, its height and how it is anchored, which is
- * everything needed to say where the letters land — width from the longest
- * line, height from the line count, then the anchor's own offsets. A rotated
- * text is measured by its corners, so a note written along a batter is judged
- * by the paper it really covers rather than by an upright box that would be
- * both too wide and too short.
- */
-export function textBox(p: Extract<DrawPrim, { k: "text" }>): Box {
-  const lines = p.text.split("\n");
-  const w = textWidth(p.text, p.height);
-  const lineHeight = p.height * 1.35;
-  const h = p.height + (lines.length - 1) * lineHeight;
-  // Canvas text: y is the first baseline, and the draw list's y grows downward.
-  const left = p.align === "center" ? -w / 2 : p.align === "right" ? -w : 0;
-  const top = p.baseline === "top" ? 0 : p.baseline === "middle" ? -h / 2 : -h;
-  const corners: Point[] = [
-    { x: left, y: top },
-    { x: left + w, y: top },
-    { x: left + w, y: top + h },
-    { x: left, y: top + h },
-  ];
-  const a = (-(p.rotation ?? 0) * Math.PI) / 180;
-  const c = Math.cos(a);
-  const s = Math.sin(a);
-  return boxOf(corners.map((q) => ({ x: p.x + q.x * c - q.y * s, y: p.y + q.x * s + q.y * c })));
 }
 
 /**
