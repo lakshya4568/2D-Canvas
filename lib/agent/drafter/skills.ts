@@ -101,6 +101,12 @@ Dimension only after check_geometry, between points of the geometry: a clear spa
 ## 5. Annotation is presentation over correct geometry
 Level callouts on their lines (RL read from the height), flow direction, structural labels, material notes, standard/RDSO references where the brief gives them, section markers, hatching, existing/proposed notation, title. Texts that state a value use its placeholder ({Span}, {Span:m}).
 
+Then lay it out. A drawing whose labels sit on each other is not finished, however right the geometry is:
+- layout_annotations reads the sheet as it will plot — real text boxes, real dimension lines, real arrowheads — and moves what is in the way: a dimension line out by whole rows of the standard spacing (so the rows still line up), a level callout to the other side of its point, a note or a leader's shelf by a few text heights. It reports what it could not place.
+- It never moves the geometry, never changes what a dimension measures or where a leader points, and never shrinks the lettering: one text height, one dimension scale, one spacing, over the whole sheet. A label that cannot be placed needs shorter words, a leader instead of a note in the gap, or a different part of the drawing to describe — not smaller type.
+- Lines crossing lines is ordinary drafting (every dimension chain crosses its neighbour's extension lines). Words crossed by anything, words on words, and leaders crossing each other are not.
+- Run it after annotating, and again after any change to the annotation. finish runs it once more and refuses a drawing whose labels still overlap.
+
 ## 6. Learn the grammar, not the example
 Axes establish position. Levels establish vertical relationships. Clear openings define internal space. Thicknesses are offsets. Repeats come from a pattern. Wings relate to the structure and the alignment. The track relates to the railway centre line and sits on the formation, above the structure. Dimensions describe the finished geometry; annotation explains it.`;
 

@@ -51,6 +51,7 @@ import {
   solveRelationship,
   DERIVE_OPS,
 } from "./construction";
+import { annotationClashes, runLayoutPass } from "./layoutPass";
 import { decodePng, deviations, distanceMap, inkMask, refineRegistration, registrationFromPairs, samplePolyline, toImage, type Registration } from "./reference";
 import { renderOverlay } from "./render";
 import { annotationPrims } from "../../cad/annotationPrims";
@@ -359,6 +360,20 @@ export const CONSTRUCTION_TOOLS: FunctionDeclaration[] = [
     description:
       "Measure the constructed geometry exactly. a (and b): a point (Box.p3, Box.e2.mid, \"(x, y)\"), an edge (Box.e2: length, direction, slope H:V), an entity (Box: bbox, perimeter, area), a dimension id (its measured value) or an expression. With b: distance point–point (dx, dy), point–edge (perpendicular), edge–edge (angle, gap if parallel).",
     parameters: obj({ a: S("First reference or expression"), b: S("Second reference (optional)") }, ["a"]),
+  },
+  {
+    name: "layout_annotations",
+    description:
+      "The drawing cleanup pass: move annotations that sit on each other, on the geometry, or too close to be read — and report what is still in the way. " +
+      "It moves a dimension line out by whole rows of the standard spacing, writes a level callout on the other side of its point, or nudges a note or a leader's shelf a few text heights. It never moves the geometry, never moves what a dimension measures or where a leader's arrow points, and never shrinks the lettering to make something fit: one text height, one dimension scale, one spacing, everywhere. " +
+      "Run it after annotating, and again after any change to the annotation; finish runs it for you. `only` limits it to named annotations (a crowded corner); left out, it lays out the whole drawing.",
+    parameters: obj(
+      {
+        only: LIST("Annotation ids to place; all of them when left out"),
+        passes: N("How many relaxation rounds (default 3)"),
+      },
+      []
+    ),
   },
   {
     name: "check_geometry",
@@ -679,7 +694,7 @@ export const BASE_TOOLS: FunctionDeclaration[] = [
 ];
 
 const STAGE: Record<string, ToolStage> = {
-  plan: "meta", construct: "draw", transform: "draw", boolean: "draw", remove: "draw", measure: "observe", derive: "observe", solve: "observe", check_geometry: "observe", verify: "observe", compare_reference: "observe", zoom_reference: "observe",
+  plan: "meta", construct: "draw", transform: "draw", boolean: "draw", remove: "draw", measure: "observe", derive: "observe", solve: "observe", layout_annotations: "draw", check_geometry: "observe", verify: "observe", compare_reference: "observe", zoom_reference: "observe",
   look: "observe", view: "observe", check: "observe", flex_test: "observe", suggestions: "observe", calculate: "observe", research: "observe",
   draw_line: "draw", draw_polyline: "draw", draw_rectangle: "draw", draw_circle: "draw", chamfer: "draw", offset: "draw", trim: "draw",
   split: "draw", move: "draw", copy: "draw", mirror: "draw", rotate: "draw", delete: "draw", explode: "draw", rename: "draw",
@@ -1397,6 +1412,9 @@ async function dispatch(ctx: ToolContext, name: string, a: Args): Promise<Omit<T
     case "check_geometry":
       return { text: checkGeometry(ws).text };
 
+    case "layout_annotations":
+      return { text: runLayoutPass(ws, { only: Array.isArray(a.only) ? a.only.map(String) : undefined, passes: optNum(a, "passes") }) };
+
     case "construct":
       return { text: construct(ws, a) };
 
@@ -1826,7 +1844,28 @@ function finish(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "
 function finishConstruction(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" | "stage" | "mutated"> {
   const ws = ctx.ws;
   const problems: string[] = [];
+  // Last thing before the drawing is judged: tidy the annotation. A sheet is
+  // not finished while two labels sit on top of each other, and the agent
+  // should not have to remember to ask.
+  let cleanup = "";
+  try {
+    cleanup = runLayoutPass(ws);
+    // Moving a label changes where words sit, not where anything is. A
+    // comparison with the reference is about the geometry, so it still stands.
+    if (ctx.lastCompare) ctx.lastCompare = { ...ctx.lastCompare, revision: ws.revision };
+  } catch {
+    // Nothing annotated yet, or nothing to place: verify will say so.
+  }
   const report = verifyConstruction(ws);
+  // After the pass has had its turn, anything still overlapping is a drawing
+  // that cannot be read, and no drawing leaves the board like that.
+  const remaining = annotationClashes(ws);
+  const unreadable = remaining.clashes.filter((c) => c.kind !== "close");
+  if (unreadable.length) {
+    problems.push(
+      `${unreadable.length} annotation(s) still sit on something after the layout pass: ${remaining.text}. Move what they describe apart, say it with a leader, or shorten the words — never shrink the text.`
+    );
+  }
   if (!report.ok) problems.push(...report.problems);
   problems.push(...checkReport(ws).blockers.filter((b) => b !== "nothing drawn"));
   const explained = new Map<string, string>();
@@ -1845,7 +1884,9 @@ function finishConstruction(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" |
       }
     }
   }
-  if (problems.length) throw new ToolError(`Not finished — fix these first:\n${problems.map((p) => `  * ${p}`).join("\n")}`);
+  if (problems.length) {
+    throw new ToolError(`Not finished — fix these first:\n${problems.map((p) => `  * ${p}`).join("\n")}${cleanup ? `\n(Annotation layout pass: ${cleanup.split("\n")[0]})` : ""}`);
+  }
   ws.publish(str(a, "title"));
   if (!ws.cad.project.identity.drawingTitle || ws.cad.project.identity.drawingTitle === "General Arrangement Drawing") {
     ws.applyCad({ type: "CAD_SET_PROJECT", project: { ...ws.cad.project, identity: { ...ws.cad.project.identity, drawingTitle: str(a, "title") } } });
@@ -1861,7 +1902,7 @@ function finishConstruction(ctx: ToolContext, a: Args): Omit<ToolOutcome, "ok" |
   const derived = plan.values.filter((v) => !typed.includes(v.name)).map((v) => v.name);
   const driving = (currentDefinition(ws)?.dimensions ?? []).filter((d) => d.drives).map((d) => `${d.id}→${d.drives}`);
   return {
-    text: `Finished "${ws.title}" — constructed from scratch and verified.${cmp && ctx.hasReference ? ` Against the reference: ${Math.round(cmp.onShare * 100)}% of the linework lies on its lines${cmp.off.length ? `; kept off it, with reasons: ${cmp.off.map((o) => `${o.id} (${explained.get(o.id)})`).join("; ")}` : ""}.` : ""}${plan.expect.disputed.length ? ` Reported as contradictions on the reference: ${plan.expect.disputed.map((d) => `${d.what} (${d.reason})`).join("; ")}.` : ""} Run Mode shows the values you read (${typed.slice(0, 20).join(", ")}${typed.length > 20 ? "…" : ""}); ${derived.length} worked-out values follow them${plan.constraints.length ? `; ${plan.constraints.length} constraint(s) guard every edit` : ""}. Dimensions that drive a value when edited: ${driving.join(", ") || "none"}. Each value regenerates the drawing cleanly ±5% (verify).${provenance}\nAudit at finish: ${runAuditFor(ws)}`,
+    text: `Finished "${ws.title}" — constructed from scratch and verified.${cleanup ? ` ${cleanup.split("\n")[0]}` : ""}${cmp && ctx.hasReference ? ` Against the reference: ${Math.round(cmp.onShare * 100)}% of the linework lies on its lines${cmp.off.length ? `; kept off it, with reasons: ${cmp.off.map((o) => `${o.id} (${explained.get(o.id)})`).join("; ")}` : ""}.` : ""}${plan.expect.disputed.length ? ` Reported as contradictions on the reference: ${plan.expect.disputed.map((d) => `${d.what} (${d.reason})`).join("; ")}.` : ""} Run Mode shows the values you read (${typed.slice(0, 20).join(", ")}${typed.length > 20 ? "…" : ""}); ${derived.length} worked-out values follow them${plan.constraints.length ? `; ${plan.constraints.length} constraint(s) guard every edit` : ""}. Dimensions that drive a value when edited: ${driving.join(", ") || "none"}. Each value regenerates the drawing cleanly ±5% (verify).${provenance}\nAudit at finish: ${runAuditFor(ws)}`,
     finished: true,
   };
 }

@@ -55,6 +55,7 @@ import * as Rel from "../../geometry/relations";
 import { isolate, namesIn, parseEquation, solveNumeric, solveSystem, value } from "../../geometry/symbolicAlgebra";
 import { ILLEGIBLE_TEXT_FRACTION, readableAnnotationScale } from "../../cad/sheet";
 import { humanName, valueLabel } from "../../components/labels";
+import { annotationClashes } from "./layoutPass";
 
 type Args = Record<string, unknown>;
 
@@ -2517,8 +2518,19 @@ export function verifyConstruction(ws: DraftingWorkspace): VerifyReport {
       );
     }
   }
-  const overlaps = textOverlaps(ws);
-  if (overlaps.length) notes.push(`Texts overlapping each other (hard to read): ${overlaps.slice(0, 8).join("; ")}.`);
+  // Annotation layout: what a reader would trip over. Text sitting on text or
+  // on the geometry is unreadable and is a problem; merely tight spacing is
+  // reported so the draftsman can judge it.
+  // Annotation layout: what a reader would trip over. It is reported here and
+  // settled at the finishing gate, where the cleanup pass has run — a label in
+  // the wrong place is a fault of the drawing, not of the model behind it, and
+  // it must not be confused with one.
+  const clash = annotationClashes(ws);
+  const unreadable = clash.clashes.filter((c) => c.kind !== "close");
+  if (clash.clashes.length) {
+    notes.push(`Annotation layout: ${clash.text}. Run layout_annotations to place them (finish runs it too).`);
+  }
+  out.push(`Annotation layout: ${unreadable.length ? `${unreadable.length} overlapping or crossing — run layout_annotations` : "nothing overlapping"}.`);
 
   // A number that follows from others must be a formula, not a second copy.
   const dup = duplicatedNumbers(plan, tol);
@@ -2685,38 +2697,6 @@ export function frozenNumbers(def: ComponentDefinition, plan: ConstructionPlan):
       const asM = /\.\d{3}$/.test(m[1]) ? typed.filter((v) => (v.unit === "m" ? Number(v.expr) === n : Number(v.expr) / 1000 === n)) : [];
       const hits = [...new Set([...asMm, ...asM])];
       if (hits.length === 1) out.push(`${t.id} "${m[1]}" is ${hits[0].name} → {${hits[0].name}${asM.includes(hits[0]) && hits[0].unit === "mm" ? ":m" : ""}}`);
-    }
-  }
-  return out;
-}
-
-/** Pairs of the construction's texts whose boxes overlap on the sheet. */
-function textOverlaps(ws: DraftingWorkspace): string[] {
-  const inst = ws.construction.instanceId;
-  if (!inst) return [];
-  const ctx = { shapes: indexShapes(ws.allShapes()), settings: ws.cad.settings };
-  const boxes: { id: string; text: string; x0: number; y0: number; x1: number; y1: number }[] = [];
-  for (const ann of ws.cad.annotations) {
-    if (ann.componentInstanceId !== inst) continue;
-    for (const p of annotationPrims(ann, ctx)) {
-      if (p.k !== "text" || Math.abs(p.rotation) > 1) continue;
-      const lines = p.text.split("\n").length;
-      const w = textWidth(p.text, p.height);
-      const h = p.height * (1 + (lines - 1) * 1.3);
-      const x0 = p.align === "center" ? p.x - w / 2 : p.align === "right" ? p.x - w : p.x;
-      const y0 = p.baseline === "top" ? p.y : p.baseline === "middle" ? p.y - h / 2 : p.y - h;
-      boxes.push({ id: ann.id.split(":").pop() ?? ann.id, text: p.text.split("\n")[0].slice(0, 24), x0, y0, x1: x0 + w, y1: y0 + h });
-    }
-  }
-  const out: string[] = [];
-  for (let i = 0; i < boxes.length; i++) {
-    for (let j = i + 1; j < boxes.length; j++) {
-      const a = boxes[i];
-      const b = boxes[j];
-      if (a.id === b.id) continue;
-      const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
-      const oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
-      if (ox > 0 && oy > 0 && ox * oy > 0.25 * Math.min((a.x1 - a.x0) * (a.y1 - a.y0), (b.x1 - b.x0) * (b.y1 - b.y0))) out.push(`"${a.text}" and "${b.text}"`);
     }
   }
   return out;

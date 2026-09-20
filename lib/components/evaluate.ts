@@ -622,6 +622,18 @@ function pt(xy: XY, scope: Scope, frame: Frame): Point {
   return applyFrame(frame, evalExpr(xy[0], scope), evalExpr(xy[1], scope));
 }
 
+/**
+ * The same, moved by the annotation layout pass's correction.
+ *
+ * The shift is in the component's own frame, like every other local
+ * coordinate, so a placed drawing carries its labels round with it when the
+ * component is rotated or mirrored.
+ */
+function ptShifted(xy: XY, scope: Scope, frame: Frame, shift?: [number, number]): Point {
+  if (!shift) return pt(xy, scope, frame);
+  return applyFrame(frame, evalExpr(xy[0], scope) + shift[0], evalExpr(xy[1], scope) + shift[1]);
+}
+
 /** Drops consecutive duplicates (within 1 µm) so zero-size features vanish cleanly. */
 function dedupe(points: Point[], closed: boolean): Point[] {
   const out: Point[] = [];
@@ -885,7 +897,7 @@ function evaluateInto(
         const fy = evalExpr(d.from[1], s);
         const tx = evalExpr(d.to[0], s);
         const ty = evalExpr(d.to[1], s);
-        const off = evalExpr(d.offset, s);
+        const off = evalExpr(d.offset, s) + (d.layout?.offset ?? 0);
         let lx: number;
         let ly: number;
         if (d.kind === "horizontal") {
@@ -925,7 +937,7 @@ function evaluateInto(
     for (const { scope: s, strings, suffix } of expand(l.repeat, root, tables, out.issues, path, `level ${l.id}`)) {
       try {
         if (!enabled(l.when, s)) continue;
-        const side = l.side ?? "right";
+        const side = l.layout?.side ?? l.side ?? "right";
         out.levels.push({
           path: joinPath(path, l.id + suffix),
           at: pt(l.at, s, frame),
@@ -958,7 +970,7 @@ function evaluateInto(
         }
         out.texts.push({
           path: joinPath(path, t.id + suffix),
-          at: pt(t.at, s, frame),
+          at: ptShifted(t.at, s, frame, t.layout?.shift),
           text: interpolate(markUnresolved(t.text, tbc), s, strings, labels),
           height: t.height,
           align: t.align ?? "center",
@@ -977,7 +989,10 @@ function evaluateInto(
     for (const { scope: s, strings, suffix } of expand(l.repeat, root, tables, out.issues, path, `leader ${l.id}`)) {
       try {
         if (!enabled(l.when, s)) continue;
-        const pts = dedupe(l.points.map((xy) => pt(xy, s, frame)), false);
+        const pts = dedupe(
+          l.points.map((xy, i) => (i === 0 ? pt(xy, s, frame) : ptShifted(xy, s, frame, l.layout?.shift))),
+          false
+        );
         if (pts.length < 2) continue;
         out.leaders.push({
           path: joinPath(path, l.id + suffix),

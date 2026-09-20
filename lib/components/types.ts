@@ -193,6 +193,30 @@ export interface AnchorDef {
   repeat?: RepeatSpec;
 }
 
+/**
+ * Where an annotation is PLACED, as against what it says.
+ *
+ * The layout pass owns this and nothing else: it may nudge a note, push a
+ * dimension line out a row, or send a level callout to the other side, and it
+ * may never touch what the annotation measures or points at. Keeping the
+ * correction in its own field leaves the author's expression in charge of the
+ * base placement (a dimension offset written as `-HalfWidth - 500` still
+ * follows the structure), makes a second layout pass replace the first instead
+ * of piling on top of it, and makes every move visible for what it is.
+ *
+ * Units are the component's own millimetres, in its own frame.
+ */
+export interface AnnotationLayout {
+  /** Added to the annotation's position (text, leader shelf). */
+  shift?: [number, number];
+  /** Added to a dimension line's offset — a sign change moves it to the other side. */
+  offset?: number;
+  /** Overrides which side of the point a level callout is written on. */
+  side?: "left" | "right";
+  /** Why it was moved, for the person reading the drawing's history. */
+  reason?: string;
+}
+
 export interface DimensionDef {
   id: string;
   kind: "horizontal" | "vertical" | "aligned" | "radius" | "diameter";
@@ -215,6 +239,8 @@ export interface DimensionDef {
   drives?: string;
   repeat?: RepeatSpec;
   when?: Expr;
+  /** Presentation only: set by the annotation layout pass. */
+  layout?: AnnotationLayout;
 }
 
 export interface LevelDef {
@@ -233,6 +259,8 @@ export interface LevelDef {
   layer?: LayerCategory;
   repeat?: RepeatSpec;
   when?: Expr;
+  /** Presentation only: set by the annotation layout pass. */
+  layout?: AnnotationLayout;
 }
 
 export interface HatchDef {
@@ -275,6 +303,8 @@ export interface TextDef {
   repeat?: RepeatSpec;
   when?: Expr;
   layer?: LayerCategory;
+  /** Presentation only: set by the annotation layout pass. */
+  layout?: AnnotationLayout;
 }
 
 /** A callout: arrow at the first point, elbows, text at (or on) the last segment. */
@@ -290,6 +320,8 @@ export interface LeaderDef {
   layer?: LayerCategory;
   repeat?: RepeatSpec;
   when?: Expr;
+  /** Presentation only: set by the annotation layout pass (the tip never moves). */
+  layout?: AnnotationLayout;
 }
 
 export type InvariantOp = ">" | ">=" | "<" | "<=";
