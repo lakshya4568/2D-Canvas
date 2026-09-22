@@ -1380,7 +1380,54 @@ model that could have been shown the picture. Its default is now the summary
 (counts, layers, ids), which is what the *next call* needs; the full listing is
 there when exact coordinates are genuinely wanted.
 
-### 21A.6 The division of labour
+### 21A.6 Why the drafter under-performed, before this
+
+Root cause, in the order the failures compound:
+
+| # | Cause | What it looked like from outside |
+| :-- | :-- | :-- |
+| 1 | **The reference arrived once, whole.** At a model's image budget a GAD's 2.5 mm dimensions are three pixels high. | The model could see a dimension was there and not read it, so it invented one. Runs named a cell 10700 × 4100 on a drawing that says 2180 × 2870. |
+| 2 | **No way to magnify the reference.** There was no `zoom_reference`. | Nothing could resolve a guess, so the guess propagated into the plan and the construction. |
+| 3 | **No way to compare.** There was no `compare_reference`. | A run could build a third of the sheet and finish, and nothing in it could notice. |
+| 4 | **`look` defaulted to every entity with its coordinates.** | Four hundred lines per observation to a model that could have been shown the picture; the context filled with a transcription of a drawing it was never shown. |
+| 5 | **No higher-level construction tools.** No `array`, `join`, `explode`, `stretch`, `polygon`, `hatch`, `leader`. | Sixty-eight `line` calls on a symmetric half-section. |
+| 6 | **A prompt naming tools that did not exist** (§21.1). | Turns spent discovering that and rephrasing. |
+
+None of these is "the model is not good enough". The same model, given the
+same drawing with tiles, read the title and the cell sizes correctly on its
+first turn.
+
+### 21A.7 Measured, on the reference GAD
+
+Same drawing (`1726 × 798`), same sidecar. The first column is Gemini 3.8 Flash
+at medium reasoning without tiles; the second and third are **Gemini 3.5 Flash
+Lite**, the model that was previously producing nothing usable.
+
+| | Before | With tiles | With tiles + compare gate |
+| :-- | --: | --: | --: |
+| Reached `finish` | yes | yes | see §32.1 |
+| Turns | 30 | **24** | |
+| Tool calls | 116 | **62** | |
+| Runtime | 8 min 23 s | **3 min 0 s** | |
+| Tokens | 1,303,610 | **956,633** | |
+| `line` calls | 40 | **3** | |
+| `polyline` / `rectangle` / `construction_line` | 2 / 5 / 1 | **3 / 6 / 10** | |
+| Local frames | 1 | 1 | |
+| Cell size it worked to | 10700 × 4100 *(invented)* | **2180 × 2870** *(read off the drawing)* | |
+| `zoom_reference` | — | 0 | |
+| `compare_reference` | — | 0 | |
+
+The row that matters is the second to last. Every earlier run, on every model,
+worked to a cell size that is not on the drawing. The first run with reading
+tiles named the structure *"2 × 2.180 × 2.870 m RCC Double Box"* and carried
+2180 × 2870 through its parameters. Nothing else about the run changed.
+
+The two zeroes under it are why the comparison gate exists (§25.3): the run
+read the drawing correctly, built a third of it, and finished — because
+reading a reference and building the thing it shows are not the same act, and
+nothing was measuring one against the other.
+
+### 21A.8 The division of labour
 
 ```text
 VISION / MODEL                        DETERMINISTIC ENGINE
