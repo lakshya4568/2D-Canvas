@@ -1275,6 +1275,131 @@ This exists because a real run finished by reporting the model "fully constraine
 
 ---
 
+## 21A. Agent Perception — How the Drafter Sees
+
+This section exists because the two hosts' drafters were given the same method
+and very different senses, and the difference accounted for most of the quality
+gap between them. It is the answer to "why does the same model, on the same
+drawing, do so much better over there?"
+
+### 21A.1 The three ways of seeing, and what each is for
+
+| | What it shows | What it is for | Cost |
+| :-- | :-- | :-- | :-- |
+| **Reading tiles** | the reference, whole and cut into six overlapping magnified tiles | reading every written number BEFORE planning | one turn's tokens, cached thereafter |
+| **`zoom_reference`** | any region of the reference, up to 4×, six at a time | a callout that is still unclear; which band an arrow points into; solid or dashed | one call |
+| **`view`** | the drawing the agent has built, through the real renderer | checking proportions, seeing what it actually drew | one call |
+| **`compare_reference`** | the construction laid OVER the reference, registered | measuring how far each line is from where it should be | one call |
+| **`look`** | the drawing as text: counts, layers, ids | naming an entity for the next call | small, by default |
+
+The reference and the drawing are **different things**, and the tools keep them
+apart. Mixing them into one observation is how an agent ends up unsure which it
+is looking at.
+
+### 21A.2 Why turn-one tiles are decisive
+
+A GAD is a wide sheet of small text. Scaled to fit a model's image budget, its
+2.5 mm dimensions are about three pixels high: the model can see that a
+dimension is *there* and cannot read what it *says*.
+
+What follows from that is the whole failure mode. It guesses a number, plans
+around the guess, builds around the plan, and every later observation is spent
+discovering that something does not fit — which reads, from outside, as an agent
+burning a hundred tool calls and producing very little.
+
+So the reference arrives **twice** in the first message: whole, and cut into six
+overlapping tiles magnified to the image budget, with a text index giving each
+tile's position in thousandths of the original. On the reference GAD
+(1726 × 798) that is 1.7×–1.9× per tile, and at that magnification
+`400 · 2180 · 350 · 2180 · 400`, `2720`, `2870`, `HFL 57.668`, `BED LEVEL
+56.538`, `700 mm. SAND FILLING` and `SCALE 1:100` are all unambiguous.
+
+The 8% overlap is not decoration: a dimension that falls on a tile boundary
+would otherwise be cut in half and unreadable in both.
+
+### 21A.3 Comparison is measured, not eyeballed
+
+Asking a multimodal model to compare two pictures is asking it to do the thing
+it is worst at. It will not notice a slab 5% too thick, or a wall drawn on the
+wrong face of a line.
+
+`compare_reference` does what a checker with tracing paper does, and does it
+deterministically:
+
+```text
+1  the reference's INK is marked — anything that is not paper
+2  a chamfer DISTANCE MAP gives, for every pixel, how far the nearest ink is
+3  the agent pins its drawing to the image with TWO points it recognises on
+   both (a corner of the structure, the foot of the centre line)
+4  the fit is REFINED by sliding and scaling until the drawing's lines sit on
+   the reference's ink — pattern search on the mean capped distance
+5  every constructed entity is SAMPLED along its length and scored: what share
+   lies on a reference line, and how far the rest strays, in MILLIMETRES
+```
+
+Short gaps between "on" samples are bridged, so a dash-dot reference line is not
+read as a missing one. The distance is capped, so a line the reference simply
+does not have cannot drag the fit towards itself — which means a reported
+deviation at the cap means "off the map", not an exact distance.
+
+The overlay returned with it shows the reference faded to a tracing, the
+construction in blue, and a red dot wherever a line leaves it — and it can be
+returned magnified around one entity's worst point, so a deviation can actually
+be looked at.
+
+### 21A.4 What is shared between the hosts, and what is not
+
+The arithmetic is the kernel's and is used unchanged: `inkMask`,
+`distanceMap`, `registrationFromPairs`, `refineRegistration`, `deviations`,
+`samplePolyline`, `toImage` (`lib/agent/drafter/reference.ts`).
+
+Only the **pixels** are host-specific. The kernel's versions carry their own PNG
+codec and a software rasteriser with a 5×7 bitmap font, because they were
+written for a Node server with no canvas. A browser has a canvas, which decodes,
+crops, resamples and encodes natively, faster and with better resampling than
+any hand-written raster loop — so `AgentVisionService` does the imaging and
+`node:zlib` gets a shim that **throws with the reason** rather than returning
+empty buffers. A reference that silently decodes to nothing would look like a
+blank drawing, which is a far worse failure than a refusal naming the tool to
+use instead.
+
+### 21A.5 Observation is layered
+
+```text
+LEVEL 1  GLOBAL   the whole reference, and `view` of the whole drawing
+                  → composition, what the structure is, where the views are
+LEVEL 2  REGION   tiles, `zoom_reference`, `zoom` + `view` on a region
+                  → a wingwall, a corner, a callout, a repeated feature
+LEVEL 3  EXACT    `look detail:"all"`, `measure`, `geometry_query`
+                  → coordinates, spans, constraint and parameter state
+```
+
+The failure this replaces was going straight to level 3 for everything.
+`look`'s default was every entity with its coordinates — four hundred lines to a
+model that could have been shown the picture. Its default is now the summary
+(counts, layers, ids), which is what the *next call* needs; the full listing is
+there when exact coordinates are genuinely wanted.
+
+### 21A.6 The division of labour
+
+```text
+VISION / MODEL                        DETERMINISTIC ENGINE
+understand the picture                exact coordinates
+identify the components               intersections, offsets, transforms
+decide what needs building            constraints and parameters
+recognise a difference                regeneration and topology
+choose which tool                     validation
+choose what to inspect next           the measured deviation itself
+```
+
+The model is never asked to compute a coordinate, and the engine is never asked
+to interpret a picture. `compare_reference` sits exactly on that line: the model
+supplies two points it *recognises*, and the engine does the registration, the
+sampling and the scoring.
+
+
+---
+
 ## 22. Agent Tool Architecture
 
 ### 22.1 Two kinds of call, one dispatcher
